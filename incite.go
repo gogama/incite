@@ -502,7 +502,7 @@ type stream struct {
 	next    time.Time          // Next chunk start time
 	blocks  [][]Result
 	rem     int           // Number of chunks remaining
-	i, j    int           // Block index and position within wait
+	i, j    int           // Block index and position within block
 	wait    chan struct{} // Used to block a Read pending more blocks
 	waiting bool          // True if and only if the stream is blocked on wait
 	err     error         // Error to return, if any
