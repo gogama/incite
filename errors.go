@@ -21,3 +21,7 @@ func (w *wrappedErr) Error() string {
 func (w *wrappedErr) Unwrap() error {
 	return w.cause
 }
+
+const (
+	nilStreamMsg = "incite: nil stream"
+)

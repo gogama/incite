@@ -4,6 +4,7 @@ import (
 	"container/ring"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"sync"
@@ -25,13 +26,16 @@ type Config struct {
 }
 
 type Query struct {
-	Text    string
-	Start   time.Time
-	End     time.Time
-	Chunk   time.Duration
-	Preview bool
+	Text  string
+	Start time.Time
+	End   time.Time
+
+	// TODO: Allow Chunk to be zero (no chunks), but Query() validation step needs
+	//       to correct it, in that case, to be the size of the
+	Chunk    time.Duration
+	Preview  bool
 	Priority int
-	Hint    uint16 // Expected result count, used to optimize memory allocation.
+	Hint     uint16 // Expected result count, used to optimize memory allocation.
 }
 
 type QueryManager interface {
@@ -54,10 +58,6 @@ type Stream interface {
 	Read([]Result) (int, error)
 }
 
-func ReadAll(s Stream) (int, error) {
-	// foo
-}
-
 type mgr struct {
 	Config
 
@@ -65,7 +65,7 @@ type mgr struct {
 	lastReq time.Time // Used to stay under TPS limit
 	ding    bool
 
-	chunks ring.Ring // Circular list of chunks, first item is a sentry
+	chunks    ring.Ring // Circular list of chunks, first item is a sentry
 	numChunks int
 
 	lock    sync.RWMutex
@@ -150,7 +150,7 @@ func (m *mgr) setTimer(d time.Duration) bool {
 		return true
 	}
 
-	m.timer.Reset(1<<63 -1)
+	m.timer.Reset(1<<63 - 1)
 	return false
 }
 
@@ -160,27 +160,40 @@ func (m *mgr) setTimerRPS() bool {
 	return m.timer.Reset(minDelay - delaySoFar)
 }
 
-func (m *mgr) startNextChunks() (stopping bool) {
-	started, stopping := m.startNextChunk()
-	for started && !stopping {
-		started, stopping = m.startNextChunk()
-	}
-	return stopping
-}
-
-func (m *mgr) startNextChunk() (started bool, stopping bool) {
+func (m *mgr) startNextChunks() int {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	if !m.canStartChunk() {
-		return
+	var numStarted int
+	for len(m.pq) > 0 && m.chunks.Len() <= m.Parallel {
+		break
+
+		err := m.startNextChunk()
+		if err == errClosing {
+			return -1
+		}
+
+		numStarted++
 	}
+
+	return numStarted
 }
 
-func (m *mgr) canStartChunk() bool {
-	m.lock.RLock()
-	defer m.lock.RUnlock()
-	return len(m.pq) > 0 && m.chunks.Len() <= m.Parallel
+func (m *mgr) startNextChunk() error {
+
+	// TODO: Take the highest priority stream from the front of the queue.
+	// TODO: Wait until we can start the next chunk using the RPS timer (if we
+	//       get closed in the process of waiting then return -1).
+	// TODO: Start the chunk.
+	// TODO: If we got throttled due to too many open queries, (or regular
+	//       throttling) just log that and put the stream back into the PQ.
+	// TODO: If we got another type of more fatally error, log it, wrap the
+	//       error and put it on the stream, and DO NOT replace the stream in
+	//       the PQ (it is now dead).
+	// TODO: If it was success, create the chunk and put the chunk into the
+	//       chunk polling ring.
+
+	return nil
 }
 
 func (m *mgr) pollNextChunk() int {
@@ -241,20 +254,24 @@ func (m *mgr) pollChunk(c *chunk) error {
 	}
 	output, err := m.Caps.GetQueryResultsWithContext(c.ctx, &input)
 	if err != nil {
-		return wrap(err, "incite: failed to poll query chunk %q", c.id)
+		return wrap(err, "incite: query chunk %q: failed to poll", c.id)
 	}
 
 	status := output.Status
 	if status == nil {
-		return TODO_MAKE_SUPERBAD_ERROR
+		return fmt.Errorf("incite: query chunk %q: nil status in GetQueryResults output from CloudWatch Logs", c.id)
 	}
 
 	c.status = *status
 	switch c.status {
+	case cloudwatchlogs.QueryStatusComplete:
+		return sendChunkBlock(c, output.Results, true)
+	case cloudwatchlogs.QueryStatusRunning:
+		return sendChunkBlock(c, output.Results, false)
 	case cloudwatchlogs.QueryStatusCancelled, cloudwatchlogs.QueryStatusFailed, "Timeout":
-		return TODO_MAKE_SUPERBAD_ERROR
-	case cloudwatchlogs.QueryStatusComplete, cloudwatchlogs.QueryStatusRunning:
-		return sendChunkBlock(c, output.Results)
+		return fmt.Errorf("incite: query chunk %q: unexpected terminal status: %s", c.id, c.status)
+	default:
+		return fmt.Errorf("incite: query chunk %q: unhandled status: %s", c.id, c.status)
 	}
 }
 
@@ -280,7 +297,7 @@ func (m *mgr) waitForWork() int {
 	if m.numChunks == 0 && len(m.pq) == 0 {
 		m.setTimer(0)
 	} else if !m.setTimerRPS() {
-		m.setTimer(time.Duration(m.RPS)/time.Second)
+		m.setTimer(time.Duration(m.RPS) / time.Second)
 	}
 
 	select {
@@ -293,17 +310,17 @@ func (m *mgr) waitForWork() int {
 	}
 }
 
-func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField) error {
+func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, done bool) error {
 	var block []Result
 	var err error
 
-	if c.ptr == nil {
-		block, err = translateResultsFull(results)
-	} else {
+	if c.ptr != nil {
 		block, err = translateResultsPart(c, results)
+	} else if !done {
+		block, err = translateResultsFull(c.id, results)
 	}
 
-	if c.status != cloudwatchlogs.QueryStatusComplete && len(block) == 0 && err != nil {
+	if !done && len(block) == 0 && err != nil {
 		return nil
 	}
 
@@ -329,11 +346,11 @@ func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField) error {
 	return err
 }
 
-func translateResultsFull(results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
+func translateResultsFull(id string, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
 	var err error
 	block := make([]Result, len(results))
 	for i, r := range results {
-		block[i], err = translateResult(r)
+		block[i], err = translateResult(id, r)
 	}
 	return block, err
 }
@@ -349,7 +366,7 @@ func translateResultsPart(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]
 		for _, f := range r {
 			k, v := f.Field, f.Value
 			if k == nil {
-				return block, // TODO: return error
+				return nil, errNoKey(c.id)
 			}
 			if *k != "@ptr" {
 				continue
@@ -358,10 +375,10 @@ func translateResultsPart(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]
 			break
 		}
 		if ptr == nil {
-			return block, // TODO: return error
+			return nil, errNoPtr(c.id)
 		}
 		if !c.ptr[*ptr] {
-			rr, err := translateResultPtr(r, *ptr)
+			rr, err := translateResultPtr(c.id, r, *ptr)
 			if err != nil {
 				return nil, err
 			}
@@ -369,19 +386,20 @@ func translateResultsPart(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]
 			c.ptr[*ptr] = true
 		}
 	}
+	return block, nil
 }
 
-func translateResult(r []*cloudwatchlogs.ResultField) (Result, error) {
+func translateResult(id string, r []*cloudwatchlogs.ResultField) (Result, error) {
 	rr := Result{
 		Fields: make([]ResultField, len(r)),
 	}
 	for i, f := range r {
 		k, v := f.Field, f.Value
 		if k == nil {
-			// TODO: return error
+			return Result{}, errNoKey(id)
 		}
 		if v == nil {
-			// TODO: return error
+			return Result{}, errNoValue(id, *k)
 		}
 		if rr.Ptr == "" && *k == "@ptr" {
 			rr.Ptr = *k
@@ -391,10 +409,13 @@ func translateResult(r []*cloudwatchlogs.ResultField) (Result, error) {
 			Value: *v,
 		}
 	}
+	if rr.Ptr == "" {
+		return Result{}, errNoPtr(id)
+	}
 	return rr, nil
 }
 
-func translateResultPtr(r []*cloudwatchlogs.ResultField, ptr string) (Result, error) {
+func translateResultPtr(id string, r []*cloudwatchlogs.ResultField, ptr string) (Result, error) {
 	rr := Result{
 		Ptr:    ptr,
 		Fields: make([]ResultField, len(r)),
@@ -402,10 +423,10 @@ func translateResultPtr(r []*cloudwatchlogs.ResultField, ptr string) (Result, er
 	for i, f := range r {
 		k, v := f.Field, f.Value
 		if k == nil {
-			// TODO: return error
+			return Result{}, errNoKey(id)
 		}
 		if v == nil {
-			// TODO: return error
+			return Result{}, errNoValue(id, *k)
 		}
 		rr.Fields[i] = ResultField{
 			Field: *k,
@@ -413,6 +434,18 @@ func translateResultPtr(r []*cloudwatchlogs.ResultField, ptr string) (Result, er
 		}
 	}
 	return rr, nil
+}
+
+func errNoPtr(id string) error {
+	return fmt.Errorf("incite: query chunk %q: no @ptr in result", id)
+}
+
+func errNoKey(id string) error {
+	return fmt.Errorf("incite: query chunk %q: foo", id)
+}
+
+func errNoValue(id, key string) error {
+	return fmt.Errorf("incite: query chunk %q: no value for key %q", id, key)
 }
 
 func (m *mgr) Query(q Query) (Stream, error) {
@@ -423,17 +456,25 @@ func (m *mgr) Query(q Query) (Stream, error) {
 		return nil, ErrClosed
 	}
 
-	// TODO: validate.
+	// TODO: validate and fixup.
+	// TODO: part of validation must be to prevent End <= Start or Chunk <= 0.
+
 	ctx, cancel := context.WithCancel(context.Background())
+	d := q.End.Sub(q.Start)
+	rem := d / q.Chunk
+	if d%rem != 0 {
+		rem++
+	}
 	s := &stream{
-		Query: q,
-		ctx: ctx,
+		Query:  q,
+		ctx:    ctx,
 		cancel: cancel,
-		next: something,
-		rem: somthing else,
+		next:   q.Start,
+		rem:    int64(rem),
 	}
 
 	m.pq.Push(s)
+	// FIXME: This should get a Read lock on m.lock to correctly follow Go memory model: https://golang.org/ref/mem
 	if m.waiting {
 		m.waiting = false
 		m.query <- struct{}{}
@@ -476,7 +517,9 @@ func (h streamHeap) Less(i, j int) bool {
 	} else if h[j].Priority < h[i].Priority {
 		return false
 	} else {
-		// TODO: Give priority to a stream which has received less Query duration.
+		di := h[i].next.Sub(h[i].Start)
+		dj := h[j].next.Sub(h[j].Start)
+		return di < dj
 	}
 }
 
@@ -501,7 +544,7 @@ type stream struct {
 	lock    sync.RWMutex       // mgr uses read lock to priority sort the streams
 	next    time.Time          // Next chunk start time
 	blocks  [][]Result
-	rem     int           // Number of chunks remaining
+	rem     int64         // Number of chunks remaining
 	i, j    int           // Block index and position within block
 	wait    chan struct{} // Used to block a Read pending more blocks
 	waiting bool          // True if and only if the stream is blocked on wait
