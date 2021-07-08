@@ -25,22 +25,17 @@ type Config struct {
 	Logger   log.Logger
 }
 
-type Query struct {
+type QuerySpec struct {
 	Text  string
 	Start time.Time
 	End   time.Time
 
-	// TODO: Allow Chunk to be zero (no chunks), but Query() validation step needs
+	// TODO: Allow Chunk to be zero (no chunks), but QuerySpec() validation step needs
 	//       to correct it, in that case, to be the size of the
 	Chunk    time.Duration
 	Preview  bool
 	Priority int
 	Hint     uint16 // Expected result count, used to optimize memory allocation.
-}
-
-type QueryManager interface {
-	io.Closer
-	Query(q Query) (Stream, error)
 }
 
 type ResultField struct {
@@ -53,13 +48,70 @@ type Result struct {
 	Fields []ResultField
 }
 
+type Queryer interface {
+	Query(q QuerySpec) (Stream, error)
+}
+
+// Query is sweet sweet sugar to perform a synchronous CloudWatch Logs Insights
+// query and get back all the results without needing to construct a
+// QueryManager.
+//
+// This function is intended for quick prototyping and simple scripting and
+// command-line interface use cases. More complex applications, especially
+// applications running concurrent queries against the same region from multiple
+// goroutines, should construct and configure a QueryManager explicitly.
+//
+// The input query may be either a QuerySpec or a bare string containing the text
+// of an Insights query. If the query is a bare string, then it is treated like
+// a zero-value QuerySpec which has had its Text member set to the string.
+func Query(caps CloudWatchLogsCaps, q interface{}) ([]Result, error) {
+	m := NewQueryManager(Config{
+		Caps: caps,
+	})
+	var qs QuerySpec
+	switch q2 := q.(type) {
+	case QuerySpec:
+		qs = q2
+	case string:
+		qs.Text = q2
+	default:
+		return nil, fmt.Errorf("incite: invalid query type: must be string or QuerySpec")
+	}
+	s, err := m.Query(qs)
+	if err != nil {
+		return nil, err
+	}
+	return ReadAll(s)
+}
+
+type Stats struct {
+	BytesScanned   float64
+	RecordsMatched float64
+	RecordsScanned float64
+}
+
+type StatsGetter interface {
+	GetStats() Stats
+}
+
+type QueryManager interface {
+	io.Closer
+	Queryer
+	StatsGetter
+}
+
 type Stream interface {
 	io.Closer
+	Reader
+}
+
+type Reader interface {
 	Read([]Result) (int, error)
 }
 
 type mgr struct {
 	Config
+	Stats // TODO: Put in plumbing to update this.
 
 	timer   *time.Timer
 	lastReq time.Time // Used to stay under TPS limit
@@ -68,7 +120,7 @@ type mgr struct {
 	chunks    ring.Ring // Circular list of chunks, first item is a sentry
 	numChunks int
 
-	lock    sync.RWMutex
+	lock    sync.RWMutex // TODO: Is anyone using the read capability of this lock?
 	pq      streamHeap
 	close   chan struct{}
 	closed  bool
@@ -120,6 +172,9 @@ func (m *mgr) loop() {
 }
 
 func (m *mgr) shutdown() {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
 	// Close all open streams.
 	for _, s := range m.pq {
 		s.setErr(ErrManagerClosed, true)
@@ -139,6 +194,7 @@ func (m *mgr) shutdown() {
 }
 
 func (m *mgr) setTimer(d time.Duration) bool {
+	// TODO: FIXME: Are they holding the lock here? Yes or no.
 	if !m.ding && !m.timer.Stop() {
 		<-m.timer.C
 	} else {
@@ -155,6 +211,7 @@ func (m *mgr) setTimer(d time.Duration) bool {
 }
 
 func (m *mgr) setTimerRPS() bool {
+	// TODO: FIXME: Are they holding the lock here? Yes or no.
 	minDelay := time.Duration(m.RPS) / time.Second
 	delaySoFar := time.Now().Sub(m.lastReq)
 	return m.timer.Reset(minDelay - delaySoFar)
@@ -197,6 +254,9 @@ func (m *mgr) startNextChunk() error {
 }
 
 func (m *mgr) pollNextChunk() int {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
 	for m.numChunks > 0 {
 		c := m.chunks.Next().Value.(*chunk)
 
@@ -238,6 +298,8 @@ func (m *mgr) pollNextChunk() int {
 }
 
 func (m *mgr) pollChunk(c *chunk) error {
+	m.lock.Unlock()
+
 	if m.setTimerRPS() {
 		select {
 		case <-m.close:
@@ -275,7 +337,7 @@ func (m *mgr) pollChunk(c *chunk) error {
 	}
 }
 
-func (m *mgr) cancelChunk(c *chunk) {
+func (m *mgr) cancelChunk(c *chunk) { // TODO: Is lock expected to be held here.
 	if m.setTimerRPS() {
 		<-m.timer.C
 		m.ding = true
@@ -448,7 +510,20 @@ func errNoValue(id, key string) error {
 	return fmt.Errorf("incite: query chunk %q: no value for key %q", id, key)
 }
 
-func (m *mgr) Query(q Query) (Stream, error) {
+func (m *mgr) Close() error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	if m.closed {
+		return ErrClosed
+	}
+
+	m.closed = true
+	<-m.close
+	return nil
+}
+
+func (m *mgr) Query(q QuerySpec) (Stream, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -466,11 +541,11 @@ func (m *mgr) Query(q Query) (Stream, error) {
 		rem++
 	}
 	s := &stream{
-		Query:  q,
-		ctx:    ctx,
-		cancel: cancel,
-		next:   q.Start,
-		rem:    int64(rem),
+		QuerySpec: q,
+		ctx:       ctx,
+		cancel:    cancel,
+		next:      q.Start,
+		rem:       int64(rem),
 	}
 
 	m.pq.Push(s)
@@ -483,17 +558,8 @@ func (m *mgr) Query(q Query) (Stream, error) {
 	return s, nil
 }
 
-func (m *mgr) Close() error {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	if m.closed {
-		return ErrClosed
-	}
-
-	m.closed = true
-	<-m.close
-	return nil
+func (m *mgr) GetStats() Stats {
+	return m.Stats
 }
 
 type streamHeap []*stream
@@ -538,7 +604,7 @@ func (h *streamHeap) Pop() interface{} {
 }
 
 type stream struct {
-	Query
+	QuerySpec
 	ctx     context.Context    // stream context used to parent chunk contexts
 	cancel  context.CancelFunc // cancels ctx when the stream is closed
 	lock    sync.RWMutex       // mgr uses read lock to priority sort the streams
@@ -621,7 +687,7 @@ func (s *stream) alive() bool {
 
 // A chunk represents a single active CloudWatch Logs Insights query
 // owned by a stream. A stream has one or more chunks, depending on
-// whether the Query operation was chunked. A chunk is a passive data
+// whether the QuerySpec operation was chunked. A chunk is a passive data
 // structure: it owns no goroutines and presents no interface that is
 // accessible outside the package.
 type chunk struct {
@@ -629,7 +695,7 @@ type chunk struct {
 	ctx    context.Context // Child of the stream's context owned by this chunk
 	id     string          // Insights query ID
 	status string          // Insights query status
-	ptr    map[string]bool // Set of already viewed @ptr, nil if Query not previewable
+	ptr    map[string]bool // Set of already viewed @ptr, nil if QuerySpec not previewable
 }
 
 var (
