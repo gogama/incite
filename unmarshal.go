@@ -18,6 +18,10 @@ import (
 //
 // TODO: Finish documentation here.
 func Unmarshal(data []Result, v interface{}) error {
+	if data == nil {
+		// TODO: panic here.
+	}
+
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr {
 		return &InvalidUnmarshalError{TargetType: reflect.TypeOf(v)}
@@ -36,7 +40,7 @@ func Unmarshal(data []Result, v interface{}) error {
 		} else if m < n {
 			a.SetLen(m)
 		}
-		return array(data, a, rv)
+		return array(data, rv, a)
 	case reflect.Array: // v is a pointer to an array
 		n := a.Len()
 		if n >= m {
@@ -50,24 +54,31 @@ func Unmarshal(data []Result, v interface{}) error {
 			}
 			return nil
 		} else {
-			return array(data[:n], a, rv)
+			return array(data[:n], rv, a)
 		}
 	case reflect.Interface: // v is a pointer to an interface
 		b := reflect.MakeSlice(reflect.TypeOf(data), m, m)
 		a.Set(b)
-		return array(data, a, rv)
+		return array(data, rv, a)
 	default:
 		return &InvalidUnmarshalError{TargetType: rv.Type()}
 	}
 }
 
-func array(data []Result, a reflect.Value, rv reflect.Value) error {
+func array(data []Result, rv, a reflect.Value) error {
+	s := decodeState{
+		rv:   rv,
+		data: data,
+	}
 	f, err := selectResultUnpackFunc(a.Elem().Type(), rv)
 	if err != nil {
 		return err
 	}
-	for i, r := range data {
-		err = f(i, r, a.Index(i))
+	for i := range data {
+		s.i = i
+		s.j = 0
+		s.dst = a.Index(i)
+		err = f(&s)
 		if err != nil {
 			return err
 		}
@@ -75,8 +86,29 @@ func array(data []Result, a reflect.Value, rv reflect.Value) error {
 	return nil
 }
 
+// =====================================================================
+// BEGIN NEW SENSIBLE REFACTORED STUFF.
+// =====================================================================
+
+type decodeState struct {
+	rv   reflect.Value // Top-level target value
+	data []Result      // Source slice of results
+	i, j int           // Row and column currently being decoded
+	dst  reflect.Value // Current destination value
+}
+
+type decodeFunc func(s *decodeState) error
+
+// =====================================================================
+// BEGIN OLD ITERATION.
+// =====================================================================
+
 type resultUnpackFunc func(i int, r Result, v reflect.Value) error
 
+// TODO: It will be more correct to pass in `dst reflect.Value` and have the caller
+//       be responsible for allocating it. But we also have to be careful because
+//       you can't take the address of a value in a map, you can only take the
+//       address of the result of subscripting it.
 type resultFieldUnpackFunc func(i, j int, field, value string) (reflect.Value, error)
 
 type structFieldUnpackFunc func(src string, dst reflect.Value) error
@@ -92,7 +124,7 @@ var (
 	resultType = reflect.TypeOf(Result{})
 )
 
-func selectResultUnpackFunc(t reflect.Type, rv reflect.Value) (resultUnpackFunc, error) {
+func selectResultUnpackFunc(t reflect.Type, rv reflect.Value) (decodeFunc, error) {
 	switch t.Kind() {
 	case reflect.Ptr:
 		return selectResultUnpackFuncPtr(t, rv)
@@ -118,12 +150,19 @@ func selectResultUnpackFuncPtr(ptrType reflect.Type, rv reflect.Value) (resultUn
 	}
 	// FIXME: Remove this comment. This pointerization chain IS consistent with how encoding/json works: https://play.golang.org/p/a-uRZjmuqTJ
 	return func(i int, r Result, ptr reflect.Value) error {
-		elem := reflect.New(elemType)
+		var elem reflect.Value
+		if ptr.IsNil() {
+			elem = reflect.New(elemType)
+		} else {
+			elem = ptr.Elem()
+		}
 		err := f(i, r, elem)
 		if err != nil {
 			return err
 		}
-		ptr.Set(elem)
+		if ptr.IsNil() {
+			ptr.Set(elem)
+		}
 		return nil
 	}, nil
 }
@@ -137,6 +176,15 @@ func selectResultUnpackFuncMap(mapType reflect.Type, rv reflect.Value) (resultUn
 	switch valueType.Kind() {
 	case reflect.String:
 		return unpackResultMapStringString, nil
+	case reflect.Interface:
+		return unpackMapStringJSONFuzzy, nil
+	default:
+		return nil, &InvalidUnmarshalError{TargetType: rv.Type(), ElemType: mapType}
+	// FIXME: Below this point. This is nonsense because the top-level fields
+	//        always contain @ptr which can't be unmarshalled into anything
+	//        useful. So we should only support map[string]string and
+	//        map[string]interface{} where the former just gets a dump of the
+	//        string and the latter gets whatever json.Unmarshal returns.
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return unpackMapStringInt(valueType), nil
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -145,14 +193,10 @@ func selectResultUnpackFuncMap(mapType reflect.Type, rv reflect.Value) (resultUn
 		return unpackMapStringFloat(valueType), nil
 	case reflect.Bool:
 		return unpackMapStringBool(valueType), nil
-	case reflect.Interface:
-		return unpackMapStringJSONFuzzy, nil
 	case reflect.Map, reflect.Slice, reflect.Array:
 		return unpackMapStringJSONAggregate, nil
-	// TODO: Should check if the thingy implements the encoding.TextUnmarshaler interface
-	//       and try that too. Note that time.Time implements this interface.
-	default:
-		return nil, &InvalidUnmarshalError{TargetType: rv.Type(), ElemType: mapType}
+		// TODO: Should check if the thingy implements the encoding.TextUnmarshaler interface
+		//       and try that too. Note that time.Time implements this interface.
 	}
 }
 
@@ -194,12 +238,19 @@ func selectStructFieldUnpackFunc(selector structFieldUnpackFuncSelector, t refle
 		return nil, err
 	}
 	return func(src string, dst reflect.Value) error {
-		elem := reflect.New(elemType)
+		var elem reflect.Value
+		if dst.IsNil() {
+			elem = reflect.New(elemType)
+		} else {
+			elem = dst.Elem()
+		}
 		err := unpacker(src, elem)
 		if err != nil {
 			return err
 		}
-		dst.Set(elem)
+		if dst.IsNil() {
+			dst.Set(elem)
+		}
 		return nil
 	}, nil
 }
@@ -380,7 +431,7 @@ func unpackMapStringJSONFuzzy(i int, r Result, mapValue reflect.Value) error {
 			switch c {
 			case '\t', '\n', '\r', ' ': // Might be JSON, keep skipping whitespace to find out.
 				break
-			case '{', '[', '"': // Might be JSON, try to unpack it.
+			case '{', '[', '"', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9': // Might be JSON, try to unpack it.
 				v, err := unpackStringJSONFuzzy(value)
 				if err != nil {
 					return v, nil
@@ -435,6 +486,30 @@ func unpackStructFieldInsightsTime(src string, dst reflect.Value) error {
 	}
 	dst.Set(reflect.ValueOf(t))
 	return nil
+}
+
+func unpackStructFieldTextUnmarshaler(src string, dst reflect.Value) error {
+	return nil // TODO: if compatible with encoding.TextUnmarshaler
+}
+
+func unpackStructFieldJSONUnmarshaler(src string, dst reflect.Value) error {
+	return nil // TODO: if compatible with json.Unmarshaler
+}
+
+func unpackStructFieldInt(src string, dst reflect.Value) error {
+	return nil // TODO
+}
+
+func unpackStructFieldUint(src string, dst reflect.Value) error {
+	return nil // TODO
+}
+
+func unpackStructFieldFloat(src string, dst reflect.Value) error {
+	return nil // TODO
+}
+
+func unpackStructFieldJSONAggregate(src string, dst reflect.Value) error {
+	return nil // TODO
 }
 
 func resultCopy(r Result) Result {
