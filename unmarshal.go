@@ -1,7 +1,9 @@
 package incite
 
 import (
+	"encoding"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strconv"
 	"strings"
@@ -70,14 +72,15 @@ func array(data []Result, rv, a reflect.Value) error {
 		rv:   rv,
 		data: data,
 	}
-	f, err := selectResultUnpackFunc(a.Elem().Type(), rv)
+	depth, elemType := dig(a.Type().Elem())
+	f, err := s.selRowDecodeFunc(elemType)
 	if err != nil {
 		return err
 	}
 	for i := range data {
 		s.i = i
-		s.j = 0
-		s.dst = a.Index(i)
+		s.j = -1
+		s.dst = build(a.Index(i), depth)
 		err = f(&s)
 		if err != nil {
 			return err
@@ -86,8 +89,84 @@ func array(data []Result, rv, a reflect.Value) error {
 	return nil
 }
 
+func dig(t reflect.Type) (depth int, valueType reflect.Type) {
+	for t.Kind() == reflect.Ptr {
+		depth++
+		t = t.Elem()
+	}
+	valueType = t
+	return
+}
+
+func build(v reflect.Value, depth int) reflect.Value {
+	for i := 0; i < depth; i++ {
+		if v.IsNil() {
+			p := reflect.New(v.Type())
+			v.Set(p)
+			v = p
+		} else {
+			v = v.Elem()
+		}
+	}
+	return v
+}
+
 // =====================================================================
 // BEGIN NEW SENSIBLE REFACTORED STUFF.
+//     In here we will use the following naming conventions:
+//
+//        row = one Result
+//        col = one ResultField
+//        decodeFunc <TYPE> = a function to decode something
+//        sel = prefix for a function that selects a function
+//
+// examples:
+//        selRowDecodeFunc
+//        selMapRowDecodeFunc
+//        selStructRowDecodeFunc
+//
+//        selStructRowColDecodeFuncForInsightsTime
+//        selStructRowColDecodeFuncByType
+//
+//        decodeInterfaceRow
+//
+//        decodeMapStrStrRow
+//        decodeMapStrInterfaceRow
+//        decodeMapStrTextUnmarshalerRow
+//
+//        decodeStructRow
+//
+//        decodeColAsJSON             - struct field tagged with "json"
+//        decodeColAsJSONFuzzy        - target IN {  interface[}, map[string]interface{}; or an untagged struct field of type interface{}  }
+//        decodeColAsInsightsTime
+//
+//        decodeColToString
+//        decodeColToTextUnmarshaler
+//        decodeColToInt, decodeColToUint, decodeColToFloat, decodeColToBool
+//
+// Essential playgrounds:
+//        How pointers and chains of pointers Unmarshal: https://play.golang.org/p/d0jZKzJTl7r (any length of chain OK, intermediate pointers reused, this work is done by indirect function in unmarshal.go)
+//            Indirect does it "dynamically" (on values, not types) because in general the structure is not known in advance.
+//            We can do it "statically" (on types) because we don't need to look down below the top level structure.
+//        Insights @timestamp format and why it doesn't work with time.Time and json packages: https://play.golang.org/p/USdNBPM-mVv
+//        How tags work in reflection: https://play.golang.org/p/tt8t4zN8KWO
+//        How to set a certain index of a slice to a non-nil map value: https://play.golang.org/p/R2nDxvnkFum
+//
+// For map stores, the process should be:
+//     1. Get the value from the map.
+//     2. If wasn't there, create a zero value.
+//     3. Traverse the pointer chain, creating as necessary, until we
+//        have the final addressable value.
+//     4. DECODE INTO THAT VALUE.
+//     5. Store that value into the map.
+//
+// For struct field stores, the process is similar but you start with
+// the ValueOf a field that exists.
+//
+// Ultimately I want:
+//
+//      func dig(t reflect.Type) (depth int, reflect.Type)
+//          Return final non-pointer value type and number of indirections.
 // =====================================================================
 
 type decodeState struct {
@@ -97,116 +176,162 @@ type decodeState struct {
 	dst  reflect.Value // Current destination value
 }
 
-type decodeFunc func(s *decodeState) error
-
-// =====================================================================
-// BEGIN OLD ITERATION.
-// =====================================================================
-
-type resultUnpackFunc func(i int, r Result, v reflect.Value) error
-
-// TODO: It will be more correct to pass in `dst reflect.Value` and have the caller
-//       be responsible for allocating it. But we also have to be careful because
-//       you can't take the address of a value in a map, you can only take the
-//       address of the result of subscripting it.
-type resultFieldUnpackFunc func(i, j int, field, value string) (reflect.Value, error)
-
-type structFieldUnpackFunc func(src string, dst reflect.Value) error
-
-type structFieldUnpackFuncSelector func(t reflect.Type) (structFieldUnpackFunc, error)
-
-type unpackableStructField struct {
-	fieldIndex int
-	unpackFunc structFieldUnpackFunc
+func (s *decodeState) col() *ResultField {
+	return &s.data[s.i].Fields[s.j]
 }
+
+type selectFunc func(reflect.Type) (decodeFunc, error)
+type decodeFunc func(*decodeState) error
 
 var (
-	resultType = reflect.TypeOf(Result{})
+	resultType          = reflect.TypeOf(Result{})
+	textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+	jsonUnmarshalerType = reflect.TypeOf((*json.Unmarshaler)(nil)).Elem()
 )
 
-func selectResultUnpackFunc(t reflect.Type, rv reflect.Value) (decodeFunc, error) {
-	switch t.Kind() {
-	case reflect.Ptr:
-		return selectResultUnpackFuncPtr(t, rv)
+func (s *decodeState) selRowDecodeFunc(rowType reflect.Type) (decodeFunc, error) {
+	switch rowType.Kind() {
 	case reflect.Interface:
-		return unpackResultCopy, nil
+		return decodeRowByCopying, nil
 	case reflect.Map:
-		return selectResultUnpackFuncMap(t, rv)
+		return s.selMapRowDecodeFunc(rowType)
 	case reflect.Struct:
-		if t == resultType {
-			return unpackResultCopy, nil
+		if rowType == resultType {
+			return decodeRowByCopying, nil
 		}
-		return selectResultUnpackFuncStruct(t, rv)
+		return s.selStructRowDecodeFunc(rowType)
 	default:
-		return nil, &InvalidUnmarshalError{TargetType: rv.Type(), ElemType: t}
+		return nil, &InvalidUnmarshalError{TargetType: s.rv.Type(), ElemType: rowType}
 	}
 }
 
-func selectResultUnpackFuncPtr(ptrType reflect.Type, rv reflect.Value) (resultUnpackFunc, error) {
-	elemType := ptrType.Elem()
-	f, err := selectResultUnpackFunc(elemType, rv)
-	if err != nil {
-		return nil, err
+func (s *decodeState) selMapRowDecodeFunc(mapRowType reflect.Type) (decodeFunc, error) {
+	keyType := mapRowType.Key()
+	if keyType.Kind() != reflect.String {
+		return nil, &InvalidUnmarshalError{TargetType: s.rv.Type(), ElemType: mapRowType}
 	}
-	// FIXME: Remove this comment. This pointerization chain IS consistent with how encoding/json works: https://play.golang.org/p/a-uRZjmuqTJ
-	return func(i int, r Result, ptr reflect.Value) error {
-		var elem reflect.Value
-		if ptr.IsNil() {
-			elem = reflect.New(elemType)
-		} else {
-			elem = ptr.Elem()
+	indirectType := mapRowType.Elem()
+	depth, directType := dig(mapRowType.Elem())
+	var f decodeFunc
+	if reflect.PtrTo(directType).Implements(textUnmarshalerType) {
+		f = decodeColToTextUnmarshaler
+	} else {
+		switch directType.Kind() {
+		case reflect.String:
+			f = decodeColToString
+		case reflect.Interface:
+			f = decodeColAsJSONFuzzy
+		default:
+			return nil, &InvalidUnmarshalError{TargetType: s.rv.Type(), ElemType: mapRowType}
 		}
-		err := f(i, r, elem)
+	}
+	return func(s *decodeState) error {
+		dst := s.dst
+		defer func() { s.dst = dst }()
+		n := len(s.data[s.i].Fields)
+		m := reflect.MakeMapWithSize(mapRowType, n)
+		for s.j = 0; s.j < n; s.j++ {
+			s.dst = build(reflect.New(indirectType).Elem(), depth)
+			err := f(s)
+			if err != nil {
+				return err
+			}
+			m.SetMapIndex(reflect.ValueOf(s.col().Field), s.dst)
+		}
+		dst.Set(m)
+		s.dst = dst
+		return nil
+	}, nil
+}
+
+type decodableStructField struct {
+	fieldIndex int
+	depth      int
+	decodeFunc decodeFunc
+}
+
+func (s *decodeState) selStructRowDecodeFunc(structRowType reflect.Type) (decodeFunc, error) {
+	n := structRowType.NumField()
+	dfs := make(map[string]decodableStructField, n)
+	for i := 0; i < n; i++ {
+		structField := structRowType.Field(i)
+		field, depth, f, err := selStructRowColDecodeFunc(&structField)
 		if err != nil {
-			return err
+			return nil, err // TODO: Return the correct InvalidUnmarshal type error.
 		}
-		if ptr.IsNil() {
-			ptr.Set(elem)
+		if f != nil {
+			dfs[field] = decodableStructField{
+				fieldIndex: i,
+				depth:      depth,
+				decodeFunc: f,
+			}
+		}
+	}
+	return func(s *decodeState) error {
+		dst := s.dst
+		defer func() { s.dst = dst }()
+		for s.j = 0; s.j < len(s.data[s.i].Fields); s.j++ {
+			col := s.col()
+			if df, ok := dfs[col.Field]; ok {
+				s.dst = build(dst.Field(df.fieldIndex), df.depth)
+				err := df.decodeFunc(s)
+				if err != nil {
+					// TODO: return real error
+					return err
+				}
+			}
 		}
 		return nil
 	}, nil
 }
 
-func selectResultUnpackFuncMap(mapType reflect.Type, rv reflect.Value) (resultUnpackFunc, error) {
-	keyType := mapType.Key()
-	if keyType.Kind() != reflect.String {
-		return nil, &InvalidUnmarshalError{TargetType: rv.Type(), ElemType: mapType}
+func selStructRowColDecodeFunc(structField *reflect.StructField) (field string, depth int, f decodeFunc, err error) {
+	var selector selectFunc = selStructRowColDecodeFuncByType
+
+	tag := structField.Tag.Get("incite")
+	if tag != "" {
+		field = tag
+		switch field {
+		case "@timestamp", "@ingestionTime":
+			selector = selStructRowColDecodeFuncForInsightsTime
+		}
+	} else {
+		tag = structField.Tag.Get("json")
+		switch tag {
+		case "":
+			field = structField.Name
+		case "-":
+			field = ""
+			f = nil
+			return
+		default:
+			comma := strings.IndexByte(tag, ',')
+			if comma < 0 {
+				comma = len(tag)
+			}
+			field = tag[:comma]
+			f = decodeColAsJSON
+			return
+		}
 	}
-	valueType := mapType.Elem()
-	switch valueType.Kind() {
-	case reflect.String:
-		return unpackResultMapStringString, nil
-	case reflect.Interface:
-		return unpackMapStringJSONFuzzy, nil
-	default:
-		return nil, &InvalidUnmarshalError{TargetType: rv.Type(), ElemType: mapType}
-	// FIXME: Below this point. This is nonsense because the top-level fields
-	//        always contain @ptr which can't be unmarshalled into anything
-	//        useful. So we should only support map[string]string and
-	//        map[string]interface{} where the former just gets a dump of the
-	//        string and the latter gets whatever json.Unmarshal returns.
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return unpackMapStringInt(valueType), nil
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return unpackMapStringUint(valueType), nil
-	case reflect.Float32, reflect.Float64:
-		return unpackMapStringFloat(valueType), nil
-	case reflect.Bool:
-		return unpackMapStringBool(valueType), nil
-	case reflect.Map, reflect.Slice, reflect.Array:
-		return unpackMapStringJSONAggregate, nil
-		// TODO: Should check if the thingy implements the encoding.TextUnmarshaler interface
-		//       and try that too. Note that time.Time implements this interface.
+
+	var valueType reflect.Type
+	depth, valueType = dig(structField.Type)
+	f, err = selector(valueType)
+	if err != nil {
+		// Convert err into the correct desired error.
 	}
+
+	return
 }
 
-func selectUnpackStructFieldInsightsTime(t reflect.Type) (structFieldUnpackFunc, error) {
-	switch t.Kind() {
+func selStructRowColDecodeFuncForInsightsTime(colType reflect.Type) (decodeFunc, error) {
+	switch colType.Kind() {
 	case reflect.String:
-		return unpackStructFieldString, nil
+		return decodeColToString, nil
 	case reflect.Struct:
-		if t == reflect.TypeOf(time.Time{}) {
-			return unpackStructFieldInsightsTime, nil
+		if colType == reflect.TypeOf(time.Time{}) {
+			return decodeColAsInsightsTime, nil
 		}
 	}
 	return nil, &UnmarshalResultTypeError{
@@ -214,305 +339,142 @@ func selectUnpackStructFieldInsightsTime(t reflect.Type) (structFieldUnpackFunc,
 	}
 }
 
-func selectUnpackStructFieldByType(t reflect.Type) (structFieldUnpackFunc, error) {
-	// FIXME: This is where I left off working on 7/9/2021.
-	//
-	// Basically the rules are:
-	//    t is a String -> put it into a string
-	//    t is a supported number type -> put it into the number.
-	//    t is a bool -> put it into the bool.
-	//    t is anything that if you take a pointer to it, it implements TextUnmarshaler -> TextUnmarshal it.
-	//    t is anything that if you take a pointer to it, it implements JSONUnmarshaler -> JSONUnmarshal it.
-	//    t is a Struct, Slice, Array, or Map -> JSON decode into the value.
-	//    else POWWWWW!
-	return nil, nil
-}
+func selStructRowColDecodeFuncByType(colType reflect.Type) (decodeFunc, error) {
+	ptrType := reflect.PtrTo(colType)
+	if ptrType.NumMethod() > 0 {
+		if ptrType.Implements(textUnmarshalerType) {
+			return decodeColToTextUnmarshaler, nil
+		} else if ptrType.Implements(jsonUnmarshalerType) {
+			return decodeColAsJSON, nil
+		}
+	}
 
-func selectStructFieldUnpackFunc(selector structFieldUnpackFuncSelector, t reflect.Type) (structFieldUnpackFunc, error) {
-	if t.Kind() != reflect.Ptr {
-		return selector(t)
-	}
-	elemType := t.Elem()
-	unpacker, err := selectStructFieldUnpackFunc(selector, elemType)
-	if err != nil {
-		return nil, err
-	}
-	return func(src string, dst reflect.Value) error {
-		var elem reflect.Value
-		if dst.IsNil() {
-			elem = reflect.New(elemType)
-		} else {
-			elem = dst.Elem()
-		}
-		err := unpacker(src, elem)
-		if err != nil {
-			return err
-		}
-		if dst.IsNil() {
-			dst.Set(elem)
-		}
-		return nil
-	}, nil
-}
-
-func selectResultFieldUnpackFunc(sf *reflect.StructField) (field string, unpackFunc structFieldUnpackFunc, err error) {
-	tag := sf.Tag.Get("incite")
-	if tag != "" {
-		var selector structFieldUnpackFuncSelector
-		field = tag
-		switch field {
-		case "@timestamp", "@ingestionTime":
-			selector = selectUnpackStructFieldInsightsTime
-		default:
-			selector = selectUnpackStructFieldByType
-		}
-		unpackFunc, err = selectStructFieldUnpackFunc(selector, sf.Type)
-		return
-	}
-	tag = sf.Tag.Get("json")
-	switch tag {
+	switch colType.Kind() {
+	case reflect.String:
+		return decodeColToString, nil
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return decodeColToInt, nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return decodeColToUint, nil
+	case reflect.Float32, reflect.Float64:
+		return decodeColToFloat, nil
+	case reflect.Bool:
+		return decodeColToBool, nil
+	case reflect.Interface, reflect.Struct, reflect.Map, reflect.Slice, reflect.Array:
+		return decodeColAsJSON, nil
 	default:
-		comma := strings.IndexByte(tag, ',')
-		if comma < 0 {
-			comma = len(tag)
-		}
-		field = tag[:comma]
-		unpackFunc = unpackStructFieldJSON
-		return
-	case "-":
-		field = ""
-		unpackFunc = nil
-		return
-	case "":
-		break
+		return nil, errors.New("TODO: put a real error here.")
 	}
-	field = sf.Name
-	unpackFunc, err = selectStructFieldUnpackFunc(selectUnpackStructFieldByType, sf.Type)
-	return
 }
 
-func selectResultUnpackFuncStruct(structType reflect.Type, rv reflect.Value) (resultUnpackFunc, error) {
-	// I want to traverse the struct look at the fields and tags:
-	//    - Throw an error if any invalid types exist, for example try to put @message into int or it's a channel or something,
-	//      or try to put @ingestionTime or @timestamp into a field that's not a string, big enough integer, or time.Time{}.
-	//      Note @timestamp format is "2021-06-19 03:59:59.936" (in UTC) with a space before the timestamp and now time zone.
-	//      This is an example of the format: https://play.golang.org/p/USdNBPM-mVv. Note that time.UnmarshalText won't
-	//      unmarshal it, will return error `parsing time "2021-06-19 03:59:59.936" as "2006-01-02T15:04:05Z07:00": cannot parse " 03:59:59.936" as "T"`
-	//    - Make a map[string]resultFieldUnpackFunc for all discovered fields in the
-	//      struct. That way when we walk through the ResultFields in each Result, it's super trivial
-	//      to just lookup the single thing that does the thing.
-	//
-	// Demo of how tags work: https://play.golang.org/p/tt8t4zN8KWO
-	n := structType.NumField()
-	ufs := make(map[string]unpackableStructField, n)
-	for i := 0; i < n; i++ {
-		if false {
-			sf := structType.Field(i)
-			field, unpackFunc, err := selectResultFieldUnpackFunc(&sf)
-			if err != nil {
-				return nil, err // TODO: Return the correct InvalidUnmarshal type error.
-			}
-			if unpackFunc != nil {
-				ufs[field] = unpackableStructField{
-					fieldIndex: i,
-					unpackFunc: unpackFunc,
-					// TODO need to figure out the unpack func.
-				}
-			}
-		}
-	}
-	return func(i int, r Result, v reflect.Value) error {
-		for j := range r.Fields {
-			field := r.Fields[j].Field
-			if uf, ok := ufs[field]; ok {
-				src := r.Fields[j].Value
-				dst := v.Field(uf.fieldIndex)
-				err := uf.unpackFunc(src, dst)
-				if err != nil {
-					return err // TODO: return the correct error
-				}
-			}
-		}
-		return nil
-	}, nil
-}
-
-func unpackResultCopy(_ int, r Result, v reflect.Value) error {
-	v.Set(reflect.ValueOf(resultCopy(r)))
+func decodeRowByCopying(s *decodeState) error {
+	s.dst.Set(reflect.ValueOf(copyResult(s.data[s.i])))
 	return nil
 }
 
-func unpackMapStringAnyElem(i int, r Result, mapValue reflect.Value, conv resultFieldUnpackFunc) error {
-	if mapValue.IsNil() {
-		mapValue.Set(reflect.MakeMap(mapValue.Type()))
-	}
-	for j, f := range r.Fields {
-		key := reflect.ValueOf(f.Field)
-		elem, err := conv(i, j, f.Field, f.Value)
-		if err != nil {
-			return err
-		}
-		mapValue.SetMapIndex(key, elem)
-	}
+func decodeColToString(s *decodeState) error {
+	s.dst.Set(reflect.ValueOf(s.col().Value))
 	return nil
 }
 
-func unpackResultMapStringString(i int, r Result, mapValue reflect.Value) error {
-	return unpackMapStringAnyElem(i, r, mapValue, func(i, j int, field, value string) (reflect.Value, error) {
-		return reflect.ValueOf(value), nil
-	})
-}
-
-func unpackMapStringInt(valueType reflect.Type) resultUnpackFunc {
-	return func(i int, r Result, mapValue reflect.Value) error {
-		return unpackMapStringAnyElem(i, r, mapValue, func(i, j int, field, value string) (reflect.Value, error) {
-			n, err := strconv.ParseInt(value, 10, 64)
-			if err != nil || reflect.Zero(valueType).OverflowInt(n) {
-				return reflect.Value{}, &UnmarshalResultTypeError{
-					UnmarshalResultError: UnmarshalResultError{
-						ResultIndex: i,
-						FieldIndex:  j,
-						Field:       field,
-					},
-					Value: value,
-					Type:  valueType,
-				}
-			}
-			return reflect.ValueOf(n).Convert(valueType), nil
-		})
+func decodeColToInt(s *decodeState) error {
+	src := s.col().Value
+	n, err := strconv.ParseInt(src, 10, 64)
+	valueType := s.dst.Type()
+	if err != nil || reflect.Zero(valueType).OverflowInt(n) {
+		return errors.New("TODO: put error") // error
 	}
+	s.dst.Set(reflect.ValueOf(n).Convert(valueType))
+	return nil
 }
 
-func unpackMapStringUint(valueType reflect.Type) resultUnpackFunc {
-	return func(i int, r Result, mapValue reflect.Value) error {
-		return unpackMapStringAnyElem(i, r, mapValue, func(i, j int, field, value string) (reflect.Value, error) {
-			n, err := strconv.ParseUint(value, 10, 64)
-			if err != nil || reflect.Zero(valueType).OverflowUint(n) {
-				return reflect.Value{}, &UnmarshalResultTypeError{
-					UnmarshalResultError: UnmarshalResultError{
-						ResultIndex: i,
-						FieldIndex:  j,
-						Field:       field,
-					},
-					Value: value,
-					Type:  valueType,
-				}
-			}
-			return reflect.ValueOf(n).Convert(valueType), nil
-		})
+func decodeColToUint(s *decodeState) error {
+	src := s.col().Value
+	n, err := strconv.ParseUint(src, 10, 64)
+	valueType := s.dst.Type()
+	if err != nil || reflect.Zero(valueType).OverflowUint(n) {
+		return errors.New("TODO: put error") // error
 	}
+	s.dst.Set(reflect.ValueOf(n).Convert(valueType))
+	return nil
 }
 
-func unpackMapStringFloat(valueType reflect.Type) resultUnpackFunc {
-	return func(i int, r Result, mapValue reflect.Value) error {
-		return unpackMapStringAnyElem(i, r, mapValue, func(i, j int, field, value string) (reflect.Value, error) {
-			n, err := strconv.ParseFloat(value, 64)
-			if err != nil || reflect.Zero(valueType).OverflowFloat(n) {
-				return reflect.Value{}, &UnmarshalResultTypeError{
-					UnmarshalResultError: UnmarshalResultError{
-						ResultIndex: i,
-						FieldIndex:  j,
-						Field:       field,
-					},
-					Value: value,
-					Type:  valueType,
-				}
-			}
-			return reflect.ValueOf(n).Convert(valueType), nil
-		})
+func decodeColToFloat(s *decodeState) error {
+	src := s.col().Value
+	n, err := strconv.ParseFloat(src, 64)
+	valueType := s.dst.Type()
+	if err != nil || reflect.Zero(valueType).OverflowFloat(n) {
+		return errors.New("TODO: put error") // error
 	}
+	s.dst.Set(reflect.ValueOf(n).Convert(valueType))
+	return nil
 }
 
-func unpackMapStringJSONFuzzy(i int, r Result, mapValue reflect.Value) error {
-	// TODO: We should be able to unpack @timestamp and @ingestionTime into time.Time in fuzzy mode.
-	return unpackMapStringAnyElem(i, r, mapValue, func(i, j int, field, value string) (reflect.Value, error) {
-	For:
-		for _, c := range value {
-			switch c {
-			case '\t', '\n', '\r', ' ': // Might be JSON, keep skipping whitespace to find out.
-				break
-			case '{', '[', '"', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9': // Might be JSON, try to unpack it.
-				v, err := unpackStringJSONFuzzy(value)
-				if err != nil {
-					return v, nil
-				}
-			default: // Definitely not JSON.
-				break For
-			}
-		}
-		return reflect.ValueOf(value), nil
-	})
-}
-
-func unpackMapStringJSONAggregate(i int, r Result, mapValue reflect.Value) error {
-	return unpackMapStringAnyElem(i, r, mapValue, func(i, j int, field, value string) (reflect.Value, error) {
-		mapType := mapValue.Type()
-		elemType := mapType.Elem()
-		elemPtr := reflect.New(elemType)
-		err := json.Unmarshal([]byte(value), elemPtr.Interface())
-		if err != nil {
-			return reflect.Value{}, err
-		}
-		return elemPtr.Elem(), nil
-	})
-}
-
-func unpackStringJSONFuzzy(s string) (reflect.Value, error) {
-	var i interface{}
-	err := json.Unmarshal([]byte(s), &i)
+func decodeColToBool(s *decodeState) error {
+	src := s.col().Value
+	b, err := strconv.ParseBool(src)
 	if err != nil {
-		return reflect.Value{}, err
+		return errors.New("TODO: put error")
 	}
-	return reflect.ValueOf(i), nil
-}
-
-func unpackStructFieldJSON(src string, dst reflect.Value) error {
-	ptr := dst.Addr()
-	i := ptr.Interface()
-	return json.Unmarshal([]byte(src), i)
-}
-
-func unpackStructFieldString(src string, dst reflect.Value) error {
-	dst.Set(reflect.ValueOf(src))
+	s.dst.Set(reflect.ValueOf(b))
 	return nil
 }
 
-func unpackStructFieldInsightsTime(src string, dst reflect.Value) error {
-	t, err := time.Parse("", src)
+func decodeColToTextUnmarshaler(s *decodeState) error {
+	ptrToDst := s.dst.Addr()
+	ptrToInterface := ptrToDst.Interface()
+	textUnmarshaler := ptrToInterface.(encoding.TextUnmarshaler)
+	err := textUnmarshaler.UnmarshalText([]byte(s.col().Value))
+	if err != nil {
+		// TODO: wrap it
+		return err
+	}
+	return nil
+}
+
+func decodeColAsJSON(s *decodeState) error {
+	value := s.col().Value
+	ptr := s.dst.Addr()
+	i := ptr.Interface()
+	return json.Unmarshal([]byte(value), i)
+}
+
+func decodeColAsJSONFuzzy(s *decodeState) error {
+	src := s.col().Value
+For:
+	for _, c := range src {
+		switch c {
+		case '\t', '\n', '\r', ' ': // Might be JSON, keep skipping whitespace to find out.
+			break
+		case '{', '[', '"', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9': // Might be JSON, try to unpack it.
+			var i interface{}
+			err := json.Unmarshal([]byte(src), &i)
+			if err != nil {
+				return err
+			}
+			s.dst.Set(reflect.ValueOf(i))
+			break For
+		default: // Definitely not JSON.
+			s.dst.Set(reflect.ValueOf(src))
+			break For
+		}
+	}
+	return nil
+}
+
+func decodeColAsInsightsTime(s *decodeState) error {
+	src := s.col().Value
+	t, err := time.Parse("TODO: put layout here", src)
 	if err != nil {
 		return &UnmarshalResultTypeError{
 			// TODO properly implement this
 		}
 	}
-	dst.Set(reflect.ValueOf(t))
+	s.dst.Set(reflect.ValueOf(t))
 	return nil
 }
 
-func unpackStructFieldTextUnmarshaler(src string, dst reflect.Value) error {
-	return nil // TODO: if compatible with encoding.TextUnmarshaler
-}
-
-func unpackStructFieldJSONUnmarshaler(src string, dst reflect.Value) error {
-	return nil // TODO: if compatible with json.Unmarshaler
-}
-
-func unpackStructFieldInt(src string, dst reflect.Value) error {
-	return nil // TODO
-}
-
-func unpackStructFieldUint(src string, dst reflect.Value) error {
-	return nil // TODO
-}
-
-func unpackStructFieldFloat(src string, dst reflect.Value) error {
-	return nil // TODO
-}
-
-func unpackStructFieldJSONAggregate(src string, dst reflect.Value) error {
-	return nil // TODO
-}
-
-func resultCopy(r Result) Result {
+func copyResult(r Result) Result {
 	fields := make([]ResultField, len(r.Fields))
 	copy(fields, r.Fields)
 	return Result{
