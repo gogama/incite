@@ -2,7 +2,6 @@ package incite
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -14,6 +13,8 @@ func TestUnmarshal(t *testing.T) {
 			data []Result
 			v, w interface{}
 		}{
+			// TODO: Put copy cases here.
+
 			{
 				name: "map[value:interface{},data:nil]",
 				v:    &[]map[string]interface{}{},
@@ -82,7 +83,7 @@ func TestUnmarshal(t *testing.T) {
 							},
 							{
 								Field: "@timestamp",
-								Value: "TODO: timestamp",
+								Value: "2021-06-19 03:59:59.936",
 							},
 							{
 								Field: "DiscoveredKey",
@@ -104,23 +105,39 @@ func TestUnmarshal(t *testing.T) {
 					{
 						"@ptr":           "bar",
 						"@message":       "bar message",
-						"@timestamp":     time.Time{},
+						"@timestamp":     "",
 						"DiscoveredKey":  "DiscoveredStringValue",
 						"DiscoveredKey2": -123.0,
 					},
 					{
 						"@ptr":       "baz",
 						"@message":   "baz message",
-						"@timestamp": time.Time{},
+						"@timestamp": "2021-06-19 03:59:59.936",
 						"DiscoveredKey": map[string]interface{}{
 							"k":  "string",
-							"k2": 1,
-							"k3": []interface{}{"another string", nil, 10},
+							"k2": 1.0,
+							"k3": []interface{}{"another string", nil, 10.0},
 						},
 						"DiscoveredKey2": 1.5,
 					},
 				},
 			},
+
+			{
+				name: "map[value:*interface{},data:nil]",
+				v:    &[]map[string]*interface{}{},
+				w:    &[]map[string]*interface{}{},
+			},
+			{
+				name: "map[value:*interface{},data:empty]",
+				data: []Result{},
+				v:    &[]map[string]*interface{}{},
+				w:    &[]map[string]*interface{}{},
+			},
+			// TODO: Next one is more challenging [single], since the value has
+			//       to be a pointer to an interface...
+
+			// TODO: Put *interface{} and **interface tests.
 
 			{
 				name: "map[value:string,data:nil]",
@@ -193,7 +210,7 @@ func TestUnmarshal(t *testing.T) {
 							},
 							{
 								Field: "@ingestionTime",
-								Value: "TODO: put timestamp",
+								Value: "2021-06-19 03:59:59.936",
 							},
 							{
 								Field: "DiscoveredKey",
@@ -217,50 +234,13 @@ func TestUnmarshal(t *testing.T) {
 						"@ptr":           "Bonjour!",
 						"@log":           "111100001111:/some/log",
 						"@logStream":     "fizzle-fizzle",
-						"@ingestionTime": "TODO: put timestamp",
-						"@DiscoveredKey": "null",
+						"@ingestionTime": "2021-06-19 03:59:59.936",
+						"DiscoveredKey":  "null",
 					},
 				},
 			},
 
-			{
-				name: "struct[value:json->string,data:nil]",
-			},
-			{
-				name: "struct[value:json->string,data:empty]",
-			},
-			{
-				name: "struct[value:json->string,data:single]",
-			},
-			{
-				name: "struct[value:json->string,data:multiple]",
-			},
-
-			{
-				name: "struct[value:json->map,data:nil]",
-			},
-			{
-				name: "struct[value:json->map,data:empty]",
-			},
-			{
-				name: "struct[value:json->map,data:single]",
-			},
-			{
-				name: "struct[value:json->map,data:multiple]",
-			},
-
-			{
-				name: "struct[value:json->structured,data:nil]",
-			},
-			{
-				name: "struct[value:json->structured,data:empty]",
-			},
-			{
-				name: "struct[value:json->structured,data:single]",
-			},
-			{
-				name: "struct[value:json->structured,data:multiple]",
-			},
+			// TODO: Put *string and **string tests here.
 		}
 
 		for _, testCase := range testCases {
