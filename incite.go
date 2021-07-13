@@ -104,12 +104,27 @@ type Reader interface {
 	Read(p []Result) (n int, err error)
 }
 
-// Stream allows query results as a stream.
+// Stream provides access to the result stream from a query operation either
+// using a QueryManager or the global Query function.
 //
-// A stream can be obtained from
+// Use the Close method if you need to prematurely cancel the query operation,
+// releasing the local (in-process) and remote (in the CloudWatch Logs service)
+// resources it consumes.
+//
+// Use the Read method to read query results from the stream. The Read method
+// returns io.EOF when the entire results stream has been consumed. At this
+// point the query is over and all local and remote resources have been released,
+// so it is not necessary to close the stream explicitly.
+//
+// Use the GetStats method to obtain the Insights statistics pertaining to the
+// query. Note that the results from the GetStats method may change over time
+// as new results are pulled from the CloudWatch Logs web service, but will stop
+// changing after the Read method returns io.EOF. If the query was chunked, the
+// stats will be summed across multiple chunks.
 type Stream interface {
 	io.Closer
 	Reader
+	StatsGetter
 }
 
 type mgr struct {
@@ -593,6 +608,16 @@ type stream struct {
 	err     error         // Error to return, if any
 }
 
+func (s *stream) Close() error {
+	if !s.setErr(ErrClosed, true) {
+		return ErrClosed
+	}
+
+	s.cancel()
+	s.blocks, s.i, s.j = nil, 0, 0
+	return nil
+}
+
 func (s *stream) Read(r []Result) (int, error) {
 	for {
 		n, err := s.read(r)
@@ -607,14 +632,8 @@ func (s *stream) Read(r []Result) (int, error) {
 	}
 }
 
-func (s *stream) Close() error {
-	if !s.setErr(ErrClosed, true) {
-		return ErrClosed
-	}
-
-	s.cancel()
-	s.blocks, s.i, s.j = nil, 0, 0
-	return nil
+func (s *stream) GetStats() Stats {
+	return Stats{} // TODO.
 }
 
 func (s *stream) read(r []Result) (int, error) {
