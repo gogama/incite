@@ -23,5 +23,5 @@ func (w *wrappedErr) Unwrap() error {
 }
 
 const (
-	nilStreamMsg = "incite: nil stream"
+	nilReaderMsg = "incite: nil reader"
 )

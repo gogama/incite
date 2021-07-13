@@ -555,14 +555,11 @@ func (dummy *indirectDummyTextUnmarshaler) UnmarshalText(t []byte) error {
 
 var single = []Result{r("@ptr", "foo")}
 
-func r(fieldvals ...string) (result Result) {
-	for i := 1; i < len(fieldvals); i += 2 {
-		field := fieldvals[i-1]
-		value := fieldvals[i]
-		if field == "@ptr" {
-			result.Ptr = value
-		}
-		result.Fields = append(result.Fields, ResultField{
+func r(pairs ...string) (result Result) {
+	for i := 1; i < len(pairs); i += 2 {
+		field := pairs[i-1]
+		value := pairs[i]
+		result = append(result, ResultField{
 			Field: field,
 			Value: value,
 		})

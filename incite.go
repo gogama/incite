@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	ErrClosed        = errors.New("incite: operation on a closed object")
-	ErrManagerClosed = errors.New("incite: query manager was closed")
+	// ErrClosed is the error returned by a read or query operation
+	// when the underlying stream or query manager has been closed.
+	ErrClosed = errors.New("incite: operation on a closed object")
 )
 
 type Config struct {
@@ -31,7 +32,7 @@ type QuerySpec struct {
 	End   time.Time
 
 	// TODO: Allow Chunk to be zero (no chunks), but QuerySpec() validation step needs
-	//       to correct it, in that case, to be the size of the
+	//       to correct it, in that case, to be the full size of the time range.
 	Chunk    time.Duration
 	Preview  bool
 	Priority int
@@ -43,45 +44,10 @@ type ResultField struct {
 	Value string
 }
 
-type Result struct {
-	Ptr    string // TODO: should Ptr be made unexported? It's more for internal use.
-	Fields []ResultField
-}
+type Result []ResultField
 
 type Queryer interface {
 	Query(q QuerySpec) (Stream, error)
-}
-
-// Query is sweet sweet sugar to perform a synchronous CloudWatch Logs Insights
-// query and get back all the results without needing to construct a
-// QueryManager.
-//
-// This function is intended for quick prototyping and simple scripting and
-// command-line interface use cases. More complex applications, especially
-// applications running concurrent queries against the same region from multiple
-// goroutines, should construct and configure a QueryManager explicitly.
-//
-// The input query may be either a QuerySpec or a bare string containing the text
-// of an Insights query. If the query is a bare string, then it is treated like
-// a zero-value QuerySpec which has had its Text member set to the string.
-func Query(caps CloudWatchLogsCaps, q interface{}) ([]Result, error) {
-	m := NewQueryManager(Config{
-		Caps: caps,
-	})
-	var qs QuerySpec
-	switch q2 := q.(type) {
-	case QuerySpec:
-		qs = q2
-	case string:
-		qs.Text = q2
-	default:
-		return nil, fmt.Errorf("incite: invalid query type: must be string or QuerySpec")
-	}
-	s, err := m.Query(qs)
-	if err != nil {
-		return nil, err
-	}
-	return ReadAll(s)
 }
 
 type Stats struct {
@@ -94,19 +60,56 @@ type StatsGetter interface {
 	GetStats() Stats
 }
 
+// QueryManager manages CloudWatch Insights queries for one underlying
+// CloudWatch Logs connection. Use NewQueryManager to create a new query
+// manager instance.
 type QueryManager interface {
 	io.Closer
 	Queryer
 	StatsGetter
 }
 
+// Reader is the interface that wraps the basic Read method.
+//
+// Read reads up to len(p) CloudWatch Logs Insights results into p. It
+// returns the number of results read (0 <= n <= len(p)) and any error
+// encountered. Even if Read returns n < len(p), it may use all of p as
+// scratch space during the call. If some data are available but fewer
+// than len(p) results, Read conventionally returns what is available
+// instead of waiting for more.
+//
+// When Read encounters an error or end-of-file condition after
+// successfully reading n > 0 results, it returns the number of results
+// read. It may return the (non-nil) error from the same call or return
+// the error (and n == 0) from a subsequent call. An instance of this
+// general case is that a Reader returning a non-zero number of results
+// at the end of the input stream may return either err == EOF or
+// err == nil. The next Read should return 0, EOF.
+//
+// Callers should always process the n > 0 results returned before
+// considering the error err. Doing so correctly handles I/O errors
+// that happen after reading some results and also both of the allowed
+// EOF behaviors.
+//
+// Implementations of Read are discouraged from returning a zero result
+// count with a nil error, except when len(p) == 0. Callers should treat
+// a return of 0 and nil as indicating that nothing happened; in
+// particular it does not indicate EOF.
+//
+// Implementations must not retain p.
+//
+// As a convenience, the ReadAll function may be used to read all
+// remaining results available in a reader.
+type Reader interface {
+	Read(p []Result) (n int, err error)
+}
+
+// Stream allows query results as a stream.
+//
+// A stream can be obtained from
 type Stream interface {
 	io.Closer
 	Reader
-}
-
-type Reader interface {
-	Read([]Result) (int, error)
 }
 
 type mgr struct {
@@ -128,6 +131,8 @@ type mgr struct {
 	waiting bool
 }
 
+// NewQueryManager returns a new query manager with the given
+// configuration.
 func NewQueryManager(cfg Config) QueryManager {
 	// TODO: Validate and update Config here.
 	m := &mgr{
@@ -177,7 +182,7 @@ func (m *mgr) shutdown() {
 
 	// Close all open streams.
 	for _, s := range m.pq {
-		s.setErr(ErrManagerClosed, true)
+		s.setErr(ErrClosed, true)
 	}
 
 	// On a best effort basis, close all open chunks.
@@ -440,7 +445,7 @@ func translateResultsPart(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]
 			return nil, errNoPtr(c.id)
 		}
 		if !c.ptr[*ptr] {
-			rr, err := translateResultPtr(c.id, r, *ptr)
+			rr, err := translateResult(c.id, r)
 			if err != nil {
 				return nil, err
 			}
@@ -452,9 +457,7 @@ func translateResultsPart(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]
 }
 
 func translateResult(id string, r []*cloudwatchlogs.ResultField) (Result, error) {
-	rr := Result{
-		Fields: make([]ResultField, len(r)),
-	}
+	rr := make(Result, len(r))
 	for i, f := range r {
 		k, v := f.Field, f.Value
 		if k == nil {
@@ -463,34 +466,7 @@ func translateResult(id string, r []*cloudwatchlogs.ResultField) (Result, error)
 		if v == nil {
 			return Result{}, errNoValue(id, *k)
 		}
-		if rr.Ptr == "" && *k == "@ptr" {
-			rr.Ptr = *k
-		}
-		rr.Fields[i] = ResultField{
-			Field: *k,
-			Value: *v,
-		}
-	}
-	if rr.Ptr == "" {
-		return Result{}, errNoPtr(id)
-	}
-	return rr, nil
-}
-
-func translateResultPtr(id string, r []*cloudwatchlogs.ResultField, ptr string) (Result, error) {
-	rr := Result{
-		Ptr:    ptr,
-		Fields: make([]ResultField, len(r)),
-	}
-	for i, f := range r {
-		k, v := f.Field, f.Value
-		if k == nil {
-			return Result{}, errNoKey(id)
-		}
-		if v == nil {
-			return Result{}, errNoValue(id, *k)
-		}
-		rr.Fields[i] = ResultField{
+		rr[i] = ResultField{
 			Field: *k,
 			Value: *v,
 		}

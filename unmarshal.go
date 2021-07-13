@@ -20,10 +20,6 @@ import (
 //
 // TODO: Finish documentation here.
 func Unmarshal(data []Result, v interface{}) error {
-	if data == nil {
-		// TODO: panic here.
-	}
-
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr {
 		return &InvalidUnmarshalError{TargetType: reflect.TypeOf(v)}
@@ -199,7 +195,7 @@ type decodeState struct {
 }
 
 func (s *decodeState) col() *ResultField {
-	return &s.data[s.i].Fields[s.j]
+	return &s.data[s.i][s.j]
 }
 
 type selectFunc func(reflect.Type) (decodeFunc, error)
@@ -218,10 +214,12 @@ func (s *decodeState) selRowDecodeFunc(rowType reflect.Type) (decodeFunc, error)
 	case reflect.Map:
 		return s.selMapRowDecodeFunc(rowType)
 	case reflect.Struct:
+		return s.selStructRowDecodeFunc(rowType)
+	case reflect.Slice:
 		if rowType == resultType {
 			return decodeRowByCopying, nil
 		}
-		return s.selStructRowDecodeFunc(rowType)
+		fallthrough
 	default:
 		return nil, &InvalidUnmarshalError{TargetType: s.rv.Type(), ElemType: rowType}
 	}
@@ -250,7 +248,7 @@ func (s *decodeState) selMapRowDecodeFunc(mapRowType reflect.Type) (decodeFunc, 
 	return func(s *decodeState) error {
 		dst := s.dst
 		defer func() { s.dst = dst }()
-		n := len(s.data[s.i].Fields)
+		n := len(s.data[s.i])
 		m := reflect.MakeMapWithSize(mapRowType, n)
 		for s.j = 0; s.j < n; s.j++ {
 			x := reflect.New(immediateType).Elem()
@@ -293,7 +291,7 @@ func (s *decodeState) selStructRowDecodeFunc(structRowType reflect.Type) (decode
 	return func(s *decodeState) error {
 		dst := s.dst
 		defer func() { s.dst = dst }()
-		for s.j = 0; s.j < len(s.data[s.i].Fields); s.j++ {
+		for s.j = 0; s.j < len(s.data[s.i]); s.j++ {
 			col := s.col()
 			if df, ok := dfs[col.Field]; ok {
 				s.dst = fill(dst.Field(df.fieldIndex), df.depth)
@@ -498,15 +496,12 @@ func decodeColAsInsightsTime(s *decodeState) error {
 }
 
 func copyResult(r Result) Result {
-	var fields []ResultField
-	if r.Fields != nil {
-		fields = make([]ResultField, len(r.Fields))
-		copy(fields, r.Fields)
+	var r2 Result
+	if r != nil {
+		r2 = make([]ResultField, len(r))
+		copy(r2, r)
 	}
-	return Result{
-		Ptr:    r.Ptr,
-		Fields: fields,
-	}
+	return r2
 }
 
 // An InvalidUnmarshalError describes an invalid type passed to Unmarshal.
