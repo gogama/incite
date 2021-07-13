@@ -28,18 +28,8 @@ func TestUnmarshal(t *testing.T) {
 			},
 			{
 				name: "map[value:interface{},data:single]",
-				data: []Result{
-					{
-						Ptr: "foo",
-						Fields: []ResultField{
-							{
-								Field: "@ptr",
-								Value: "foo",
-							},
-						},
-					},
-				},
-				v: &[]map[string]interface{}{},
+				data: single,
+				v:    &[]map[string]interface{}{},
 				w: &[]map[string]interface{}{
 					{
 						"@ptr": "foo",
@@ -134,10 +124,76 @@ func TestUnmarshal(t *testing.T) {
 				v:    &[]map[string]*interface{}{},
 				w:    &[]map[string]*interface{}{},
 			},
-			// TODO: Next one is more challenging [single], since the value has
-			//       to be a pointer to an interface...
+			{
+				name: "map[value:*interface{},data:multiple]",
+				data: []Result{
+					{
+						Ptr: "foo",
+						Fields: []ResultField{
+							{
+								Field: "@ptr",
+								Value: "bar",
+							},
+							{
+								Field: "Discovered1Key",
+								Value: "Discovered1Value",
+							},
+						},
+					},
+				},
+				v: &[]map[string]*interface{}{
+					{
+						"Discovered1Key": ip("baz"),
+					},
+				},
+				w: &[]map[string]*interface{}{
+					{
+						"@ptr":           ip("bar"),
+						"Discovered1Key": ip("Discovered1Value"),
+					},
+				},
+			},
 
-			// TODO: Put *interface{} and **interface tests.
+			{
+				name: "map[value:*interface{},data:nil]",
+				v:    &[]map[string]**interface{}{},
+				w:    &[]map[string]**interface{}{},
+			},
+			{
+				name: "map[value:*interface{},data:empty]",
+				data: []Result{},
+				v:    &[]map[string]**interface{}{},
+				w:    &[]map[string]**interface{}{},
+			},
+			{
+				name: "map[value:*interface{},data:single]",
+				data: []Result{
+					{
+						Ptr: "foo",
+						Fields: []ResultField{
+							{
+								Field: "@ptr",
+								Value: "bar",
+							},
+							{
+								Field: "Discovered1Key",
+								Value: "Discovered1Value",
+							},
+						},
+					},
+				},
+				v: &[]map[string]**interface{}{
+					{
+						"Discovered1Key": ipp("baz"),
+					},
+				},
+				w: &[]map[string]**interface{}{
+					{
+						"@ptr":           ipp("bar"),
+						"Discovered1Key": ipp("Discovered1Value"),
+					},
+				},
+			},
 
 			{
 				name: "map[value:string,data:nil]",
@@ -152,6 +208,24 @@ func TestUnmarshal(t *testing.T) {
 			},
 			{
 				name: "map[value:string,data:single]",
+				data: single,
+				v: &[]map[string]string{
+					{
+						"this": "will be deleted",
+						"and":  "this will too",
+					},
+					{
+						"this": "whole slice element will go away",
+					},
+				},
+				w: &[]map[string]string{
+					{
+						"@ptr": "foo",
+					},
+				},
+			},
+			{
+				name: "map[value:string,data:multiple]",
 				data: []Result{
 					{
 						Fields: []ResultField{
@@ -240,8 +314,188 @@ func TestUnmarshal(t *testing.T) {
 				},
 			},
 
-			// TODO: Put *string and **string tests here.
+			{
+				name: "map[value:*string,data:nil]",
+				v:    &[]map[string]*string{},
+				w:    &[]map[string]*string{},
+			},
+			{
+				name: "map[value:*string,data:empty]",
+				data: []Result{},
+				v:    &[]map[string]*string{},
+				w:    &[]map[string]*string{},
+			},
+			{
+				name: "map[value:*string,data:multiple]",
+				data: []Result{
+					{
+						Fields: []ResultField{
+							{
+								Field: "@message",
+								Value: `["world"]`,
+							},
+							{
+								Field: "@ptr",
+								Value: "hello",
+							},
+							{
+								Field: "DiscoveredKey",
+								Value: "10",
+							},
+						},
+					},
+				},
+				v: &[]map[string]*string{
+					{
+						"@message": nil,
+					},
+				},
+				w: &[]map[string]*string{
+					{
+						"@ptr":          sp("hello"),
+						"@message":      sp(`["world"]`),
+						"DiscoveredKey": sp("10"),
+					},
+				},
+			},
+
+			{
+				name: "map[value:**string,data:nil]",
+				v:    &[]map[string]**string{},
+				w:    &[]map[string]**string{},
+			},
+			{
+				name: "map[value:**string,data:empty]",
+				data: []Result{},
+				v:    &[]map[string]**string{},
+				w:    &[]map[string]**string{},
+			},
+			{
+				name: "map[value:**string,data:multiple]",
+				data: []Result{
+					{
+						Fields: []ResultField{
+							{
+								Field: "@message",
+								Value: `["world"]`,
+							},
+							{
+								Field: "@ptr",
+								Value: "hello",
+							},
+							{
+								Field: "DiscoveredKey",
+								Value: "10",
+							},
+						},
+					},
+				},
+				v: &[]map[string]**string{
+					{
+						"@ptr":     nil,
+						"@message": spp("forgotten value"),
+					},
+				},
+				w: &[]map[string]**string{
+					{
+						"@ptr":          spp("hello"),
+						"@message":      spp(`["world"]`),
+						"DiscoveredKey": spp("10"),
+					},
+				},
+			},
+
+			{
+				name: "map[value:directDummyTextUnmarshaler,data:nil]",
+				v:    &[]map[string]directDummyTextUnmarshaler{},
+				w:    &[]map[string]directDummyTextUnmarshaler{},
+			},
+			{
+				name: "map[value:directDummyTextUnmarshaler,data:empty]",
+				data: []Result{},
+				v:    &[]map[string]directDummyTextUnmarshaler{},
+				w:    &[]map[string]directDummyTextUnmarshaler{},
+			},
+			{
+				name: "map[value:directDummyTextUnmarshaler,data:single]",
+				data: single,
+				v:    &[]map[string]directDummyTextUnmarshaler{},
+				w: &[]map[string]directDummyTextUnmarshaler{
+					{
+						"@ptr": nil,
+					},
+				},
+			},
+
+			{
+				name: "map[value:*directDummyTextUnmarshaler,data:nil]",
+				v:    &[]map[string]*directDummyTextUnmarshaler{},
+				w:    &[]map[string]*directDummyTextUnmarshaler{},
+			},
+			{
+				name: "map[value:*directDummyTextUnmarshaler,data:empty]",
+				data: []Result{},
+				v:    &[]map[string]*directDummyTextUnmarshaler{},
+				w:    &[]map[string]*directDummyTextUnmarshaler{},
+			},
+			{
+				name: "map[value:*directDummyTextUnmarshaler,data:single]",
+				data: single,
+				v:    &[]map[string]*directDummyTextUnmarshaler{},
+				w: &[]map[string]*directDummyTextUnmarshaler{
+					{
+						"@ptr": new(directDummyTextUnmarshaler),
+					},
+				},
+			},
+
+			{
+				name: "map[value:indirectDummyTextUnmarshaler,data:nil]",
+				v:    &[]map[string]indirectDummyTextUnmarshaler{},
+				w:    &[]map[string]indirectDummyTextUnmarshaler{},
+			},
+			{
+				name: "map[value:indirectDummyTextUnmarshaler,data:empty]",
+				data: []Result{},
+				v:    &[]map[string]indirectDummyTextUnmarshaler{},
+				w:    &[]map[string]indirectDummyTextUnmarshaler{},
+			},
+			{
+				name: "map[value:indirectDummyTextUnmarshaler,data:single]",
+				data: single,
+				v:    &[]map[string]indirectDummyTextUnmarshaler{},
+				w: &[]map[string]indirectDummyTextUnmarshaler{
+					{
+						"@ptr": indirectDummyTextUnmarshaler{"foo"},
+					},
+				},
+			},
+
+			{
+				name: "map[value:*indirectDummyTextUnmarshaler,data:nil]",
+				v:    &[]map[string]*indirectDummyTextUnmarshaler{},
+				w:    &[]map[string]*indirectDummyTextUnmarshaler{},
+			},
+			{
+				name: "map[value:*indirectDummyTextUnmarshaler,data:empty]",
+				data: []Result{},
+				v:    &[]map[string]*indirectDummyTextUnmarshaler{},
+				w:    &[]map[string]*indirectDummyTextUnmarshaler{},
+			},
+			{
+				name: "map[value:*indirectDummyTextUnmarshaler,data:single]",
+				data: single,
+				v:    &[]map[string]*indirectDummyTextUnmarshaler{},
+				w: &[]map[string]*indirectDummyTextUnmarshaler{
+					{
+						"@ptr": &indirectDummyTextUnmarshaler{"foo"},
+					},
+				},
+			},
 		}
+
+		// TODO: Overflow case.
+		// TODO: Array case.
 
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {
@@ -274,4 +528,52 @@ func TestUnmarshal(t *testing.T) {
 			})
 		}
 	})
+}
+
+func ip(i interface{}) *interface{} {
+	return &i
+}
+
+func ipp(i interface{}) **interface{} {
+	p := ip(i)
+	return &p
+}
+
+func sp(s string) *string {
+	return &s
+}
+
+func spp(s string) **string {
+	p := sp(s)
+	return &p
+}
+
+type directDummyTextUnmarshaler []string
+
+func (dummy directDummyTextUnmarshaler) UnmarshalText(t []byte) error {
+	if len(dummy) > 0 {
+		dummy[0] = string(t)
+	}
+	return nil
+}
+
+type indirectDummyTextUnmarshaler struct {
+	s string
+}
+
+func (dummy *indirectDummyTextUnmarshaler) UnmarshalText(t []byte) error {
+	dummy.s = string(t)
+	return nil
+}
+
+var single = []Result{
+	{
+		Ptr: "foo",
+		Fields: []ResultField{
+			{
+				Field: "@ptr",
+				Value: "foo",
+			},
+		},
+	},
 }

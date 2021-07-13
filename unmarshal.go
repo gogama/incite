@@ -72,7 +72,7 @@ func array(data []Result, rv, a reflect.Value) error {
 		rv:   rv,
 		data: data,
 	}
-	depth, elemType := dig(a.Type().Elem())
+	elemType, depth := dig(a.Type().Elem())
 	f, err := s.selRowDecodeFunc(elemType)
 	if err != nil {
 		return err
@@ -80,7 +80,7 @@ func array(data []Result, rv, a reflect.Value) error {
 	for i := range data {
 		s.i = i
 		s.j = -1
-		s.dst = build(a.Index(i), depth)
+		s.dst = fill(a.Index(i), depth)
 		err = f(&s)
 		if err != nil {
 			return err
@@ -89,21 +89,39 @@ func array(data []Result, rv, a reflect.Value) error {
 	return nil
 }
 
-func dig(t reflect.Type) (depth int, valueType reflect.Type) {
+// dig finds and returns the ultimate non-pointer value type at the end
+// of a possible chain of pointers. The returned depth is the number of
+// pointers traversed: it is zero if the input type is not a pointer and
+// positive otherwise. The returned type either the input type itself
+// (if the input type is not a pointer type) or the value type obtained
+// by traversing all the pointer types otherwise.
+//
+// Examples
+// 	intType := reflect.TypeOf(int(0))
+// 	dig(intType) -> (intType, 0)
+//
+// 	intPtrType := reflect.PtrTo(intType)
+// 	dig(intPtrType) -> (intType, 1)
+func dig(t reflect.Type) (ultimateType reflect.Type, depth int) {
 	for t.Kind() == reflect.Ptr {
 		depth++
 		t = t.Elem()
 	}
-	valueType = t
+	ultimateType = t
 	return
 }
 
-func build(v reflect.Value, depth int) reflect.Value {
+// fill traverses a chain of pointers, filling nil pointers with newly
+// allocated values, and returns an addressable value representing the
+// ultimate non-pointer value at the end of the chain. The input value
+// MUST be addressable and MAY be a pointer. The input depth specifies
+// the number of pointers in the chain, including the input value.
+func fill(v reflect.Value, depth int) reflect.Value {
 	for i := 0; i < depth; i++ {
 		if v.IsNil() {
-			p := reflect.New(v.Type())
+			p := reflect.New(v.Type().Elem())
 			v.Set(p)
-			v = p
+			v = p.Elem()
 		} else {
 			v = v.Elem()
 		}
@@ -151,6 +169,8 @@ func build(v reflect.Value, depth int) reflect.Value {
 //        Insights @timestamp format and why it doesn't work with time.Time and json packages: https://play.golang.org/p/USdNBPM-mVv
 //        How tags work in reflection: https://play.golang.org/p/tt8t4zN8KWO
 //        How to set a certain index of a slice to a non-nil map value: https://play.golang.org/p/R2nDxvnkFum
+//        How addressability works in a bunch of circumstances: https://play.golang.org/p/tYXku9BFkWx
+//            It is obviously correct when you think about it, but also a bit strange.
 //
 // For map stores, the process should be:
 //     1. Get the value from the map.
@@ -210,13 +230,13 @@ func (s *decodeState) selMapRowDecodeFunc(mapRowType reflect.Type) (decodeFunc, 
 	if keyType.Kind() != reflect.String {
 		return nil, &InvalidUnmarshalError{TargetType: s.rv.Type(), ElemType: mapRowType}
 	}
-	indirectType := mapRowType.Elem()
-	depth, directType := dig(mapRowType.Elem())
+	immediateType := mapRowType.Elem()
+	ultimateType, depth := dig(mapRowType.Elem())
 	var f decodeFunc
-	if reflect.PtrTo(directType).Implements(textUnmarshalerType) {
+	if reflect.PtrTo(ultimateType).Implements(textUnmarshalerType) {
 		f = decodeColToTextUnmarshaler
 	} else {
-		switch directType.Kind() {
+		switch ultimateType.Kind() {
 		case reflect.String:
 			f = decodeColToString
 		case reflect.Interface:
@@ -231,12 +251,13 @@ func (s *decodeState) selMapRowDecodeFunc(mapRowType reflect.Type) (decodeFunc, 
 		n := len(s.data[s.i].Fields)
 		m := reflect.MakeMapWithSize(mapRowType, n)
 		for s.j = 0; s.j < n; s.j++ {
-			s.dst = build(reflect.New(indirectType).Elem(), depth)
+			x := reflect.New(immediateType).Elem()
+			s.dst = fill(x, depth)
 			err := f(s)
 			if err != nil {
 				return err
 			}
-			m.SetMapIndex(reflect.ValueOf(s.col().Field), s.dst)
+			m.SetMapIndex(reflect.ValueOf(s.col().Field), x)
 		}
 		dst.Set(m)
 		s.dst = dst
@@ -273,7 +294,7 @@ func (s *decodeState) selStructRowDecodeFunc(structRowType reflect.Type) (decode
 		for s.j = 0; s.j < len(s.data[s.i].Fields); s.j++ {
 			col := s.col()
 			if df, ok := dfs[col.Field]; ok {
-				s.dst = build(dst.Field(df.fieldIndex), df.depth)
+				s.dst = fill(dst.Field(df.fieldIndex), df.depth)
 				err := df.decodeFunc(s)
 				if err != nil {
 					// TODO: return real error
@@ -316,7 +337,7 @@ func selStructRowColDecodeFunc(structField *reflect.StructField) (field string, 
 	}
 
 	var valueType reflect.Type
-	depth, valueType = dig(structField.Type)
+	valueType, depth = dig(structField.Type)
 	f, err = selector(valueType)
 	if err != nil {
 		// Convert err into the correct desired error.
@@ -416,7 +437,7 @@ func decodeColToBool(s *decodeState) error {
 	if err != nil {
 		return errors.New("TODO: put error")
 	}
-	s.dst.Set(reflect.ValueOf(b))
+	s.dst.SetBool(b)
 	return nil
 }
 
