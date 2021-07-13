@@ -1,15 +1,13 @@
 package incite
 
-import "io"
+import (
+	"io"
+)
 
 // ReadAll reads from s until an error or EOF and returns the data it read. A
 // successful call returns err == nil, nor err == EOF. Because ReadAll is
-// defined to read from s until EOF, it does not tread an EOF from Read as an
+// defined to read from s until EOF, it does not treat an EOF from Read as an
 // error to be reported.
-//
-// ReadAll does not close r if r is closeable, even after successfully reading
-// all its results. Consequently, it remains the caller's responsibility to
-// close r if r is a Stream.
 func ReadAll(r Reader) ([]Result, error) {
 	if r == nil {
 		panic(nilReaderMsg)

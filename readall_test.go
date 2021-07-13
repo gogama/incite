@@ -2,6 +2,8 @@ package incite
 
 import (
 	"errors"
+	"io"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -19,18 +21,125 @@ func TestReadAll(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		expectedErr := errors.New("foo")
 		m := newMockReader(t)
-		m.On("Read", mock.Anything).Return(0, expectedErr)
+		m.
+			On("Read", matchResultsSliceLen(1, maxLen)).Return(0, expectedErr).
+			Once()
 
-		r, actualErr := ReadAll(m)
+		rs, actualErr := ReadAll(m)
 
+		m.AssertExpectations(t)
 		assert.Error(t, actualErr)
 		assert.Same(t, expectedErr, actualErr)
-		assert.Equal(t, []Result{}, r)
+		assert.Equal(t, []Result{}, rs)
 	})
 
 	t.Run("Success", func(t *testing.T) {
-		// TODO: Add test cases here.
-		// FIXME: The most important part is unfinished!
+		t.Run("ZeroEOF", func(t *testing.T) {
+			m := newMockReader(t)
+			m.
+				On("Read", matchResultsSliceLen(1, maxLen)).
+				Return(0, io.EOF).
+				Once()
+
+			rs, err := ReadAll(m)
+
+			m.AssertExpectations(t)
+			assert.NoError(t, err)
+			assert.Equal(t, []Result{}, rs)
+		})
+
+		t.Run("PositiveEOF", func(t *testing.T) {
+			var expectedData []Result
+			m := newMockReader(t)
+			m.On("Read", matchResultsSliceLen(1, maxLen)).
+				Run(fillResultSlice(&expectedData, func(_ int) int { return 1 })).
+				Return(1, io.EOF).
+				Once()
+
+			rs, err := ReadAll(m)
+
+			m.AssertExpectations(t)
+			assert.NoError(t, err)
+			assert.Equal(t, []Result{r("@ptr", "0")}, rs)
+		})
+
+		t.Run("NothingHappened", func(t *testing.T) {
+			m := newMockReader(t)
+			m.
+				On("Read", matchResultsSliceLen(1, maxLen)).
+				Return(0, nil).
+				Once()
+			m.
+				On("Read", matchResultsSliceLen(1, maxLen)).
+				Return(0, io.EOF).
+				Once()
+
+			rs, err := ReadAll(m)
+
+			m.AssertExpectations(t)
+			assert.NoError(t, err)
+			assert.Equal(t, []Result{}, rs)
+		})
+
+		t.Run("GotLessThanInitialCap", func(t *testing.T) {
+			var expectedData []Result
+			m := newMockReader(t)
+			m.On("Read", matchResultsSliceLen(1, maxLen)).
+				Run(fillResultSlice(&expectedData, func(n int) int { return n - 1 })).
+				Return(lenFunc(func(n int) int { return n - 1 }), io.EOF).
+				Once()
+
+			rs, err := ReadAll(m)
+
+			m.AssertExpectations(t)
+			assert.NoError(t, err)
+			assert.NotEmpty(t, rs)
+			for i := range rs {
+				assert.Equal(t, r("@ptr", strconv.Itoa(i)), rs[i], "mismatch at index %d", i)
+			}
+		})
+
+		t.Run("GotExactlyInitialCap", func(t *testing.T) {
+			var expectedData []Result
+			m := newMockReader(t)
+			m.On("Read", matchResultsSliceLen(1, maxLen)).
+				Run(fillResultSlice(&expectedData, func(n int) int { return n })).
+				Return(lenFunc(func(n int) int { return n }), io.EOF).
+				Once()
+
+			rs, err := ReadAll(m)
+
+			m.AssertExpectations(t)
+			assert.NoError(t, err)
+			assert.NotEmpty(t, rs)
+			for i := range rs {
+				assert.Equal(t, r("@ptr", strconv.Itoa(i)), rs[i], "mismatch at index %d", i)
+			}
+		})
+
+		t.Run("GotMoreThanInitialCap", func(t *testing.T) {
+			var expectedData1, expectedData2 []Result
+			m := newMockReader(t)
+			m.On("Read", matchResultsSliceLen(1, maxLen)).
+				Run(fillResultSlice(&expectedData1, func(n int) int { return n })).
+				Return(lenFunc(func(n int) int { return n }), nil).
+				Once()
+			m.On("Read", matchResultsSliceLen(1, maxLen)).
+				Run(fillResultSlice(&expectedData2, func(n int) int { return 1 })).
+				Return(lenFunc(func(n int) int { return 1 }), io.EOF).
+				Once()
+
+			rs, err := ReadAll(m)
+
+			m.AssertExpectations(t)
+			assert.NoError(t, err)
+			assert.NotEmpty(t, rs)
+			assert.Len(t, rs, len(expectedData1)+1)
+			for i := range expectedData1 {
+				assert.Equal(t, r("@ptr", strconv.Itoa(i)), rs[i], "mismatch at index %d", i)
+			}
+			assert.Equal(t, r("@ptr", "0"), rs[len(expectedData1)], "mismatch at index %d", len(expectedData1))
+		})
 	})
 }
 
@@ -45,7 +154,35 @@ func newMockReader(t *testing.T) *mockReader {
 	return m
 }
 
+type lenFunc func(n int) int
+
 func (m *mockReader) Read(r []Result) (int, error) {
 	args := m.Called(r)
-	return args.Int(0), args.Error(1)
+	var n int
+	if f, ok := args.Get(0).(lenFunc); ok {
+		n = f(len(r))
+	} else {
+		n = args.Int(0)
+	}
+	return n, args.Error(1)
+}
+
+const maxLen = int(^uint(0) >> 1)
+
+func matchResultsSliceLen(min, max int) interface{} {
+	return mock.MatchedBy(func(r []Result) bool {
+		return len(r) >= min && len(r) <= max
+	})
+}
+
+func fillResultSlice(expected *[]Result, lenFunc lenFunc) func(args mock.Arguments) {
+	return func(args mock.Arguments) {
+		buffer := args[0].([]Result)
+		*expected = make([]Result, lenFunc(len(buffer)))
+		for i := range *expected {
+			ri := r("@ptr", strconv.Itoa(i))
+			buffer[i] = ri
+			(*expected)[i] = ri
+		}
+	}
 }
