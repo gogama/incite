@@ -16,18 +16,84 @@ func TestUnmarshal(t *testing.T) {
 			// TODO: Put copy cases here.
 
 			{
-				name: "map[value:interface{},data:nil]",
+				name: "interface{},data:nil",
+				v:    ip(nil),
+				w:    ip([]map[string]string{}),
+			},
+			{
+				name: "interface{},data:empty",
+				data: []Result{},
+				v:    ip([]map[string]interface{}{}),
+				w:    ip([]map[string]string{}),
+			},
+			{
+				name: "interface{},data:single",
+				data: single,
+				v:    ip("irrelevant value"),
+				w: ip([]map[string]string{
+					{
+						"@ptr": "foo",
+					},
+				}),
+			},
+
+			{
+				name: "[]interface{},data:nil",
+				v:    &[]interface{}{},
+				w:    &[]interface{}{},
+			},
+			{
+				name: "[]interface{},data:empty",
+				data: []Result{},
+				v:    &[]interface{}{},
+				w:    &[]interface{}{},
+			},
+			{
+				name: "[]interface{},data:single",
+				data: single,
+				v:    &[]interface{}{},
+				w: &[]interface{}{
+					map[string]string{
+						"@ptr": "foo",
+					},
+				},
+			},
+
+			{
+				name: "[]*interface{},data:nil",
+				v:    &[]*interface{}{},
+				w:    &[]*interface{}{},
+			},
+			{
+				name: "[]*interface{},data:empty",
+				data: []Result{},
+				v:    &[]*interface{}{},
+				w:    &[]*interface{}{},
+			},
+			{
+				name: "[]interface{},data:single",
+				data: single,
+				v:    &[]*interface{}{},
+				w: &[]*interface{}{
+					ip(map[string]string{
+						"@ptr": "foo",
+					}),
+				},
+			},
+
+			{
+				name: "[]map[interface{}],data:nil",
 				v:    &[]map[string]interface{}{},
 				w:    &[]map[string]interface{}{},
 			},
 			{
-				name: "map[value:interface{},data:empty]",
+				name: "[]map[interface{}],data:empty",
 				data: []Result{},
 				v:    &[]map[string]interface{}{},
 				w:    &[]map[string]interface{}{},
 			},
 			{
-				name: "map[value:interface{},data:single]",
+				name: "[]map[interface{}],data:single",
 				data: single,
 				v:    &[]map[string]interface{}{},
 				w: &[]map[string]interface{}{
@@ -37,7 +103,7 @@ func TestUnmarshal(t *testing.T) {
 				},
 			},
 			{
-				name: "map[value:interface{},data:multiple]",
+				name: "[]map[interface{}],data:multiple",
 				data: []Result{
 					{
 						Ptr: "bar",
@@ -114,18 +180,18 @@ func TestUnmarshal(t *testing.T) {
 			},
 
 			{
-				name: "map[value:*interface{},data:nil]",
+				name: "[]map[*interface{}],data:nil",
 				v:    &[]map[string]*interface{}{},
 				w:    &[]map[string]*interface{}{},
 			},
 			{
-				name: "map[value:*interface{},data:empty]",
+				name: "[]map[*interface{}],data:empty",
 				data: []Result{},
 				v:    &[]map[string]*interface{}{},
 				w:    &[]map[string]*interface{}{},
 			},
 			{
-				name: "map[value:*interface{},data:multiple]",
+				name: "[]map[*interface{}],data:multiple",
 				data: []Result{
 					{
 						Ptr: "foo",
@@ -155,18 +221,18 @@ func TestUnmarshal(t *testing.T) {
 			},
 
 			{
-				name: "map[value:*interface{},data:nil]",
+				name: "[]map[*interface{}],data:nil",
 				v:    &[]map[string]**interface{}{},
 				w:    &[]map[string]**interface{}{},
 			},
 			{
-				name: "map[value:*interface{},data:empty]",
+				name: "[]map[*interface{}],data:empty",
 				data: []Result{},
 				v:    &[]map[string]**interface{}{},
 				w:    &[]map[string]**interface{}{},
 			},
 			{
-				name: "map[value:*interface{},data:single]",
+				name: "[]map[*interface{}],data:single",
 				data: []Result{
 					{
 						Ptr: "foo",
@@ -196,18 +262,18 @@ func TestUnmarshal(t *testing.T) {
 			},
 
 			{
-				name: "map[value:string,data:nil]",
+				name: "[]map[string],data:nil",
 				v:    &[]map[string]string{},
 				w:    &[]map[string]string{},
 			},
 			{
-				name: "map[value:string,data:empty]",
+				name: "[]map[string],data:empty",
 				data: []Result{},
 				v:    &[]map[string]string{},
 				w:    &[]map[string]string{},
 			},
 			{
-				name: "map[value:string,data:single]",
+				name: "[]map[string],data:single",
 				data: single,
 				v: &[]map[string]string{
 					{
@@ -225,7 +291,7 @@ func TestUnmarshal(t *testing.T) {
 				},
 			},
 			{
-				name: "map[value:string,data:multiple]",
+				name: "[]map[string],data:multiple",
 				data: []Result{
 					{
 						Fields: []ResultField{
@@ -254,7 +320,7 @@ func TestUnmarshal(t *testing.T) {
 				},
 			},
 			{
-				name: "map[value:string,data:multiple]",
+				name: "[]map[string],data:multiple",
 				data: []Result{
 					{
 						Fields: []ResultField{
@@ -315,18 +381,18 @@ func TestUnmarshal(t *testing.T) {
 			},
 
 			{
-				name: "map[value:*string,data:nil]",
+				name: "[]map[*string],data:nil",
 				v:    &[]map[string]*string{},
 				w:    &[]map[string]*string{},
 			},
 			{
-				name: "map[value:*string,data:empty]",
+				name: "[]map[*string],data:empty",
 				data: []Result{},
 				v:    &[]map[string]*string{},
 				w:    &[]map[string]*string{},
 			},
 			{
-				name: "map[value:*string,data:multiple]",
+				name: "[]map[*string],data:multiple",
 				data: []Result{
 					{
 						Fields: []ResultField{
@@ -360,18 +426,18 @@ func TestUnmarshal(t *testing.T) {
 			},
 
 			{
-				name: "map[value:**string,data:nil]",
+				name: "[]map[**string],data:nil",
 				v:    &[]map[string]**string{},
 				w:    &[]map[string]**string{},
 			},
 			{
-				name: "map[value:**string,data:empty]",
+				name: "[]map[**string],data:empty",
 				data: []Result{},
 				v:    &[]map[string]**string{},
 				w:    &[]map[string]**string{},
 			},
 			{
-				name: "map[value:**string,data:multiple]",
+				name: "[]map[**string],data:multiple",
 				data: []Result{
 					{
 						Fields: []ResultField{
@@ -406,18 +472,18 @@ func TestUnmarshal(t *testing.T) {
 			},
 
 			{
-				name: "map[value:directDummyTextUnmarshaler,data:nil]",
+				name: "[]map[directDummyTextUnmarshaler],data:nil",
 				v:    &[]map[string]directDummyTextUnmarshaler{},
 				w:    &[]map[string]directDummyTextUnmarshaler{},
 			},
 			{
-				name: "map[value:directDummyTextUnmarshaler,data:empty]",
+				name: "[]map[directDummyTextUnmarshaler],data:empty",
 				data: []Result{},
 				v:    &[]map[string]directDummyTextUnmarshaler{},
 				w:    &[]map[string]directDummyTextUnmarshaler{},
 			},
 			{
-				name: "map[value:directDummyTextUnmarshaler,data:single]",
+				name: "[]map[directDummyTextUnmarshaler],data:single",
 				data: single,
 				v:    &[]map[string]directDummyTextUnmarshaler{},
 				w: &[]map[string]directDummyTextUnmarshaler{
@@ -428,18 +494,18 @@ func TestUnmarshal(t *testing.T) {
 			},
 
 			{
-				name: "map[value:*directDummyTextUnmarshaler,data:nil]",
+				name: "[]map[*directDummyTextUnmarshaler],data:nil",
 				v:    &[]map[string]*directDummyTextUnmarshaler{},
 				w:    &[]map[string]*directDummyTextUnmarshaler{},
 			},
 			{
-				name: "map[value:*directDummyTextUnmarshaler,data:empty]",
+				name: "[]map[*directDummyTextUnmarshaler],data:empty",
 				data: []Result{},
 				v:    &[]map[string]*directDummyTextUnmarshaler{},
 				w:    &[]map[string]*directDummyTextUnmarshaler{},
 			},
 			{
-				name: "map[value:*directDummyTextUnmarshaler,data:single]",
+				name: "[]map[*directDummyTextUnmarshaler],data:single",
 				data: single,
 				v:    &[]map[string]*directDummyTextUnmarshaler{},
 				w: &[]map[string]*directDummyTextUnmarshaler{
@@ -450,18 +516,18 @@ func TestUnmarshal(t *testing.T) {
 			},
 
 			{
-				name: "map[value:indirectDummyTextUnmarshaler,data:nil]",
+				name: "[]map[indirectDummyTextUnmarshaler],data:nil",
 				v:    &[]map[string]indirectDummyTextUnmarshaler{},
 				w:    &[]map[string]indirectDummyTextUnmarshaler{},
 			},
 			{
-				name: "map[value:indirectDummyTextUnmarshaler,data:empty]",
+				name: "[]map[indirectDummyTextUnmarshaler],data:empty",
 				data: []Result{},
 				v:    &[]map[string]indirectDummyTextUnmarshaler{},
 				w:    &[]map[string]indirectDummyTextUnmarshaler{},
 			},
 			{
-				name: "map[value:indirectDummyTextUnmarshaler,data:single]",
+				name: "[]map[indirectDummyTextUnmarshaler],data:single",
 				data: single,
 				v:    &[]map[string]indirectDummyTextUnmarshaler{},
 				w: &[]map[string]indirectDummyTextUnmarshaler{
@@ -472,18 +538,18 @@ func TestUnmarshal(t *testing.T) {
 			},
 
 			{
-				name: "map[value:*indirectDummyTextUnmarshaler,data:nil]",
+				name: "[]map[*indirectDummyTextUnmarshaler],data:nil",
 				v:    &[]map[string]*indirectDummyTextUnmarshaler{},
 				w:    &[]map[string]*indirectDummyTextUnmarshaler{},
 			},
 			{
-				name: "map[value:*indirectDummyTextUnmarshaler,data:empty]",
+				name: "[]map[*indirectDummyTextUnmarshaler],data:empty",
 				data: []Result{},
 				v:    &[]map[string]*indirectDummyTextUnmarshaler{},
 				w:    &[]map[string]*indirectDummyTextUnmarshaler{},
 			},
 			{
-				name: "map[value:*indirectDummyTextUnmarshaler,data:single]",
+				name: "[]map[*indirectDummyTextUnmarshaler],data:single",
 				data: single,
 				v:    &[]map[string]*indirectDummyTextUnmarshaler{},
 				w: &[]map[string]*indirectDummyTextUnmarshaler{
@@ -494,8 +560,10 @@ func TestUnmarshal(t *testing.T) {
 			},
 		}
 
-		// TODO: Overflow case.
-		// TODO: Array case.
+		// TODO: Case where input slice contains pointers to maps, structs, etc.
+		// TODO: Data longer than input slice case.
+		// TODO: Data shorter than input slice case.
+		// TODO: Array cases.
 
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {

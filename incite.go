@@ -44,7 +44,7 @@ type ResultField struct {
 }
 
 type Result struct {
-	Ptr    string
+	Ptr    string // TODO: should Ptr be made unexported? It's more for internal use.
 	Fields []ResultField
 }
 

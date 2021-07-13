@@ -59,9 +59,9 @@ func Unmarshal(data []Result, v interface{}) error {
 			return array(data[:n], rv, a)
 		}
 	case reflect.Interface: // v is a pointer to an interface
-		b := reflect.MakeSlice(reflect.TypeOf(data), m, m)
-		a.Set(b)
-		return array(data, rv, a)
+		b := reflect.MakeSlice(reflect.TypeOf([]map[string]string{}), m, m)
+		a.Set(reflect.ValueOf(b.Interface()))
+		return array(data, rv, b)
 	default:
 		return &InvalidUnmarshalError{TargetType: rv.Type()}
 	}
@@ -212,7 +212,7 @@ var (
 func (s *decodeState) selRowDecodeFunc(rowType reflect.Type) (decodeFunc, error) {
 	switch rowType.Kind() {
 	case reflect.Interface:
-		return decodeRowByCopying, nil
+		return s.selMapRowDecodeFunc(reflect.TypeOf(map[string]string{}))
 	case reflect.Map:
 		return s.selMapRowDecodeFunc(rowType)
 	case reflect.Struct:
@@ -394,7 +394,7 @@ func decodeRowByCopying(s *decodeState) error {
 }
 
 func decodeColToString(s *decodeState) error {
-	s.dst.Set(reflect.ValueOf(s.col().Value))
+	s.dst.SetString(s.col().Value)
 	return nil
 }
 
