@@ -3,6 +3,8 @@ package incite
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -13,8 +15,6 @@ func TestUnmarshal(t *testing.T) {
 			data []Result
 			v, w interface{}
 		}{
-			// TODO: Put copy cases here.
-
 			{
 				name: "interface{},data:nil",
 				v:    ip(nil),
@@ -35,6 +35,83 @@ func TestUnmarshal(t *testing.T) {
 						"@ptr": "foo",
 					},
 				}),
+			},
+
+			{
+				name: "[]Result,data:nil",
+				v:    &[]Result{},
+				w:    &[]Result{},
+			},
+			{
+				name: "[]Result,data:empty",
+				data: []Result{},
+				v:    &[]Result{},
+				w:    &[]Result{},
+			},
+			{
+				name: "[]Result,data:single",
+				data: single,
+				v: &[]Result{
+					{},
+					{},
+				},
+				w: &single,
+			},
+			{
+				name: "[]Result,data:multiple",
+				data: []Result{
+					{},
+					r("thomas", "gray"),
+					r("elegy", "written", "in", "a", "country", "churchyard"),
+				},
+				v: &[]Result{},
+				w: &[]Result{
+					{},
+					r("thomas", "gray"),
+					r("elegy", "written", "in", "a", "country", "churchyard"),
+				},
+			},
+
+			{
+				name: "[]*Result,data:nil",
+				v:    &[]*Result{},
+				w:    &[]*Result{},
+			},
+			{
+				name: "[]*Result,data:empty",
+				data: []Result{},
+				v: &[]*Result{
+					rp(r("extra", "to", "be", "removed")),
+				},
+				w: &[]*Result{},
+			},
+			{
+				name: "[]*Result,data:single",
+				data: single,
+				v:    &[]*Result{},
+				w: &[]*Result{
+					&single[0],
+				},
+			},
+
+			{
+				name: "[]**Result,data:nil",
+				v:    &[]**Result{},
+				w:    &[]**Result{},
+			},
+			{
+				name: "[]**Result,data:empty",
+				data: []Result{},
+				v:    &[]**Result{},
+				w:    &[]**Result{},
+			},
+			{
+				name: "[]**Result,data:single",
+				data: single,
+				v:    &[]**Result{},
+				w: &[]**Result{
+					rpp(single[0]),
+				},
 			},
 
 			{
@@ -105,56 +182,13 @@ func TestUnmarshal(t *testing.T) {
 			{
 				name: "[]map[interface{}],data:multiple",
 				data: []Result{
-					{
-						Ptr: "bar",
-						Fields: []ResultField{
-							{
-								Field: "@ptr",
-								Value: "bar",
-							},
-							{
-								Field: "@message",
-								Value: "bar message",
-							},
-							{
-								Field: "@timestamp",
-								Value: "",
-							},
-							{
-								Field: "DiscoveredKey",
-								Value: "DiscoveredStringValue",
-							},
-							{
-								Field: "DiscoveredKey2",
-								Value: "-123",
-							},
-						},
-					},
-					{
-						Ptr: "baz",
-						Fields: []ResultField{
-							{
-								Field: "@ptr",
-								Value: "baz",
-							},
-							{
-								Field: "@timestamp",
-								Value: "2021-06-19 03:59:59.936",
-							},
-							{
-								Field: "DiscoveredKey",
-								Value: `{"k":"string","k2":1,"k3":["another string",null,10]}`,
-							},
-							{
-								Field: "@message",
-								Value: "baz message",
-							},
-							{
-								Field: "DiscoveredKey2",
-								Value: "1.5",
-							},
-						},
-					},
+					r(
+						"@ptr", "bar", "@message", "bar message", "@timestamp", "",
+						"DiscoveredKey", "DiscoveredStringValue", "DiscoveredKey2", "-123"),
+					r(
+						"@ptr", "baz", "@timestamp", "2021-06-19 03:59:59.936",
+						"DiscoveredKey", `{"k":"string","k2":1,"k3":["another string",null,10]}`,
+						"@message", "baz message", "DiscoveredKey2", "1.5"),
 				},
 				v: &[]map[string]interface{}{},
 				w: &[]map[string]interface{}{
@@ -192,21 +226,7 @@ func TestUnmarshal(t *testing.T) {
 			},
 			{
 				name: "[]map[*interface{}],data:multiple",
-				data: []Result{
-					{
-						Ptr: "foo",
-						Fields: []ResultField{
-							{
-								Field: "@ptr",
-								Value: "bar",
-							},
-							{
-								Field: "Discovered1Key",
-								Value: "Discovered1Value",
-							},
-						},
-					},
-				},
+				data: []Result{r("@ptr", "bar", "Discovered1Key", "Discovered1Value")},
 				v: &[]map[string]*interface{}{
 					{
 						"Discovered1Key": ip("baz"),
@@ -233,21 +253,7 @@ func TestUnmarshal(t *testing.T) {
 			},
 			{
 				name: "[]map[*interface{}],data:single",
-				data: []Result{
-					{
-						Ptr: "foo",
-						Fields: []ResultField{
-							{
-								Field: "@ptr",
-								Value: "bar",
-							},
-							{
-								Field: "Discovered1Key",
-								Value: "Discovered1Value",
-							},
-						},
-					},
-				},
+				data: []Result{r("@ptr", "bar", "Discovered1Key", "Discovered1Value")},
 				v: &[]map[string]**interface{}{
 					{
 						"Discovered1Key": ipp("baz"),
@@ -292,25 +298,8 @@ func TestUnmarshal(t *testing.T) {
 			},
 			{
 				name: "[]map[string],data:multiple",
-				data: []Result{
-					{
-						Fields: []ResultField{
-							{
-								Field: "@message",
-								Value: `["world"]`,
-							},
-							{
-								Field: "@ptr",
-								Value: "hello",
-							},
-							{
-								Field: "DiscoveredKey",
-								Value: "10",
-							},
-						},
-					},
-				},
-				v: &[]map[string]string{},
+				data: []Result{r("@message", `["world"]`, "@ptr", "hello", "DiscoveredKey", "10")},
+				v:    &[]map[string]string{},
 				w: &[]map[string]string{
 					{
 						"@ptr":          "hello",
@@ -322,46 +311,10 @@ func TestUnmarshal(t *testing.T) {
 			{
 				name: "[]map[string],data:multiple",
 				data: []Result{
-					{
-						Fields: []ResultField{
-							{
-								Field: "@message",
-								Value: `["world"]`,
-							},
-							{
-								Field: "@ptr",
-								Value: "hello",
-							},
-							{
-								Field: "DiscoveredKey",
-								Value: "10",
-							},
-						},
-					},
-					{
-						Fields: []ResultField{
-							{
-								Field: "@log",
-								Value: "111100001111:/some/log",
-							},
-							{
-								Field: "@logStream",
-								Value: "fizzle-fizzle",
-							},
-							{
-								Field: "@ingestionTime",
-								Value: "2021-06-19 03:59:59.936",
-							},
-							{
-								Field: "DiscoveredKey",
-								Value: "null",
-							},
-							{
-								Field: "@ptr",
-								Value: "Bonjour!",
-							},
-						},
-					},
+					r("@message", `["world"]`, "@ptr", "hello", "DiscoveredKey", "10"),
+					r("@log", "111100001111:/some/log", "@logStream", "fizzle-fizzle",
+						"@ingestionTime", "2021-06-19 03:59:59.936", "DiscoveredKey", "null",
+						"@ptr", "Bonjour!"),
 				},
 				v: &[]map[string]string{},
 				w: &[]map[string]string{
@@ -393,24 +346,7 @@ func TestUnmarshal(t *testing.T) {
 			},
 			{
 				name: "[]map[*string],data:multiple",
-				data: []Result{
-					{
-						Fields: []ResultField{
-							{
-								Field: "@message",
-								Value: `["world"]`,
-							},
-							{
-								Field: "@ptr",
-								Value: "hello",
-							},
-							{
-								Field: "DiscoveredKey",
-								Value: "10",
-							},
-						},
-					},
-				},
+				data: []Result{r("@message", `["world"]`, "@ptr", "hello", "DiscoveredKey", "10")},
 				v: &[]map[string]*string{
 					{
 						"@message": nil,
@@ -438,24 +374,7 @@ func TestUnmarshal(t *testing.T) {
 			},
 			{
 				name: "[]map[**string],data:multiple",
-				data: []Result{
-					{
-						Fields: []ResultField{
-							{
-								Field: "@message",
-								Value: `["world"]`,
-							},
-							{
-								Field: "@ptr",
-								Value: "hello",
-							},
-							{
-								Field: "DiscoveredKey",
-								Value: "10",
-							},
-						},
-					},
-				},
+				data: []Result{r("@message", `["world"]`, "@ptr", "hello", "DiscoveredKey", "10")},
 				v: &[]map[string]**string{
 					{
 						"@ptr":     nil,
@@ -569,7 +488,7 @@ func TestUnmarshal(t *testing.T) {
 			t.Run(testCase.name, func(t *testing.T) {
 				err := Unmarshal(testCase.data, testCase.v)
 
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, testCase.w, testCase.v)
 			})
 		}
@@ -634,14 +553,28 @@ func (dummy *indirectDummyTextUnmarshaler) UnmarshalText(t []byte) error {
 	return nil
 }
 
-var single = []Result{
-	{
-		Ptr: "foo",
-		Fields: []ResultField{
-			{
-				Field: "@ptr",
-				Value: "foo",
-			},
-		},
-	},
+var single = []Result{r("@ptr", "foo")}
+
+func r(fieldvals ...string) (result Result) {
+	for i := 1; i < len(fieldvals); i += 2 {
+		field := fieldvals[i-1]
+		value := fieldvals[i]
+		if field == "@ptr" {
+			result.Ptr = value
+		}
+		result.Fields = append(result.Fields, ResultField{
+			Field: field,
+			Value: value,
+		})
+	}
+	return
+}
+
+func rp(r Result) *Result {
+	return &r
+}
+
+func rpp(r Result) **Result {
+	p := rp(r)
+	return &p
 }

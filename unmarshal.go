@@ -29,6 +29,8 @@ func Unmarshal(data []Result, v interface{}) error {
 		return &InvalidUnmarshalError{TargetType: reflect.TypeOf(v)}
 	}
 
+	// TODO: Dig here to cut through any extra pointers.
+
 	m := len(data)
 	a := rv.Elem()
 
@@ -496,8 +498,11 @@ func decodeColAsInsightsTime(s *decodeState) error {
 }
 
 func copyResult(r Result) Result {
-	fields := make([]ResultField, len(r.Fields))
-	copy(fields, r.Fields)
+	var fields []ResultField
+	if r.Fields != nil {
+		fields = make([]ResultField, len(r.Fields))
+		copy(fields, r.Fields)
+	}
 	return Result{
 		Ptr:    r.Ptr,
 		Fields: fields,
