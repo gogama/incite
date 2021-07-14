@@ -1,6 +1,15 @@
 package incite
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+var (
+	// ErrClosed is the error returned by a read or query operation
+	// when the underlying stream or query manager has been closed.
+	ErrClosed = errors.New("incite: operation on a closed object")
+)
 
 type wrappedErr struct {
 	cause error
@@ -23,5 +32,6 @@ func (w *wrappedErr) Unwrap() error {
 }
 
 const (
-	nilReaderMsg = "incite: nil reader"
+	nilActionsMsg = "incite: nil actions"
+	nilReaderMsg  = "incite: nil reader"
 )

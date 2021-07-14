@@ -6,25 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 )
-
-var (
-	// ErrClosed is the error returned by a read or query operation
-	// when the underlying stream or query manager has been closed.
-	ErrClosed = errors.New("incite: operation on a closed object")
-)
-
-type Config struct {
-	Caps     CloudWatchLogsCaps
-	Parallel int
-	RPS      int
-	Logger   log.Logger
-}
 
 type QuerySpec struct {
 	Text  string
@@ -38,13 +24,6 @@ type QuerySpec struct {
 	Priority int
 	Hint     uint16 // Expected result count, used to optimize memory allocation.
 }
-
-type ResultField struct {
-	Field string
-	Value string
-}
-
-type Result []ResultField
 
 type Queryer interface {
 	Query(q QuerySpec) (Stream, error)
@@ -69,7 +48,19 @@ type QueryManager interface {
 	StatsGetter
 }
 
-// Reader is the interface that wraps the basic Read method.
+// Result represents a single result row from a CloudWatch Logs Insights
+// query.
+type Result []ResultField
+
+// ResultField represents a single field name/field value pair within a
+// Result.
+type ResultField struct {
+	Field string
+	Value string
+}
+
+// Reader provides a basic Read method to allow reading CloudWatch Logs
+// Insights query results as a stream.
 //
 // Read reads up to len(p) CloudWatch Logs Insights results into p. It
 // returns the number of results read (0 <= n <= len(p)) and any error
@@ -131,9 +122,10 @@ type mgr struct {
 	Config
 	Stats // TODO: Put in plumbing to update this.
 
-	timer   *time.Timer
-	lastReq time.Time // Used to stay under TPS limit
-	ding    bool
+	timer    *time.Timer
+	ding     bool
+	minDelay map[CloudWatchLogsAction]time.Duration // Used to stay under TPS limit
+	lastReq  map[CloudWatchLogsAction]time.Time     // Used to stay under TPS limit
 
 	chunks    ring.Ring // Circular list of chunks, first item is a sentry
 	numChunks int
@@ -146,16 +138,111 @@ type mgr struct {
 	waiting bool
 }
 
+const (
+	// QueryConcurrencyQuotaLimit contains the CloudWatch Logs Query
+	// Concurrency service quota limit as documented at
+	// https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/cloudwatch_limits_cwl.html.
+	//
+	// The documented service quota may increase over time, in which case
+	// this value should be updated to match the documentation.
+	QueryConcurrencyQuotaLimit = 10
+	// DefaultParallel is the default maximum number of parallel
+	// CloudWatch Logs  Insights queries a QueryManager will attempt to
+	// run at any one time.
+	//
+	// The default value is set to slightly less than the service quota
+	// limit to leave some concurrency available for other users even if
+	// the QueryManager is at maximum capacity.
+	DefaultParallel = QueryConcurrencyQuotaLimit - 2
+)
+
+// Config provides the NewQueryManager function with the information it
+// needs to construct a new QueryManager.
+type Config struct {
+	// Actions provides the CloudWatch Logs capabilities the QueryManager
+	// needs to execute Insights queries against the CloudWatch Logs
+	// service. If this value is nil then NewQueryManager panics.
+	//
+	// Normally Actions should be set to the value of an AWS SDK for Go
+	// (v1) CloudWatch Logs client: both the cloudwatchlogsiface.CloudWatchLogsAPI
+	// interface and the *cloudwatchlogs.CloudWatchLogs type are
+	// compatible with the CloudWatchLogsActions interface. Use a
+	// properly configured instance of one of these types to set the
+	// value of the Actions field.
+	Actions CloudWatchLogsActions
+
+	// Parallel optionally specifies the maximum number of parallel
+	// CloudWatch Logs Insights queries which the QueryManager may run
+	// at one time. The purpose of Parallel is to avoid starving other
+	// humans or systems using CloudWatch Logs Insights in the same AWS
+	// account and region.
+	//
+	// If set to a positive number then that exact number is used as the
+	// parallelism factor. If set to zero or a negative number then
+	// DefaultParallel is used instead.
+	//
+	// Parallel gives the upper limit on the number of Insights queries
+	// the QueryManager may have open at any one time. The actual number
+	// of Insights queries may be lower either because of throttling or
+	// service limit exceptions from the CloudWatch Logs web service, or
+	// because the QueryManager simply doesn't need all the parallel
+	// capacity.
+	//
+	// Note that an Insights query is not necessarily one-to-one with a
+	// Query operation on a QueryManager. If the Query operation is
+	// chunked, the QueryManager may create Insights multiple queries in
+	// the CloudWatch Logs web service to fulfil the chunked Query
+	// operation.
+	Parallel int
+
+	// RPS optionally specifies the maximum number of requests to the
+	// CloudWatch Logs web service which the QueryManager may make in
+	// each one second period for each CloudWatch Logs action. The
+	// purpose of RPS is to prevent the QueryManager or other humans or
+	// systems using CloudWatch Logs in the same AWS account and region
+	// from being throttled by the web service.
+	//
+	// If RPS has a missing, zero, or negative number for any required
+	// CloudWatch Logs capability, the value specified in DefaultRPS is
+	// used instead.
+	RPS map[CloudWatchLogsAction]int
+
+	// Logger optionally specifies a logging object to which the
+	// QueryManager can send log messages about queries it is managing.
+	// This value may be left nil to skip logging altogether.
+	Logger Logger
+}
+
 // NewQueryManager returns a new query manager with the given
 // configuration.
 func NewQueryManager(cfg Config) QueryManager {
-	// TODO: Validate and update Config here.
+	if cfg.Actions == nil {
+		panic(nilActionsMsg)
+	}
+	if cfg.Parallel <= 0 {
+		cfg.Parallel = DefaultParallel
+	}
+	minDelay := make(map[CloudWatchLogsAction]time.Duration, numActions)
+	for action, defaultRPS := range DefaultRPS {
+		rps := cfg.RPS[action]
+		if rps <= 0 {
+			rps = defaultRPS
+		}
+		minDelay[action] = time.Second / time.Duration(rps)
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = NopLogger
+	}
+
 	m := &mgr{
 		Config: cfg,
 
-		timer: time.NewTimer(1<<63 - 1),
+		timer:   time.NewTimer(1<<63 - 1),
+		lastReq: make(map[CloudWatchLogsAction]time.Time, numActions),
 	}
+
 	go m.loop()
+
 	return m
 }
 
@@ -230,10 +317,10 @@ func (m *mgr) setTimer(d time.Duration) bool {
 	return false
 }
 
-func (m *mgr) setTimerRPS() bool {
+func (m *mgr) setTimerRPS(action CloudWatchLogsAction) bool {
 	// TODO: FIXME: Are they holding the lock here? Yes or no.
-	minDelay := time.Duration(m.RPS) / time.Second
-	delaySoFar := time.Now().Sub(m.lastReq)
+	minDelay := m.minDelay[action]
+	delaySoFar := time.Now().Sub(m.lastReq[action])
 	return m.timer.Reset(minDelay - delaySoFar)
 }
 
@@ -320,7 +407,7 @@ func (m *mgr) pollNextChunk() int {
 func (m *mgr) pollChunk(c *chunk) error {
 	m.lock.Unlock()
 
-	if m.setTimerRPS() {
+	if m.setTimerRPS(GetQueryResults) {
 		select {
 		case <-m.close:
 			return errClosing
@@ -334,7 +421,8 @@ func (m *mgr) pollChunk(c *chunk) error {
 	input := cloudwatchlogs.GetQueryResultsInput{
 		QueryId: &c.id,
 	}
-	output, err := m.Caps.GetQueryResultsWithContext(c.ctx, &input)
+	output, err := m.Actions.GetQueryResultsWithContext(c.ctx, &input)
+	m.lastReq[GetQueryResults] = time.Now()
 	if err != nil {
 		return wrap(err, "incite: query chunk %q: failed to poll", c.id)
 	}
@@ -358,14 +446,14 @@ func (m *mgr) pollChunk(c *chunk) error {
 }
 
 func (m *mgr) cancelChunk(c *chunk) { // TODO: Is lock expected to be held here.
-	if m.setTimerRPS() {
+	if m.setTimerRPS(StopQuery) {
 		<-m.timer.C
 		m.ding = true
 	}
-	_, _ = m.Caps.StopQueryWithContext(context.Background(), &cloudwatchlogs.StopQueryInput{
+	_, _ = m.Actions.StopQueryWithContext(context.Background(), &cloudwatchlogs.StopQueryInput{
 		QueryId: &c.id,
 	})
-	m.lastReq = time.Now()
+	m.lastReq[StopQuery] = time.Now()
 }
 
 func (m *mgr) waitForWork() int {
@@ -378,8 +466,8 @@ func (m *mgr) waitForWork() int {
 
 	if m.numChunks == 0 && len(m.pq) == 0 {
 		m.setTimer(0)
-	} else if !m.setTimerRPS() {
-		m.setTimer(time.Duration(m.RPS) / time.Second)
+	} else if !m.setTimerRPS(GetQueryResults) {
+		m.setTimer(m.minDelay[GetQueryResults])
 	}
 
 	select {

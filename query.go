@@ -14,9 +14,9 @@ import "fmt"
 // The input query may be either a QuerySpec or a bare string containing the text
 // of an Insights query. If the query is a bare string, then it is treated like
 // a zero-value QuerySpec which has had its Text member set to the string.
-func Query(caps CloudWatchLogsCaps, q interface{}) ([]Result, error) {
+func Query(caps CloudWatchLogsActions, q interface{}) ([]Result, error) {
 	m := NewQueryManager(Config{
-		Caps: caps,
+		Actions: caps,
 	})
 	var qs QuerySpec
 	switch q2 := q.(type) {

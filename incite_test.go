@@ -1,3 +1,7 @@
 package incite
 
-// TODO: write some tests
+import "testing"
+
+func TestNewQueryManager(t *testing.T) {
+
+}
