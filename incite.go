@@ -554,22 +554,17 @@ func (m *mgr) startNextChunk() error { // Assert: Lock is acquired.
 }
 
 func isTemporary(err error) bool {
-	switch x := err.(type) {
-	case *cloudwatchlogs.DataAlreadyAcceptedException, *cloudwatchlogs.InvalidOperationException,
-		*cloudwatchlogs.InvalidParameterException, *cloudwatchlogs.InvalidSequenceTokenException,
-		*cloudwatchlogs.MalformedQueryException, *cloudwatchlogs.OperationAbortedException,
-		*cloudwatchlogs.ResourceAlreadyExistsException, *cloudwatchlogs.ResourceNotFoundException,
-		*cloudwatchlogs.UnrecognizedClientException:
-		return false
-	case *cloudwatchlogs.LimitExceededException, *cloudwatchlogs.ServiceUnavailableException:
-		return true
-	case awserr.RequestFailure:
-		// Omit 'e' suffix on 'throttl' to match Throttled and Throttling.
-		return strings.Contains(strings.ToLower(x.Code()), "throttl") ||
-			strings.Contains(strings.ToLower(x.Message()), "rate exceeded")
-	default:
-		return false
+	if x, ok := err.(awserr.RequestFailure); ok {
+		switch x.Code() {
+		case cloudwatchlogs.ErrCodeLimitExceededException, cloudwatchlogs.ErrCodeServiceUnavailableException:
+			return true
+		default:
+			// Omit 'e' suffix on 'throttl' to match Throttled and Throttling.
+			return strings.Contains(strings.ToLower(x.Code()), "throttl") ||
+				strings.Contains(strings.ToLower(x.Message()), "rate exceeded")
+		}
 	}
+	return false
 }
 
 func (m *mgr) pollNextChunk() int {
