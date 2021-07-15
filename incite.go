@@ -1,47 +1,176 @@
 package incite
 
 import (
+	"container/heap"
 	"container/ring"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/aws/aws-sdk-go/aws/awserr"
 
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 )
 
+// QuerySpec specifies the parameter for a query operation either using
+// the global Query function or a QueryManager.
 type QuerySpec struct {
-	Text  string
+	// Text contains the actual text of the CloudWatch Insights query,
+	// following the query syntax documented at
+	// https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/CWL_QuerySyntax.html.
+	//
+	// To limit the number of results returned by the query, add the
+	// `limit` command to your query text. Note that if the QuerySpec
+	// specifies a chunked query then the limit will apply to the
+	// results obtained from each chunk, not to the global query.
+	//
+	// Text may not contain an empty or blank string. Beyond checking
+	// for blank text, Incite does not attempt to parse Text and simply
+	// forwards it to the CloudWatch Logs service. Care must be taken to
+	// specify query text compatible with the Chunk and Preview fields
+	// or the results may be misleading.
+	Text string
+
+	// Start specifies the beginning of the time range to query,
+	// inclusive of Start itself.
+	//
+	// Start must be strictly before End, and must represent a whole
+	// number of seconds (it cannot have sub-second granularity).
 	Start time.Time
-	End   time.Time
 
-	// TODO: Allow Chunk to be zero (no chunks), but QuerySpec() validation step needs
-	//       to correct it, in that case, to be the full size of the time range.
-	Chunk    time.Duration
-	Preview  bool
+	// End specifies the end of the time range to query, exclusive of
+	// End itself.
+	//
+	// End must be strictly after Start, and must represent a whole
+	// number of seconds (it cannot have sub-second granularity).
+	End time.Time
+
+	// Groups lists the names of the CloudWatch Logs log groups to be
+	// queried. It may not be empty.
+	Groups []string
+
+	// Chunk optionally specifies a chunk size for chunked queries.
+	//
+	// If Chunk is zero, negative, or greater than the difference between
+	// End and Start, the query is not chunked. If Chunk is positive and
+	// less than the difference between End and Start, the query is
+	// broken into n chunks, where n is (End-Start)/Chunk, rounded up to
+	// the nearest integer value.
+	//
+	// In a chunked query, each chunk is sent to the CloudWatch Logs
+	// service as a separate Insights query. This can help large queries
+	// complete before the CloudWatch Logs query timeout of 15 minutes,
+	// and can increase performance because chunks can be run in parallel.
+	// However, the following considerations should be taken into account:
+	//
+	// • If Text contains a sort command, the sort will only apply
+	// within each individual chunk. If the QuerySpec is executed by a
+	// QueryManager configured with a parallelism factor above 1, then
+	// the results may appear be out of order since the order of
+	// completion of chunks is not guaranteed.
+	//
+	// • If Text contains a limit command, the results may be
+	// surprising as the limit will be applied separately to each chunk
+	// and there may be up to n × limit results.
+	//
+	// • If Text contains a stats command, the statistical aggregation
+	// will be applied to each chunk and each expected
+	//
+	// • In general if you use chunking with query text which implies
+	// any kind of server-side aggregation, you may need to perform
+	// custom post-processing on the results.
+	Chunk time.Duration
+
+	// Preview optionally requests preview results from a running query.
+	//
+	// If Preview is true, intermediate results for the query are
+	// sent to the results stream as soon as they are available. This
+	// can result in increased responsiveness for the end-user of your
+	// application but requires care since not all intermediate results
+	// are valid members of the final result set.
+	//
+	// The Preview option should typically be avoided if Text contains a
+	// sort or stats command, unless you are prepared to post-process
+	// the results.
+	Preview bool
+
+	// Priority optionally allows a query operation to be given a higher
+	// or lower priority with regard to other query operations managed
+	// by the same QueryManager. This can help the QueryManager manage
+	// finite resources to stay within CloudWatch Logs service quota
+	// limits.
 	Priority int
-	Hint     uint16 // Expected result count, used to optimize memory allocation.
+
+	// Hint optionally indicates the rough expected size of the result
+	// set, which can help the QueryManager do a better job allocating
+	// memory needed to manage and hold query results. Leave it zero
+	// if you don't know the expected result size or aren't worried
+	// about optimizing memory consumption.
+	Hint uint16
 }
 
+// The Queryer interface provides the ability to run a CloudWatch Logs
+// Insights query. Use NewQueryManager to create a QueryManager, which
+// contains this interface.
 type Queryer interface {
-	Query(q QuerySpec) (Stream, error)
+	Query(QuerySpec) (Stream, error)
 }
 
+// Stats contains metadata returned by CloudWatch Logs about the amount
+// of data scanned and number of result records matched during one or
+// more Insights queries.
 type Stats struct {
-	BytesScanned   float64
+	// BytesScanned represents the total number of bytes of log events
+	// scanned.
+	BytesScanned float64
+	// RecordsMatched counts the number of log events that matched the
+	// query or queries.
 	RecordsMatched float64
+	// RecordsScanned counts the number of log events scanned during the
+	// query or queries.
 	RecordsScanned float64
 }
 
+func (a *Stats) Add(b Stats) {
+	a.BytesScanned += b.BytesScanned
+	a.RecordsMatched += b.RecordsMatched
+	a.RecordsScanned += b.RecordsScanned
+}
+
+// TODO. Document.
 type StatsGetter interface {
 	GetStats() Stats
 }
 
-// QueryManager manages CloudWatch Insights queries for one underlying
-// CloudWatch Logs connection. Use NewQueryManager to create a new query
-// manager instance.
+// QueryManager executes one or more CloudWatch Logs Insights queries,
+// optionally executing simultaneous queries in parallel.
+//
+// QueryManager's job is to hide the complexity of the CloudWatch Logs
+// Insights API, taking care of mundane details such as starting and
+// polling jobs in the CloudWatch Logs Insights service, breaking
+// queries into smaller time chunks (if desired), de-duplicating and
+// providing preview results (if desired), retrying transient request
+// failures, and managing resources to try to stay within the
+// CloudWatch Logs service quota limits.
+//
+// Use NewQueryManager to create a QueryManager, and be sure to close it
+// when you no longer need its services, since every QueryManager
+// consumes some compute resources just by existing.
+//
+// Calling the Query method will return a result Stream from which the
+// query results can be read as they become available. Use the
+// Unmarshal to unmarshal the bare results into other structured types.
+//
+// Calling the Close method will immediately cancel all running queries]
+// started with the Query, as if the query's Stream had been explicitly
+// closed.
+//
+// Calling GetStats will return the running sum of all statistics for
+// all queries run within the QueryManager since it was created.
 type QueryManager interface {
 	io.Closer
 	Queryer
@@ -120,18 +249,21 @@ type Stream interface {
 
 type mgr struct {
 	Config
-	Stats // TODO: Put in plumbing to update this.
 
-	timer    *time.Timer
-	ding     bool
-	minDelay map[CloudWatchLogsAction]time.Duration // Used to stay under TPS limit
-	lastReq  map[CloudWatchLogsAction]time.Time     // Used to stay under TPS limit
-
-	chunks    ring.Ring // Circular list of chunks, first item is a sentry
+	// Fields only read/written on construction and in mgr loop goroutine.
+	timer     *time.Timer
+	ding      bool
+	minDelay  map[CloudWatchLogsAction]time.Duration // Used to stay under TPS limit
+	lastReq   map[CloudWatchLogsAction]time.Time     // Used to stay under TPS limit
+	chunks    ring.Ring                              // Circular list of chunks, first item is a sentry
 	numChunks int
 
-	lock    sync.RWMutex // TODO: Is anyone using the read capability of this lock?
-	pq      streamHeap
+	// Lock controlling access to the below mutable fields.
+	lock sync.RWMutex
+
+	// Mutable fields controlled by mgr using lock.
+	stats   Stats      // Read by GetStats, written by mgr loop goroutine
+	pq      streamHeap // Written by Query, written by mgr loop goroutine
 	close   chan struct{}
 	closed  bool
 	query   chan struct{}
@@ -282,17 +414,18 @@ func (m *mgr) shutdown() {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	// Close all open streams.
-	for _, s := range m.pq {
-		s.setErr(ErrClosed, true)
-	}
-
 	// On a best effort basis, close all open chunks.
 	m.chunks.Do(func(i interface{}) {
 		if i != nil {
 			m.cancelChunk(i.(*chunk))
 		}
 	})
+
+	// Close all open streams.
+	for _, s := range m.pq {
+		s.setErr(ErrClosed, true)
+		m.stats.Add(s.GetStats())
+	}
 
 	// Free any other resources.
 	m.timer.Stop()
@@ -301,7 +434,6 @@ func (m *mgr) shutdown() {
 }
 
 func (m *mgr) setTimer(d time.Duration) bool {
-	// TODO: FIXME: Are they holding the lock here? Yes or no.
 	if !m.ding && !m.timer.Stop() {
 		<-m.timer.C
 	} else {
@@ -318,7 +450,6 @@ func (m *mgr) setTimer(d time.Duration) bool {
 }
 
 func (m *mgr) setTimerRPS(action CloudWatchLogsAction) bool {
-	// TODO: FIXME: Are they holding the lock here? Yes or no.
 	minDelay := m.minDelay[action]
 	delaySoFar := time.Now().Sub(m.lastReq[action])
 	return m.timer.Reset(minDelay - delaySoFar)
@@ -330,34 +461,115 @@ func (m *mgr) startNextChunks() int {
 
 	var numStarted int
 	for len(m.pq) > 0 && m.chunks.Len() <= m.Parallel {
-		break
-
 		err := m.startNextChunk()
 		if err == errClosing {
 			return -1
+		} else if err == nil {
+			numStarted++
 		}
-
-		numStarted++
 	}
 
 	return numStarted
 }
 
-func (m *mgr) startNextChunk() error {
+type queryIDKeyType int
 
-	// TODO: Take the highest priority stream from the front of the queue.
-	// TODO: Wait until we can start the next chunk using the RPS timer (if we
-	//       get closed in the process of waiting then return -1).
-	// TODO: Start the chunk.
-	// TODO: If we got throttled due to too many open queries, (or regular
-	//       throttling) just log that and put the stream back into the PQ.
-	// TODO: If we got another type of more fatally error, log it, wrap the
-	//       error and put it on the stream, and DO NOT replace the stream in
-	//       the PQ (it is now dead).
-	// TODO: If it was success, create the chunk and put the chunk into the
-	//       chunk polling ring.
+var queryIDKey = queryIDKeyType(0)
+
+func (m *mgr) startNextChunk() error { // Assert: Lock is acquired.
+	s := heap.Pop(&m.pq).(*stream)
+
+	if m.setTimerRPS(StartQuery) {
+		select {
+		case <-m.close:
+			return errClosing
+		case <-m.timer.C:
+			m.ding = true
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		}
+	}
+
+	next := s.next // Only manager modifies next, and we hold the manager lock.
+	end := next.Add(s.Chunk)
+	if end.After(s.End) {
+		end = s.End
+	}
+	starts := next.Unix()
+	ends := end.Add(-time.Second).Unix() // CWL uses inclusive time ranges at 1 second granularity, we use exclusive ranges.
+	limit := int64(10000)                // CWL max limit. Use `limit` command in query spec text to sub-limit.
+
+	input := cloudwatchlogs.StartQueryInput{
+		QueryString:   &s.Text,
+		StartTime:     &starts,
+		EndTime:       &ends,
+		LogGroupNames: s.groups,
+		Limit:         &limit,
+	}
+	output, err := m.Actions.StartQueryWithContext(s.ctx, &input)
+	m.lastReq[StartQuery] = time.Now()
+	if err != nil {
+		if isTemporary(err) {
+			heap.Push(&m.pq, s)
+			m.Logger.Printf("incite: temporary failure to start chunk %q [%s..%s): %s",
+				s.Text, next, end, err.Error())
+		} else {
+			s.setErr(wrap(err, "incite: fatal error from CloudWatch Logs for chunk %q [%s..%s)", s.Text, next, end), true)
+			m.stats.Add(s.GetStats())
+			m.Logger.Printf("incite: permanent failure to start %q [%s..%s) due to fatal error from CloudWatch Logs: %s",
+				s.Text, next, end, err.Error())
+		}
+		return err
+	}
+
+	queryID := output.QueryId
+	if queryID == nil {
+		m.Logger.Printf("incite: nil query ID for %q [%s..%s)", s.Text, next, end)
+		return errors.New("incite: nil query ID")
+	}
+
+	if end.Before(s.End) {
+		s.next = end // At least one chunk remains.
+		heap.Push(&m.pq, s)
+	} else {
+		s.next = time.Time{} // All chunks are in-flight or finished.
+		m.stats.Add(s.GetStats())
+	}
+
+	c := &chunk{
+		stream: s,
+		ctx:    context.WithValue(s.ctx, queryIDKey, output.QueryId),
+		id:     *queryID,
+		status: cloudwatchlogs.QueryStatusScheduled,
+	}
+	if s.Preview {
+		c.ptr = make(map[string]bool, s.chunkHint)
+	}
+
+	r := ring.New(1)
+	r.Value = c
+	m.chunks.Prev().Link(r)
 
 	return nil
+}
+
+func isTemporary(err error) bool {
+	switch x := err.(type) {
+	case *cloudwatchlogs.DataAlreadyAcceptedException, *cloudwatchlogs.InvalidOperationException,
+		*cloudwatchlogs.InvalidParameterException, *cloudwatchlogs.InvalidSequenceTokenException,
+		*cloudwatchlogs.MalformedQueryException, *cloudwatchlogs.OperationAbortedException,
+		*cloudwatchlogs.ResourceAlreadyExistsException, *cloudwatchlogs.ResourceNotFoundException,
+		*cloudwatchlogs.UnrecognizedClientException:
+		return false
+	case *cloudwatchlogs.LimitExceededException, *cloudwatchlogs.ServiceUnavailableException:
+		return true
+	case awserr.RequestFailure:
+		// Omit 'e' suffix on 'throttl' to match Throttled and Throttling.
+		return strings.Contains(strings.ToLower(x.Code()), "throttl") ||
+			strings.Contains(strings.ToLower(x.Message()), "rate exceeded")
+	default:
+		return false
+	}
 }
 
 func (m *mgr) pollNextChunk() int {
@@ -386,6 +598,7 @@ func (m *mgr) pollNextChunk() int {
 			m.numChunks--
 			m.chunks.Unlink(1)
 			c.stream.setErr(err, true)
+			c.stream.addChunkStats(c.Stats)
 			continue
 		}
 
@@ -406,6 +619,7 @@ func (m *mgr) pollNextChunk() int {
 
 func (m *mgr) pollChunk(c *chunk) error {
 	m.lock.Unlock()
+	defer m.lock.Lock()
 
 	if m.setTimerRPS(GetQueryResults) {
 		select {
@@ -434,10 +648,12 @@ func (m *mgr) pollChunk(c *chunk) error {
 
 	c.status = *status
 	switch c.status {
-	case cloudwatchlogs.QueryStatusComplete:
-		return sendChunkBlock(c, output.Results, true)
+	case cloudwatchlogs.QueryStatusScheduled:
+		return nil
 	case cloudwatchlogs.QueryStatusRunning:
-		return sendChunkBlock(c, output.Results, false)
+		return sendChunkBlock(c, output.Results, output.Statistics, false)
+	case cloudwatchlogs.QueryStatusComplete:
+		return sendChunkBlock(c, output.Results, output.Statistics, true)
 	case cloudwatchlogs.QueryStatusCancelled, cloudwatchlogs.QueryStatusFailed, "Timeout":
 		return fmt.Errorf("incite: query chunk %q: unexpected terminal status: %s", c.id, c.status)
 	default:
@@ -445,7 +661,7 @@ func (m *mgr) pollChunk(c *chunk) error {
 	}
 }
 
-func (m *mgr) cancelChunk(c *chunk) { // TODO: Is lock expected to be held here.
+func (m *mgr) cancelChunk(c *chunk) {
 	if m.setTimerRPS(StopQuery) {
 		<-m.timer.C
 		m.ding = true
@@ -454,6 +670,7 @@ func (m *mgr) cancelChunk(c *chunk) { // TODO: Is lock expected to be held here.
 		QueryId: &c.id,
 	})
 	m.lastReq[StopQuery] = time.Now()
+	c.stream.addChunkStats(c.Stats)
 }
 
 func (m *mgr) waitForWork() int {
@@ -480,9 +697,13 @@ func (m *mgr) waitForWork() int {
 	}
 }
 
-func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, done bool) error {
+func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, stats *cloudwatchlogs.QueryStatistics, done bool) error {
 	var block []Result
 	var err error
+
+	if stats != nil {
+		c.Stats = translateStats(stats)
+	}
 
 	if c.ptr != nil {
 		block, err = translateResultsPart(c, results)
@@ -501,8 +722,8 @@ func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, done bool
 		c.stream.blocks = append(c.stream.blocks, block)
 	}
 	if c.status == cloudwatchlogs.QueryStatusComplete {
-		c.stream.rem--
-		if c.stream.rem == 0 && err == nil {
+		c.stream.m++
+		if c.stream.m == c.stream.n && err == nil {
 			err = io.EOF
 		}
 	}
@@ -516,6 +737,19 @@ func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, done bool
 	return err
 }
 
+func translateStats(stats *cloudwatchlogs.QueryStatistics) (result Stats) {
+	if stats.BytesScanned != nil {
+		result.BytesScanned = *stats.BytesScanned
+	}
+	if stats.RecordsMatched != nil {
+		result.RecordsMatched = *stats.RecordsMatched
+	}
+	if stats.RecordsScanned != nil {
+		result.RecordsScanned = *stats.RecordsScanned
+	}
+	return
+}
+
 func translateResultsFull(id string, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
 	var err error
 	block := make([]Result, len(results))
@@ -527,7 +761,7 @@ func translateResultsFull(id string, results [][]*cloudwatchlogs.ResultField) ([
 
 func translateResultsPart(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
 	guess := int(c.stream.Hint) - len(c.ptr)
-	if guess <= 0 {
+	if guess <= len(results) {
 		guess = len(results)
 	}
 	block := make([]Result, 0, guess)
@@ -602,33 +836,82 @@ func (m *mgr) Close() error {
 	return nil
 }
 
+const (
+	minHint = 100
+)
+
 func (m *mgr) Query(q QuerySpec) (Stream, error) {
+	// Validation that does not require lock.
+	q.Text = strings.TrimSpace(q.Text)
+	if q.Text == "" {
+		return nil, errors.New("incite: blank query text")
+	}
+
+	q.Start = q.Start.UTC()
+	if hasSubSecond(q.Start) {
+		return nil, errors.New("incite: start has sub-second granularity")
+	}
+	q.End = q.End.UTC()
+	if hasSubSecond(q.End) {
+		return nil, errors.New("incite: end has sub-second granularity")
+	}
+	if !q.End.After(q.Start) {
+		return nil, errors.New("incite: end not before start")
+	}
+
+	if len(q.Groups) == 0 {
+		return nil, errors.New("incite: no log groups")
+	}
+	groups := make([]*string, len(q.Groups))
+	for i := range q.Groups {
+		groups[i] = &q.Groups[i]
+	}
+
+	d := q.End.Sub(q.Start)
+	if q.Chunk <= 0 {
+		q.Chunk = d
+	} else if q.Chunk > d {
+		q.Chunk = d
+	}
+
+	n := int64(d / q.Chunk)
+	if int64(d)%n != 0 {
+		n++
+	}
+
+	if q.Hint < minHint {
+		q.Hint = minHint
+	}
+
+	chunkHint := int64(q.Hint) / n
+	if chunkHint < minHint {
+		chunkHint = minHint
+	}
+
+	// Acquire lock.
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
+	// Fail if the manager is already closed.
 	if m.closed {
 		return nil, ErrClosed
 	}
 
-	// TODO: validate and fixup.
-	// TODO: part of validation must be to prevent End <= Start or Chunk <= 0.
-
 	ctx, cancel := context.WithCancel(context.Background())
-	d := q.End.Sub(q.Start)
-	rem := d / q.Chunk
-	if d%rem != 0 {
-		rem++
-	}
+
 	s := &stream{
 		QuerySpec: q,
+
 		ctx:       ctx,
 		cancel:    cancel,
-		next:      q.Start,
-		rem:       int64(rem),
+		n:         n,
+		chunkHint: uint16(chunkHint),
+		groups:    groups,
+
+		next: q.Start,
 	}
 
-	m.pq.Push(s)
-	// FIXME: This should get a Read lock on m.lock to correctly follow Go memory model: https://golang.org/ref/mem
+	heap.Push(&m.pq, s)
 	if m.waiting {
 		m.waiting = false
 		m.query <- struct{}{}
@@ -637,8 +920,14 @@ func (m *mgr) Query(q QuerySpec) (Stream, error) {
 	return s, nil
 }
 
+func hasSubSecond(t time.Time) bool {
+	return t.Nanosecond() != 0
+}
+
 func (m *mgr) GetStats() Stats {
-	return m.Stats
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	return m.stats
 }
 
 type streamHeap []*stream
@@ -647,17 +936,15 @@ func (h streamHeap) Len() int {
 	return len(h)
 }
 
+// Less compares two elements in a stream heap.
+//
+// This function must only be called from a goroutine that owns at least
+// the read lock on the manager that owns the stream heap, and may only
+// compare stream fields that are either (A) immutable within the stream,
+// as in Priority; or (B) are mutable only by the manager and not the
+// stream, as in next.
 func (h streamHeap) Less(i, j int) bool {
-	h[i].lock.RLock()
-	defer h[i].lock.RUnlock()
-	h[j].lock.RLock()
-	defer h[j].lock.RUnlock()
-
-	if h[i].err != nil && h[j].err == nil {
-		return true
-	} else if h[j].err != nil {
-		return false
-	} else if h[i].Priority < h[j].Priority {
+	if h[i].Priority < h[j].Priority {
 		return true
 	} else if h[j].Priority < h[i].Priority {
 		return false
@@ -684,12 +971,24 @@ func (h *streamHeap) Pop() interface{} {
 
 type stream struct {
 	QuerySpec
-	ctx     context.Context    // stream context used to parent chunk contexts
-	cancel  context.CancelFunc // cancels ctx when the stream is closed
-	lock    sync.RWMutex       // mgr uses read lock to priority sort the streams
-	next    time.Time          // Next chunk start time
+
+	// Immutable fields.
+	ctx       context.Context    // Stream context used to parent chunk contexts
+	cancel    context.CancelFunc // Cancels ctx when the stream is closed
+	n         int64              // Number of total chunks
+	chunkHint uint16             // Hint divided by number of chunks
+	groups    []*string          // Preprocessed slice for StartQuery
+
+	// Mutable fields controlled by mgr using mgr's lock.
+	next time.Time // Next chunk start time
+
+	// Lock controlling access to the below mutable fields.
+	lock sync.RWMutex // TODO: Do we ever use read part?
+
+	// Mutable fields controlled by stream using lock.
+	stats   Stats
 	blocks  [][]Result
-	rem     int64         // Number of chunks remaining
+	m       int64         // Number of chunks completed
 	i, j    int           // Block index and position within block
 	wait    chan struct{} // Used to block a Read pending more blocks
 	waiting bool          // True if and only if the stream is blocked on wait
@@ -721,7 +1020,9 @@ func (s *stream) Read(r []Result) (int, error) {
 }
 
 func (s *stream) GetStats() Stats {
-	return Stats{} // TODO.
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.stats
 }
 
 func (s *stream) read(r []Result) (int, error) {
@@ -761,6 +1062,12 @@ func (s *stream) setErr(err error, lock bool) bool {
 	return true
 }
 
+func (s *stream) addChunkStats(stats Stats) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.stats.Add(stats)
+}
+
 func (s *stream) alive() bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
@@ -774,6 +1081,7 @@ func (s *stream) alive() bool {
 // structure: it owns no goroutines and presents no interface that is
 // accessible outside the package.
 type chunk struct {
+	Stats
 	stream *stream         // Owning stream which receives results of the chunk
 	ctx    context.Context // Child of the stream's context owned by this chunk
 	id     string          // Insights query ID

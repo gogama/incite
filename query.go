@@ -6,6 +6,10 @@ import "fmt"
 // query and get back all the results without needing to construct a
 // QueryManager.
 //
+// Unlike NewQueryManager, which defaults to DefaultParallel, Query uses a
+// parallelism factor of 1. This means that if q represents a chunked query,
+// then the chunks will be run serially.
+//
 // This function is intended for quick prototyping and simple scripting and
 // command-line interface use cases. More complex applications, especially
 // applications running concurrent queries against the same region from multiple
@@ -16,7 +20,8 @@ import "fmt"
 // a zero-value QuerySpec which has had its Text member set to the string.
 func Query(caps CloudWatchLogsActions, q interface{}) ([]Result, error) {
 	m := NewQueryManager(Config{
-		Actions: caps,
+		Actions:  caps,
+		Parallel: 1,
 	})
 	var qs QuerySpec
 	switch q2 := q.(type) {
