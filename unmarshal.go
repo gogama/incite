@@ -4,25 +4,89 @@ import (
 	"encoding"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// Unmarshal converts the CloudWatch Logs Insights result data and stores the
-// result in the value pointed to by v.
+// Unmarshal converts the CloudWatch Logs Insights result data and
+// stores the result in the value pointed to by v.
 //
-// If v does not contain a non-nil pointer to a slice, array, or interface
-// value, Unmarshal returns an InvalidUnmarshalError. If v contains a pointer to
-// a slice or array, and the element type of the slice or array is not one of
-// the element types listed below, Unmarshal returns an InvalidUnmarshalError.
+// The argument v must contain a non-nil pointer whose ultimate target
+// is a slice, array, or interface value. If v ultimately targets a
+// interface{}, it is treated as if it targets a []map[string]string.
 //
-// TODO: Finish documentation here.
+// The element type of the array or slice must target a map type, struct
+// type, with elements of type interface{} and Result allowed as special
+// cases. If the element type targets a map, the maps keys must be
+// strings and its value type must target a string type, interface{},
+// or any type that implements encoding.TextUnmarshaler.
+//
+// To unmarshal data into an array or slice of maps, Unmarshal uses
+// the ResultField name as the map key and the ResultField value as its
+// value. If the map value targets an encoding.TextUnmarshaler, the
+// value's UnmarshalText value is used to unmarshal the value. If the
+// map value targets a string type, the ResultField's value is directly
+// inserted as the field value in the map. As a special case, if the
+// map value targets interface{}, Unmarshal first tries to unmarshal
+// the value as JSON using json.Unmarshal, and falls back to the plain
+// string value if JSON unmarshaling fails.
+//
+// To unmarshal data into a struct type, Unmarshal uses the following
+// rules top-level rules:
+//
+// • A struct field with an "incite" tag receives the value of the
+// ResultField field named in the tag. Unmarshaling of the field value
+// is done according to rules discussed below. If the tag is "-" the
+// field is ignored. If the field type does not ultimately target a
+// struct field unmarshalable type, an InvalidUnmarshalError is
+// returned.
+//
+// • A struct field with a "json" tag receives the the value of the
+// ResultField field named in the tag using the json.Unmarshal function
+// with the ResultField value as the input JSON and the struct field
+// address as the target. If the tag is "-" the field is ignored. The
+// field type is not checked for validity.
+//
+// • The "incite" tag takes precedence over the "json" tag so they
+// should not be used together on the same struct field.
+//
+// • A struct field with no "incite" or "json" tag receives the value
+// of the ResultField field sharing the same case-sensitive name as the
+// struct field, but only if the field type ultimately targets a
+// struct field unmarshablable type. Otherwise the field is ignored.
+//
+// The following types are considered struct field unmarshalable types:
+//
+//  bool
+//  int8, int16, int32, int64, int
+//  uint8, uint16, uint32, uint64, uint
+//  float32, float64
+//  interface{}
+//  []byte
+//  Any map, struct, slice, or array type
+//
+// A struct field targeting interface{} or any map, struct, slice, or
+// array type is assumed to contain valid JSON and unmarshaled using
+// json.Unmarshal. Any other field is decoded from its string
+// representation using the intuitive approach. As a special case, if
+// a CloudWatch Logs timestamp field (@timestamp or @ingestionTime) is
+// named in an "incite" tag, it may only target a time.Time or string
+// value. If it targets a time.Time, the value is decoded using
+// TimeLayout with the time.Parse function.
+//
+// If a target type rule is violated, Unmarshal returns
+// InvalidUnmarshalError. If a result field value cannot be decoded,
+// Unmarshal stops unmarshaling and returns UnmarshalResultFieldValueError.
+//
+// The value pointed to by v may have changed even if Unmarshal returns
+// an error.
 func Unmarshal(data []Result, v interface{}) error {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr {
-		return &InvalidUnmarshalError{TargetType: reflect.TypeOf(v)}
+		return &InvalidUnmarshalError{Type: reflect.TypeOf(v)}
 	}
 
 	// TODO: Dig here to cut through any extra pointers.
@@ -61,7 +125,7 @@ func Unmarshal(data []Result, v interface{}) error {
 		a.Set(reflect.ValueOf(b.Interface()))
 		return array(data, rv, b)
 	default:
-		return &InvalidUnmarshalError{TargetType: rv.Type()}
+		return &InvalidUnmarshalError{Type: rv.Type()}
 	}
 }
 
@@ -127,66 +191,6 @@ func fill(v reflect.Value, depth int) reflect.Value {
 	return v
 }
 
-// =====================================================================
-// BEGIN NEW SENSIBLE REFACTORED STUFF.
-//     In here we will use the following naming conventions:
-//
-//        row = one Result
-//        col = one ResultField
-//        decodeFunc <TYPE> = a function to decode something
-//        sel = prefix for a function that selects a function
-//
-// examples:
-//        selRowDecodeFunc
-//        selMapRowDecodeFunc
-//        selStructRowDecodeFunc
-//
-//        selStructRowColDecodeFuncForInsightsTime
-//        selStructRowColDecodeFuncByType
-//
-//        decodeInterfaceRow
-//
-//        decodeMapStrStrRow
-//        decodeMapStrInterfaceRow
-//        decodeMapStrTextUnmarshalerRow
-//
-//        decodeStructRow
-//
-//        decodeColAsJSON             - struct field tagged with "json"
-//        decodeColAsJSONFuzzy        - target IN {  interface[}, map[string]interface{}; or an untagged struct field of type interface{}  }
-//        decodeColAsInsightsTime
-//
-//        decodeColToString
-//        decodeColToTextUnmarshaler
-//        decodeColToInt, decodeColToUint, decodeColToFloat, decodeColToBool
-//
-// Essential playgrounds:
-//        How pointers and chains of pointers Unmarshal: https://play.golang.org/p/d0jZKzJTl7r (any length of chain OK, intermediate pointers reused, this work is done by indirect function in unmarshal.go)
-//            Indirect does it "dynamically" (on values, not types) because in general the structure is not known in advance.
-//            We can do it "statically" (on types) because we don't need to look down below the top level structure.
-//        Insights @timestamp format and why it doesn't work with time.Time and json packages: https://play.golang.org/p/USdNBPM-mVv
-//        How tags work in reflection: https://play.golang.org/p/tt8t4zN8KWO
-//        How to set a certain index of a slice to a non-nil map value: https://play.golang.org/p/R2nDxvnkFum
-//        How addressability works in a bunch of circumstances: https://play.golang.org/p/tYXku9BFkWx
-//            It is obviously correct when you think about it, but also a bit strange.
-//
-// For map stores, the process should be:
-//     1. Get the value from the map.
-//     2. If wasn't there, create a zero value.
-//     3. Traverse the pointer chain, creating as necessary, until we
-//        have the final addressable value.
-//     4. DECODE INTO THAT VALUE.
-//     5. Store that value into the map.
-//
-// For struct field stores, the process is similar but you start with
-// the ValueOf a field that exists.
-//
-// Ultimately I want:
-//
-//      func dig(t reflect.Type) (depth int, reflect.Type)
-//          Return final non-pointer value type and number of indirections.
-// =====================================================================
-
 type decodeState struct {
 	rv   reflect.Value // Top-level target value
 	data []Result      // Source slice of results
@@ -198,11 +202,21 @@ func (s *decodeState) col() *ResultField {
 	return &s.data[s.i][s.j]
 }
 
+func (s *decodeState) wrap(cause error) error {
+	return &UnmarshalResultFieldValueError{
+		ResultField: *s.col(),
+		Cause:       cause,
+		ResultIndex: s.i,
+		FieldIndex:  s.j,
+	}
+}
+
 type selectFunc func(reflect.Type) (decodeFunc, error)
 type decodeFunc func(*decodeState) error
 
 var (
 	resultType          = reflect.TypeOf(Result{})
+	byteSliceType       = reflect.TypeOf([]byte{})
 	textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
 	jsonUnmarshalerType = reflect.TypeOf((*json.Unmarshaler)(nil)).Elem()
 )
@@ -221,14 +235,14 @@ func (s *decodeState) selRowDecodeFunc(rowType reflect.Type) (decodeFunc, error)
 		}
 		fallthrough
 	default:
-		return nil, &InvalidUnmarshalError{TargetType: s.rv.Type(), ElemType: rowType}
+		return nil, &InvalidUnmarshalError{Type: s.rv.Type(), RowType: rowType}
 	}
 }
 
 func (s *decodeState) selMapRowDecodeFunc(mapRowType reflect.Type) (decodeFunc, error) {
 	keyType := mapRowType.Key()
 	if keyType.Kind() != reflect.String {
-		return nil, &InvalidUnmarshalError{TargetType: s.rv.Type(), ElemType: mapRowType}
+		return nil, &InvalidUnmarshalError{Type: s.rv.Type(), RowType: mapRowType}
 	}
 	immediateType := mapRowType.Elem()
 	ultimateType, depth := dig(mapRowType.Elem())
@@ -242,7 +256,7 @@ func (s *decodeState) selMapRowDecodeFunc(mapRowType reflect.Type) (decodeFunc, 
 		case reflect.Interface:
 			f = decodeColAsJSONFuzzy
 		default:
-			return nil, &InvalidUnmarshalError{TargetType: s.rv.Type(), ElemType: mapRowType}
+			return nil, &InvalidUnmarshalError{Type: s.rv.Type(), RowType: mapRowType}
 		}
 	}
 	return func(s *decodeState) error {
@@ -276,9 +290,9 @@ func (s *decodeState) selStructRowDecodeFunc(structRowType reflect.Type) (decode
 	dfs := make(map[string]decodableStructField, n)
 	for i := 0; i < n; i++ {
 		structField := structRowType.Field(i)
-		field, depth, f, err := selStructRowColDecodeFunc(&structField)
+		field, depth, f, err := s.selStructRowColDecodeFunc(structRowType, &structField)
 		if err != nil {
-			return nil, err // TODO: Return the correct InvalidUnmarshal type error.
+			return nil, err
 		}
 		if f != nil {
 			dfs[field] = decodableStructField{
@@ -297,7 +311,6 @@ func (s *decodeState) selStructRowDecodeFunc(structRowType reflect.Type) (decode
 				s.dst = fill(dst.Field(df.fieldIndex), df.depth)
 				err := df.decodeFunc(s)
 				if err != nil {
-					// TODO: return real error
 					return err
 				}
 			}
@@ -306,7 +319,7 @@ func (s *decodeState) selStructRowDecodeFunc(structRowType reflect.Type) (decode
 	}, nil
 }
 
-func selStructRowColDecodeFunc(structField *reflect.StructField) (field string, depth int, f decodeFunc, err error) {
+func (s *decodeState) selStructRowColDecodeFunc(structRowType reflect.Type, structField *reflect.StructField) (field string, depth int, f decodeFunc, err error) {
 	var selector selectFunc = selStructRowColDecodeFuncByType
 
 	tag := structField.Tag.Get("incite")
@@ -315,6 +328,10 @@ func selStructRowColDecodeFunc(structField *reflect.StructField) (field string, 
 		switch field {
 		case "@timestamp", "@ingestionTime":
 			selector = selStructRowColDecodeFuncForInsightsTime
+		case "-":
+			field = ""
+			f = nil
+			return
 		}
 	} else {
 		tag = structField.Tag.Get("json")
@@ -339,8 +356,22 @@ func selStructRowColDecodeFunc(structField *reflect.StructField) (field string, 
 	var valueType reflect.Type
 	valueType, depth = dig(structField.Type)
 	f, err = selector(valueType)
-	if err != nil {
-		// Convert err into the correct desired error.
+	if err != nil && tag == "" {
+		// If the field is untagged and has a bad type, we just ignore it. This
+		// allows users to unmarshal into structures that have irrelevant/
+		// orthogonal fields.
+		field = ""
+		f = nil
+		err = nil
+	} else if err != nil {
+		// If the field is tagged and has a bad type, it is an immediate error.
+		err = &InvalidUnmarshalError{
+			Type:      s.rv.Type(),
+			RowType:   structRowType,
+			Field:     field,
+			FieldType: structField.Type,
+			Message:   err.Error(),
+		}
 	}
 
 	return
@@ -355,9 +386,7 @@ func selStructRowColDecodeFuncForInsightsTime(colType reflect.Type) (decodeFunc,
 			return decodeColAsInsightsTime, nil
 		}
 	}
-	return nil, &UnmarshalResultTypeError{
-		// TODO: Properly implement this.
-	}
+	return nil, errors.New("timestamp result field does not target string or time.Time in struct")
 }
 
 func selStructRowColDecodeFuncByType(colType reflect.Type) (decodeFunc, error) {
@@ -381,10 +410,15 @@ func selStructRowColDecodeFuncByType(colType reflect.Type) (decodeFunc, error) {
 		return decodeColToFloat, nil
 	case reflect.Bool:
 		return decodeColToBool, nil
-	case reflect.Interface, reflect.Struct, reflect.Map, reflect.Slice, reflect.Array:
+	case reflect.Slice:
+		if colType == byteSliceType {
+			return decodeColToByteSlice, nil
+		}
+		fallthrough
+	case reflect.Interface, reflect.Struct, reflect.Map, reflect.Array:
 		return decodeColAsJSON, nil
 	default:
-		return nil, errors.New("TODO: put a real error here.")
+		return nil, errors.New("unsupported struct field type")
 	}
 }
 
@@ -398,23 +432,34 @@ func decodeColToString(s *decodeState) error {
 	return nil
 }
 
+func decodeColToByteSlice(s *decodeState) error {
+	s.dst.SetBytes([]byte(s.col().Value))
+	return nil
+}
+
 func decodeColToInt(s *decodeState) error {
 	src := s.col().Value
 	n, err := strconv.ParseInt(src, 10, 64)
 	valueType := s.dst.Type()
-	if err != nil || reflect.Zero(valueType).OverflowInt(n) {
-		return errors.New("TODO: put error") // error
+	if err != nil {
+		return s.wrap(err)
+	} else if reflect.Zero(valueType).OverflowInt(n) {
+		return s.wrap(overflow(reflect.ValueOf(n), valueType))
 	}
 	s.dst.Set(reflect.ValueOf(n).Convert(valueType))
 	return nil
 }
 
 func decodeColToUint(s *decodeState) error {
+	// Note that byte and uint8 have exactly the same type identity, so
+	// a field of type byte will be decoded here.
 	src := s.col().Value
 	n, err := strconv.ParseUint(src, 10, 64)
 	valueType := s.dst.Type()
-	if err != nil || reflect.Zero(valueType).OverflowUint(n) {
-		return errors.New("TODO: put error") // error
+	if err != nil {
+		return s.wrap(err)
+	} else if reflect.Zero(valueType).OverflowUint(n) {
+		return s.wrap(overflow(reflect.ValueOf(n), valueType))
 	}
 	s.dst.Set(reflect.ValueOf(n).Convert(valueType))
 	return nil
@@ -424,8 +469,10 @@ func decodeColToFloat(s *decodeState) error {
 	src := s.col().Value
 	n, err := strconv.ParseFloat(src, 64)
 	valueType := s.dst.Type()
-	if err != nil || reflect.Zero(valueType).OverflowFloat(n) {
-		return errors.New("TODO: put error") // error
+	if err != nil {
+		return s.wrap(err)
+	} else if reflect.Zero(valueType).OverflowFloat(n) {
+		return s.wrap(overflow(reflect.ValueOf(n), valueType))
 	}
 	s.dst.Set(reflect.ValueOf(n).Convert(valueType))
 	return nil
@@ -435,7 +482,7 @@ func decodeColToBool(s *decodeState) error {
 	src := s.col().Value
 	b, err := strconv.ParseBool(src)
 	if err != nil {
-		return errors.New("TODO: put error")
+		return s.wrap(err)
 	}
 	s.dst.SetBool(b)
 	return nil
@@ -447,8 +494,7 @@ func decodeColToTextUnmarshaler(s *decodeState) error {
 	textUnmarshaler := ptrToInterface.(encoding.TextUnmarshaler)
 	err := textUnmarshaler.UnmarshalText([]byte(s.col().Value))
 	if err != nil {
-		// TODO: wrap it
-		return err
+		return s.wrap(err)
 	}
 	return nil
 }
@@ -457,7 +503,11 @@ func decodeColAsJSON(s *decodeState) error {
 	value := s.col().Value
 	ptr := s.dst.Addr()
 	i := ptr.Interface()
-	return json.Unmarshal([]byte(value), i)
+	err := json.Unmarshal([]byte(value), i)
+	if err != nil {
+		return s.wrap(err)
+	}
+	return nil
 }
 
 func decodeColAsJSONFuzzy(s *decodeState) error {
@@ -485,11 +535,9 @@ For:
 
 func decodeColAsInsightsTime(s *decodeState) error {
 	src := s.col().Value
-	t, err := time.Parse("TODO: put layout here", src)
+	t, err := time.Parse(TimeLayout, src)
 	if err != nil {
-		return &UnmarshalResultTypeError{
-			// TODO properly implement this
-		}
+		return s.wrap(err)
 	}
 	s.dst.Set(reflect.ValueOf(t))
 	return nil
@@ -504,74 +552,61 @@ func copyResult(r Result) Result {
 	return r2
 }
 
-// An InvalidUnmarshalError describes an invalid type passed to Unmarshal.
-//
-// The type of the target argument to Unmarshal must be a non-nil pointer to an
-// slice, array, or interface value. If it is a slice or array type, then the
-// elements
+// An InvalidUnmarshalError occurs when a value with an invalid type
+// is passed to to Unmarshal.
 type InvalidUnmarshalError struct {
-	TargetType reflect.Type
-	ElemType   reflect.Type
+	Type      reflect.Type
+	RowType   reflect.Type
+	Field     string
+	FieldType reflect.Type
+	Message   string
 }
 
 func (e *InvalidUnmarshalError) Error() string {
-	// FIXME: This logic is a bit painful.
+	if e.Type == nil {
+		return "incite: Unmarshal(nil)"
+	}
 
-	//if e.Type == nil {
-	//	return "incite: Unmarshal(nil)"
-	//}
-	//errNotPtrToSliceOrArray := func() string {
-	//	return "incite: Unmarshal(not pointer to slice or array: " + e.Type.String() + ")"
-	//}
-	//if e.Type.Kind() != reflect.Ptr {
-	//	return errNotPtrToSliceOrArray()
-	//}
-	//switch e.Type.Elem().Kind() {
-	//case reflect.Slice, reflect.Array:
-	//	return "incite: Unmarshal(nil: " + e.Type.String() + ")"
-	//default:
-	//	return errNotPtrToSliceOrArray()
-	//}
+	if e.Type.Kind() != reflect.Ptr {
+		return "incite: Unmarshal(non-pointer type: " + e.Type.String() + ")"
+	}
 
-	return "TODO: pls make me work properly"
+	ultimateType, _ := dig(e.Type)
+	switch ultimateType.Kind() {
+	case reflect.Slice, reflect.Array, reflect.Interface:
+		break
+	default:
+		return "incite: Unmarshal(pointer does not target a slice, array, or interface{}: " + e.Type.String() + ")"
+	}
+
+	switch e.RowType.Kind() {
+	case reflect.Map:
+		if e.RowType.Key().Kind() != reflect.String {
+			return "incite: Unmarshal(map key type not string: " + e.Type.String() + ")"
+		} else {
+			return "incite: Unmarshal(map value type unsupported: " + e.Type.String() + ")"
+		}
+	case reflect.Slice:
+		return "incite: Unmarshal(slice type is not " + resultType.String() + ": " + e.Type.String() + ")"
+	}
+
+	return fmt.Sprintf("incite: Unmarshal(struct field %s: %s)", e.Field, e.Message)
 }
 
-// An UnmarshalResultError describes a failure to unmarshal a specific
-// ResultField value within a specific Result.
-type UnmarshalResultError struct {
-	error
+// An UnmarshalResultFieldValueError describes a failure to unmarshal a
+// specific ResultField value within a specific Result.
+type UnmarshalResultFieldValueError struct {
+	ResultField
+	Cause       error
 	ResultIndex int
 	FieldIndex  int
-	Field       string
 }
 
-// An UnmarshalResultTypeError describes a failure to unmarshal a specific
-// non-JSON ResultField value within a specific Result because the ResultField
-// value is not appropriate for the target type.
-type UnmarshalResultTypeError struct {
-	UnmarshalResultError
-	Value string
-	Type  reflect.Type
+func (e *UnmarshalResultFieldValueError) Error() string {
+	return fmt.Sprintf("incite: can't unmarshal field data[%d][%d] (name %s) value %q: %s",
+		e.ResultIndex, e.FieldIndex, e.Field, e.Value, e.Cause.Error())
 }
 
-func (e *UnmarshalResultTypeError) Error() string {
-	return "TODO: pls make me work properly"
-}
-
-type UnmarshalResultJSONTypeError struct {
-	UnmarshalResultError
-	Cause *json.UnmarshalTypeError
-}
-
-func (e *UnmarshalResultJSONTypeError) Error() string {
-	return "TODO: pls make me work properly"
-}
-
-type UnmarshalResultJSONSyntaxError struct {
-	UnmarshalResultError
-	Cause *json.SyntaxError
-}
-
-func (e *UnmarshalResultJSONSyntaxError) Error() string {
-	return "TODO: pls make me work properly"
+func overflow(v reflect.Value, t reflect.Type) error {
+	return fmt.Errorf("%v overflows %s", v, t)
 }

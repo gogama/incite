@@ -1,6 +1,7 @@
 package incite
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -483,6 +484,7 @@ func TestUnmarshal(t *testing.T) {
 		// TODO: Data longer than input slice case.
 		// TODO: Data shorter than input slice case.
 		// TODO: Array cases.
+		// TODO: Struct cases ensuring irrelevant/untagged fields are ignored even if wrong type.
 
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {
@@ -500,7 +502,190 @@ func TestUnmarshal(t *testing.T) {
 			v    interface{}
 			err  error
 		}{
-			// nil
+			{
+				name: "InvalidUnmarshalError(nil)",
+				err:  &InvalidUnmarshalError{},
+			},
+			{
+				name: "InvalidUnmarshalError(Non-Pointer)",
+				v:    0,
+				err: &InvalidUnmarshalError{
+					Type: reflect.TypeOf(0),
+				},
+			},
+			{
+				name: "InvalidUnmarshalError(Invalid Type, Depth 1)",
+				v:    sp("foo"),
+				err: &InvalidUnmarshalError{
+					Type: reflect.PtrTo(reflect.TypeOf("")),
+				},
+			},
+			{
+				name: "InvalidUnmarshalError(Invalid Type, Depth 2)",
+				v:    spp("foo"),
+				err: &InvalidUnmarshalError{
+					Type: reflect.PtrTo(reflect.PtrTo(reflect.TypeOf(""))),
+				},
+			},
+			{
+				name: "InvalidUnmarshalError(Bad Map Key, Depth 0)",
+				v:    &[]map[int]string{},
+				err: &InvalidUnmarshalError{
+					Type:    reflect.PtrTo(reflect.TypeOf([]map[int]string{})),
+					RowType: reflect.TypeOf(map[int]string{}),
+				},
+			},
+			{
+				name: "InvalidUnmarshalError(Bad Map Key, Depth 1)",
+				v:    &[]*map[int]string{},
+				err: &InvalidUnmarshalError{
+					Type:    reflect.PtrTo(reflect.TypeOf([]*map[int]string{})),
+					RowType: reflect.TypeOf(map[int]string{}),
+				},
+			},
+			{
+				name: "InvalidUnmarshalError(Bad Map Key, Depth 2)",
+				v:    &[]**map[int]string{},
+				err: &InvalidUnmarshalError{
+					Type:    reflect.PtrTo(reflect.TypeOf([]**map[int]string{})),
+					RowType: reflect.TypeOf(map[int]string{}),
+				},
+			},
+			{
+				name: "InvalidUnmarshalError(Bad Map Value, Depth 0.0)",
+				v:    &[]map[string]int{},
+				err: &InvalidUnmarshalError{
+					Type:    reflect.PtrTo(reflect.TypeOf([]map[string]int{})),
+					RowType: reflect.TypeOf(map[string]int{}),
+				},
+			},
+			{
+				name: "InvalidUnmarshalError(Bad Map Value, Depth 0.1)",
+				v:    &[]map[string]*int{},
+				err: &InvalidUnmarshalError{
+					Type:    reflect.PtrTo(reflect.TypeOf([]map[string]*int{})),
+					RowType: reflect.TypeOf(map[string]*int{}),
+				},
+			},
+			{
+				name: "InvalidUnmarshalError(Bad Map Value, Depth 0.2)",
+				v:    &[]map[string]**int{},
+				err: &InvalidUnmarshalError{
+					Type:    reflect.PtrTo(reflect.TypeOf([]map[string]**int{})),
+					RowType: reflect.TypeOf(map[string]**int{}),
+				},
+			},
+			{
+				name: "InvalidUnmarshalError(Bad Map Value, Depth 1.0)",
+				v:    &[]*map[string]int{},
+				err: &InvalidUnmarshalError{
+					Type:    reflect.PtrTo(reflect.TypeOf([]*map[string]int{})),
+					RowType: reflect.TypeOf(map[string]int{}),
+				},
+			},
+			{
+				name: "InvalidUnmarshalError(Bad Map Value, Depth 1.1)",
+				v:    &[]*map[string]*int{},
+				err: &InvalidUnmarshalError{
+					Type:    reflect.PtrTo(reflect.TypeOf([]*map[string]*int{})),
+					RowType: reflect.TypeOf(map[string]*int{}),
+				},
+			},
+			{
+				name: "InvalidUnmarshalError(Bad Map Value, Depth 2.0)",
+				v:    &[]**map[string]int{},
+				err: &InvalidUnmarshalError{
+					Type:    reflect.PtrTo(reflect.TypeOf([]**map[string]int{})),
+					RowType: reflect.TypeOf(map[string]int{}),
+				},
+			},
+			{
+				name: "InvalidUnmarshalError(Bad Map Value, Depth 2.2)",
+				v:    &[]**map[string]**int{},
+				err: &InvalidUnmarshalError{
+					Type:    reflect.PtrTo(reflect.TypeOf([]**map[string]**int{})),
+					RowType: reflect.TypeOf(map[string]**int{}),
+				},
+			},
+			{
+				name: "Bad Slice Value, Depth 0",
+				v:    &[][]int{},
+				err: &InvalidUnmarshalError{
+					Type:    reflect.PtrTo(reflect.TypeOf([][]int{})),
+					RowType: reflect.TypeOf([]int{}),
+				},
+			},
+			{
+				name: "Bad Slice Value, Depth 1",
+				v:    &[]*[]int{},
+				err: &InvalidUnmarshalError{
+					Type:    reflect.PtrTo(reflect.TypeOf([]*[]int{})),
+					RowType: reflect.TypeOf([]int{}),
+				},
+			},
+			{
+				name: "Bad Slice Value, Depth 2",
+				v:    &[]**[]int{},
+				err: &InvalidUnmarshalError{
+					Type:    reflect.PtrTo(reflect.TypeOf([]**[]int{})),
+					RowType: reflect.TypeOf([]int{}),
+				},
+			},
+			{
+				name: "Bad Struct Field: @timestamp",
+				v:    &[]badStructTimestamp{},
+				err: &InvalidUnmarshalError{
+					Type:      reflect.PtrTo(reflect.TypeOf([]badStructTimestamp{})),
+					RowType:   reflect.TypeOf(badStructTimestamp{}),
+					Field:     "@timestamp",
+					FieldType: reflect.TypeOf(0),
+					Message:   "timestamp result field does not target string or time.Time in struct",
+				},
+			},
+			{
+				name: "Bad Struct Field: @ingestionTime",
+				v:    &[]badStructIngestionTime{},
+				err: &InvalidUnmarshalError{
+					Type:      reflect.PtrTo(reflect.TypeOf([]badStructIngestionTime{})),
+					RowType:   reflect.TypeOf(badStructIngestionTime{}),
+					Field:     "@ingestionTime",
+					FieldType: reflect.TypeOf(false),
+					Message:   "timestamp result field does not target string or time.Time in struct",
+				},
+			},
+			{
+				name: "Bad Struct Field: chan, Tagged",
+				v:    &[]badStructChanTagged{},
+				err: &InvalidUnmarshalError{
+					Type:      reflect.PtrTo(reflect.TypeOf([]badStructChanTagged{})),
+					RowType:   reflect.TypeOf(badStructChanTagged{}),
+					Field:     "MyField",
+					FieldType: reflect.TypeOf(make(chan struct{})),
+					Message:   "unsupported struct field type",
+				},
+			},
+			{
+				name: "Bad Struct Field: func, Tagged",
+				v:    &[]badStructFuncTagged{},
+				err: &InvalidUnmarshalError{
+					Type:      reflect.PtrTo(reflect.TypeOf([]badStructFuncTagged{})),
+					RowType:   reflect.TypeOf(badStructFuncTagged{}),
+					Field:     "MyFunc",
+					FieldType: reflect.TypeOf(func() {}),
+					Message:   "unsupported struct field type",
+				},
+			},
+			{
+				name: "Bad Struct Field: complex64, Tagged",
+				v:    &[]badStructComplex64Tagged{},
+				err: &InvalidUnmarshalError{
+					Type:      reflect.PtrTo(reflect.TypeOf([]badStructComplex64Tagged{})),
+					RowType:   reflect.TypeOf(badStructComplex64Tagged{}),
+					Field:     "MyComplex",
+					FieldType: reflect.TypeOf(complex64(0)),
+					Message:   "unsupported struct field type",
+				},
+			},
 			// notPointer[...various...]
 			// notSlice[...various...]
 			// notStruct[...various...]
@@ -515,6 +700,151 @@ func TestUnmarshal(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestInvalidUnmarshalError_Error(t *testing.T) {
+	testCases := []struct {
+		name     string
+		err      InvalidUnmarshalError
+		expected string
+	}{
+		{
+			name:     "nil",
+			expected: "incite: Unmarshal(nil)",
+		},
+		{
+			name: "Non-Pointer",
+			err: InvalidUnmarshalError{
+				Type: reflect.TypeOf(0),
+			},
+			expected: "incite: Unmarshal(non-pointer type: int)",
+		},
+		{
+			name: "Invalid Type, Depth 1",
+			err: InvalidUnmarshalError{
+				Type: reflect.PtrTo(reflect.TypeOf(0)),
+			},
+			expected: "incite: Unmarshal(pointer does not target a slice, array, or interface{}: *int)",
+		},
+		{
+			name: "Invalid Type, Depth 2",
+			err: InvalidUnmarshalError{
+				Type: reflect.PtrTo(reflect.PtrTo(reflect.TypeOf(0))),
+			},
+			expected: "incite: Unmarshal(pointer does not target a slice, array, or interface{}: **int)",
+		},
+		{
+			name: "Bad Map Key, Depth 0",
+			err: InvalidUnmarshalError{
+				Type:    reflect.PtrTo(reflect.TypeOf([]map[int]string{})),
+				RowType: reflect.TypeOf(map[int]string{}),
+			},
+			expected: "incite: Unmarshal(map key type not string: *[]map[int]string)",
+		},
+		{
+			name: "Bad Map Key, Depth 1",
+			err: InvalidUnmarshalError{
+				Type:    reflect.PtrTo(reflect.TypeOf([]*map[int]string{})),
+				RowType: reflect.TypeOf(map[int]string{}),
+			},
+			expected: "incite: Unmarshal(map key type not string: *[]*map[int]string)",
+		},
+		{
+			name: "Bad Map Key, Depth 2",
+			err: InvalidUnmarshalError{
+				Type:    reflect.PtrTo(reflect.TypeOf([]**map[int]string{})),
+				RowType: reflect.TypeOf(map[int]string{}),
+			},
+			expected: "incite: Unmarshal(map key type not string: *[]**map[int]string)",
+		},
+		{
+			name: "Bad Map Value, Depth 0",
+			err: InvalidUnmarshalError{
+				Type:    reflect.PtrTo(reflect.TypeOf([]map[string]int{})),
+				RowType: reflect.TypeOf(map[string]int{}),
+			},
+			expected: "incite: Unmarshal(map value type unsupported: *[]map[string]int)",
+		},
+		{
+			name: "Bad Map Value, Depth 1",
+			err: InvalidUnmarshalError{
+				Type:    reflect.PtrTo(reflect.TypeOf([]*map[string]int{})),
+				RowType: reflect.TypeOf(map[string]int{}),
+			},
+			expected: "incite: Unmarshal(map value type unsupported: *[]*map[string]int)",
+		},
+		{
+			name: "Bad Map Value, Depth 2",
+			err: InvalidUnmarshalError{
+				Type:    reflect.PtrTo(reflect.TypeOf([]**map[string]int{})),
+				RowType: reflect.TypeOf(map[string]int{}),
+			},
+			expected: "incite: Unmarshal(map value type unsupported: *[]**map[string]int)",
+		},
+		{
+			name: "Bad Slice Value, Depth 0",
+			err: InvalidUnmarshalError{
+				Type:    reflect.PtrTo(reflect.TypeOf([][]int{})),
+				RowType: reflect.TypeOf([]int{}),
+			},
+			expected: "incite: Unmarshal(slice type is not incite.Result: *[][]int)",
+		},
+		{
+			name: "Bad Slice Value, Depth 1",
+			err: InvalidUnmarshalError{
+				Type:    reflect.PtrTo(reflect.TypeOf([]*[]int{})),
+				RowType: reflect.TypeOf([]int{}),
+			},
+			expected: "incite: Unmarshal(slice type is not incite.Result: *[]*[]int)",
+		},
+		{
+			name: "Bad Slice Value, Depth 2",
+			err: InvalidUnmarshalError{
+				Type:    reflect.PtrTo(reflect.TypeOf([]**[]int{})),
+				RowType: reflect.TypeOf([]int{}),
+			},
+			expected: "incite: Unmarshal(slice type is not incite.Result: *[]**[]int)",
+		},
+		{
+			name: "Invalid Struct Field",
+			err: InvalidUnmarshalError{
+				Type:      reflect.PtrTo(reflect.TypeOf([]badStructTimestamp{})),
+				RowType:   reflect.TypeOf(badStructTimestamp{}),
+				Field:     "@timestamp",
+				FieldType: reflect.TypeOf(0),
+				Message:   "foo",
+			},
+			expected: "incite: Unmarshal(struct field @timestamp: foo)",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			actual := testCase.err.Error()
+
+			assert.Equal(t, testCase.expected, actual)
+		})
+	}
+}
+
+type badStructTimestamp struct {
+	TS int `incite:"@timestamp"`
+}
+
+type badStructIngestionTime struct {
+	IT bool `incite:"@ingestionTime"`
+}
+
+type badStructChanTagged struct {
+	ChanField chan struct{} `incite:"MyField"`
+}
+
+type badStructFuncTagged struct {
+	FuncField func() `incite:"MyFunc"`
+}
+
+type badStructComplex64Tagged struct {
+	Complex64Field complex64 `incite:"MyComplex"`
 }
 
 func ip(i interface{}) *interface{} {
