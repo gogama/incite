@@ -11,18 +11,19 @@ import (
 	"time"
 )
 
-// Unmarshal converts the CloudWatch Logs Insights result data and
-// stores the result in the value pointed to by v.
+// Unmarshal converts the CloudWatch Logs Insights result data into the
+// user-defined type indicated by v, and stores the result in the value
+// pointed to by v.
 //
 // The argument v must contain a non-nil pointer whose ultimate target
 // is a slice, array, or interface value. If v ultimately targets a
 // interface{}, it is treated as if it targets a []map[string]string.
 //
 // The element type of the array or slice must target a map type, struct
-// type, with elements of type interface{} and Result allowed as special
-// cases. If the element type targets a map, the maps keys must be
-// strings and its value type must target a string type, interface{},
-// or any type that implements encoding.TextUnmarshaler.
+// type. As special cases, elements of type interface{} and Result
+// are also allowed. If the element type targets a map, the maps keys
+// must be strings and its value type must target a string type,
+// interface{}, or any type that implements encoding.TextUnmarshaler.
 //
 // To unmarshal data into an array or slice of maps, Unmarshal uses
 // the ResultField name as the map key and the ResultField value as its

@@ -141,7 +141,13 @@ func (a *Stats) Add(b Stats) {
 	a.RecordsScanned += b.RecordsScanned
 }
 
-// TODO. Document.
+// StatsGetter provides access to the Insights query statistics
+// returned by the CloudWatch Logs API.
+//
+// Both Stream and QueryManager contain the StatsGetter interface. Call
+// the GetStats method on a Stream to get the query statistics for the
+// stream's query. Call the GetStats method on a QueryManager to get the
+// query statistics for all queries run within the QueryManager.
 type StatsGetter interface {
 	GetStats() Stats
 }
