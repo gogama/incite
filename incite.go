@@ -440,7 +440,7 @@ func NewQueryManager(cfg Config) QueryManager {
 		minDelay: minDelay,
 		lastReq:  make(map[CloudWatchLogsAction]time.Time, numActions),
 
-		close: make(chan struct{}),
+		close: make(chan struct{}, 1),
 		query: make(chan struct{}),
 	}
 
@@ -497,7 +497,7 @@ func (m *mgr) shutdown() {
 
 	// Close all open streams.
 	for _, s := range m.pq {
-		s.setErr(ErrClosed, true)
+		s.setErr(ErrClosed, true, Stats{})
 		m.stats.add(s.GetStats())
 	}
 
@@ -603,7 +603,7 @@ func (m *mgr) startNextChunk() error {
 			m.Logger.Printf("incite: QueryManager(%p) temporary failure to start chunk %q [%s..%s): %s",
 				m, s.Text, next, end, err.Error())
 		} else {
-			s.setErr(wrap(err, "incite: fatal error from CloudWatch Logs for chunk %q [%s..%s)", s.Text, next, end), true)
+			s.setErr(wrap(err, "incite: fatal error from CloudWatch Logs for chunk %q [%s..%s)", s.Text, next, end), true, Stats{})
 			m.stats.add(s.GetStats())
 			m.Logger.Printf("incite: QueryManager(%p) permanent failure to start %q [%s..%s) due to fatal error from CloudWatch Logs: %s",
 				m, s.Text, next, end, err.Error())
@@ -638,6 +638,7 @@ func (m *mgr) startNextChunk() error {
 	r := ring.New(1)
 	r.Value = c
 	m.chunks.Prev().Link(r)
+	m.numChunks++
 
 	return nil
 }
@@ -678,8 +679,7 @@ func (m *mgr) pollNextChunk() int {
 		} else if err != nil && err != io.EOF {
 			m.numChunks--
 			m.chunks.Unlink(1)
-			c.stream.setErr(err, true)
-			c.stream.addChunkStats(c.Stats)
+			c.stream.setErr(err, true, c.Stats)
 			continue
 		}
 
@@ -736,7 +736,7 @@ func (m *mgr) pollChunk(c *chunk) error {
 
 	c.status = *status
 	switch c.status {
-	case cloudwatchlogs.QueryStatusScheduled:
+	case cloudwatchlogs.QueryStatusScheduled, "Unknown":
 		return nil
 	case cloudwatchlogs.QueryStatusRunning:
 		if c.ptr == nil {
@@ -766,8 +766,6 @@ func (m *mgr) cancelChunk(c *chunk) {
 		})
 		m.lastReq[StopQuery] = time.Now()
 	})
-
-	c.stream.addChunkStats(c.Stats)
 }
 
 func (m *mgr) waitForWork() (result int) {
@@ -827,7 +825,7 @@ func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, stats *cl
 		}
 	}
 	if err != nil {
-		c.stream.setErr(err, false)
+		c.stream.setErr(err, false, c.Stats)
 	}
 	if c.stream.waiting {
 		c.stream.waiting = false
@@ -1045,7 +1043,7 @@ func (m *mgr) Query(q QuerySpec) (Stream, error) {
 
 		next: q.Start,
 
-		wait: make(chan struct{}),
+		wait: make(chan struct{}, 1),
 	}
 
 	heap.Push(&m.pq, s)
@@ -1133,7 +1131,7 @@ type stream struct {
 }
 
 func (s *stream) Close() error {
-	if !s.setErr(ErrClosed, true) {
+	if !s.setErr(ErrClosed, true, Stats{}) {
 		return ErrClosed
 	}
 
@@ -1185,7 +1183,7 @@ func (s *stream) read(r []Result) (int, error) {
 	return n, s.err
 }
 
-func (s *stream) setErr(err error, lock bool) bool {
+func (s *stream) setErr(err error, lock bool, stats Stats) bool {
 	if lock {
 		s.lock.Lock()
 		defer s.lock.Unlock()
@@ -1196,16 +1194,11 @@ func (s *stream) setErr(err error, lock bool) bool {
 	}
 
 	s.err = err
+	s.stats.add(stats)
 	if s.waiting {
 		s.wait <- struct{}{}
 	}
 	return true
-}
-
-func (s *stream) addChunkStats(stats Stats) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	s.stats.add(stats)
 }
 
 func (s *stream) alive() bool {

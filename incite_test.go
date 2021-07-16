@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -762,10 +763,13 @@ func TestQueryManager_Query(t *testing.T) {
 							},
 						})
 						require.NotNil(t, m)
-						defer func() {
+						t.Cleanup(func() {
 							err := m.Close()
-							assert.NoError(t, err)
-						}()
+							if err != nil {
+								t.Errorf("Cleanup: failed to close m: %s", err.Error())
+							}
+							actions.AssertExpectations(t)
+						})
 
 						for i, s := range scenarios {
 							t.Run(fmt.Sprintf("Scenario=%d", i), func(t *testing.T) {
@@ -773,8 +777,6 @@ func TestQueryManager_Query(t *testing.T) {
 								s.play(t, i, m, actions)
 							})
 						}
-
-						actions.AssertExpectations(t)
 					})
 				}
 			})
@@ -794,27 +796,108 @@ func TestQueryManager_Query(t *testing.T) {
 }
 
 var scenarios = []queryScenario{
-	queryScenario{
-		// TODO: First scenario here.
+	// NoStart.InvalidQueryError
+	// NoStart.UnexpectedError
+	{
+		note: "OneChunk.OnePoll.Empty",
+		QuerySpec: QuerySpec{
+			Text:   "empty",
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: []string{"/my/empty/group"},
+			Hint:   ^uint16(0),
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("empty"),
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultEnd),
+					Limit:         defaultLimit,
+					LogGroupNames: []*string{sp("/my/empty/group")},
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+					},
+				},
+			},
+		},
+		closeAfter: true,
 	},
+	// OneChunk.OnePoll.[3 cases = Cancelled,Failed,Timeout]
+	// OneChunk.MultiPoll.(one case with limit exceeded, throttling, scheduled, unknown, and several running statuses with intermediate results that get ignored)
+	// OneChunk.Preview.Stats (noPtr)
+	// OneChunk.Preview.Normal (with @ptr)
+	// MultiChunk.NoPreview
+	// MultiChunk.Preview
 }
 
 type queryScenario struct {
 	QuerySpec
-	chunks  []chunkPlan // Sub-scenario for each chunk
-	results []Result    // Final results
-	stats   Stats       // Final stats
+	note       string              // Optional note describing the scenario
+	chunks     []chunkPlan         // Sub-scenario for each chunk
+	closeEarly bool                // Whether to prematurely close the stream.
+	err        string              // Final expected error
+	results    []Result            // Final results in the expected order after optional sorting using less.
+	less       func(i, j int) bool // Optional less function for sorting results, needed for chunked scenarios.
+	stats      Stats               // Final stats
+	closeAfter bool                // Whether to close the stream after the scenario.
 }
 
 func (qs *queryScenario) play(t *testing.T, i int, m QueryManager, actions *mockActions) {
-	// TODO.
+	// Set up the chunk scenarios.
+	for j, chunkPlan := range qs.chunks {
+		chunkPlan.setup(i, j, qs.note, qs.closeEarly, actions)
+	}
+
+	// Start the scenario query.
+	s, err := m.Query(qs.QuerySpec)
+	assert.NoError(t, err)
+	require.NotNil(t, s)
+
+	// If premature closure is desired, just close the stream and leave.
+	if qs.closeEarly {
+		err = s.Close()
+		assert.NoError(t, err)
+		return
+	}
+
+	// Read the whole stream.
+	r, err := ReadAll(s)
+
+	// Test against the expected results and/or errors.
+	if qs.err == "" {
+		assert.NoError(t, err)
+		if qs.less != nil {
+			sort.Slice(r, qs.less)
+		}
+		expectedResults := qs.results
+		if expectedResults == nil {
+			expectedResults = []Result{}
+		}
+		assert.Equal(t, expectedResults, r)
+	} else {
+		assert.EqualError(t, err, qs.err)
+		assert.Nil(t, r)
+	}
+	assert.Equal(t, qs.stats, s.GetStats())
+
+	// Close the stream at the end if desired.
+	if qs.closeAfter {
+		err = s.Close()
+		assert.NoError(t, err)
+		err = s.Close()
+		assert.Same(t, ErrClosed, err)
+	}
 }
 
 type chunkPlan struct {
 	// Starting the chunk.
-	startQueryInput cloudwatchlogs.StartQueryInput
-	startQueryErrs  []error // Initial failures before success, may be empty.
-	queryID         string
+	startQueryInput   cloudwatchlogs.StartQueryInput
+	startQueryErrs    []error // Initial failures before success, may be empty.
+	startQuerySuccess bool
 
 	// Polling the chunk.
 	pollOutputs []chunkPollOutput
@@ -823,12 +906,115 @@ type chunkPlan struct {
 type chunkPollOutput struct {
 	err     error
 	results []Result
-	stats   Stats
+	status  string
+	stats   *Stats
+}
+
+func (cp *chunkPlan) setup(i, j int, note string, closeEarly bool, actions *mockActions) {
+	for _, err := range cp.startQueryErrs {
+		actions.
+			On("StartQueryWithContext", anyContext, &cp.startQueryInput).
+			Return(nil, err).
+			Once()
+	}
+
+	if !cp.startQuerySuccess {
+		return
+	}
+
+	queryID := fmt.Sprintf("scenario:%d|chunk:%d", i, j)
+	if note != "" {
+		queryID += note
+	}
+	actions.
+		On("StartQueryWithContext", anyContext, &cp.startQueryInput).
+		Return(&cloudwatchlogs.StartQueryOutput{
+			QueryId: &queryID,
+		}, nil)
+
+	for _, pollOutput := range cp.pollOutputs {
+		input := &cloudwatchlogs.GetQueryResultsInput{
+			QueryId: &queryID,
+		}
+		var call *mock.Call
+		if pollOutput.err != nil {
+			call = actions.
+				On("GetQueryResultsWithContext", anyContext, input).
+				Return(nil, pollOutput.err)
+		} else {
+			output := &cloudwatchlogs.GetQueryResultsOutput{}
+			if pollOutput.status != "" {
+				output.Status = &pollOutput.status
+			}
+			if pollOutput.results != nil {
+				output.Results = make([][]*cloudwatchlogs.ResultField, len(pollOutput.results))
+				for k := range pollOutput.results {
+					output.Results[k] = pollOutput.results[k].backOut()
+				}
+			}
+			if pollOutput.stats != nil {
+				output.Statistics = pollOutput.stats.backOut()
+			}
+			call = actions.
+				On("GetQueryResultsWithContext", anyContext, input).
+				Return(output, nil)
+		}
+		if closeEarly {
+			call.Maybe()
+		} else {
+			call.Once()
+		}
+	}
+
+	if closeEarly {
+		input := &cloudwatchlogs.StopQueryInput{
+			QueryId: &queryID,
+		}
+		actions.
+			On("StopQueryWithContext", anyContext, input).
+			Return(&cloudwatchlogs.StopQueryOutput{}, nil).
+			Maybe()
+	}
+}
+
+func (r Result) backOut() (cwl []*cloudwatchlogs.ResultField) {
+	for _, ff := range r {
+		cwl = append(cwl, ff.backOut())
+	}
+	return // Will return nil if r is nil
+}
+
+func (f ResultField) backOut() *cloudwatchlogs.ResultField {
+	return &cloudwatchlogs.ResultField{
+		Field: &f.Field,
+		Value: &f.Value,
+	}
+}
+
+func (s *Stats) backOut() *cloudwatchlogs.QueryStatistics {
+	return &cloudwatchlogs.QueryStatistics{
+		BytesScanned:   &s.BytesScanned,
+		RecordsMatched: &s.RecordsMatched,
+		RecordsScanned: &s.RecordsScanned,
+	}
+}
+
+func int64p(i int64) *int64 {
+	return &i
+}
+
+func startTimeSeconds(t time.Time) *int64 {
+	return int64p(t.Unix())
+}
+
+func endTimeSeconds(t time.Time) *int64 {
+	return startTimeSeconds(t.Add(-time.Second))
 }
 
 var (
 	defaultStart = time.Date(2020, 8, 25, 3, 30, 0, 0, time.UTC)
 	defaultEnd   = defaultStart.Add(5 * time.Minute)
+	defaultLimit = int64p(DefaultLimit)
 	anyContext   = mock.MatchedBy(func(ctx context.Context) bool {
 		return ctx != nil
 	})
