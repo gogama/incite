@@ -34,4 +34,10 @@ func (w *wrappedErr) Unwrap() error {
 const (
 	nilActionsMsg = "incite: nil actions"
 	nilReaderMsg  = "incite: nil reader"
+
+	textBlankMsg         = "incite: blank query text"
+	startSubSecondMsg    = "incite: start has sub-second granularity"
+	endSubSecondMsg      = "incite: end has sub-second granularity"
+	endNotBeforeStartMsg = "incite: end not before start"
+	noGroupsMsg          = "incite: no log groups"
 )

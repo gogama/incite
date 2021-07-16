@@ -135,7 +135,7 @@ type Stats struct {
 	RecordsScanned float64
 }
 
-func (a *Stats) Add(b Stats) {
+func (a *Stats) add(b Stats) {
 	a.BytesScanned += b.BytesScanned
 	a.RecordsMatched += b.RecordsMatched
 	a.RecordsScanned += b.RecordsScanned
@@ -448,7 +448,7 @@ func (m *mgr) shutdown() {
 	// Close all open streams.
 	for _, s := range m.pq {
 		s.setErr(ErrClosed, true)
-		m.stats.Add(s.GetStats())
+		m.stats.add(s.GetStats())
 	}
 
 	// Free any other resources.
@@ -555,7 +555,7 @@ func (m *mgr) startNextChunk() error {
 				m, s.Text, next, end, err.Error())
 		} else {
 			s.setErr(wrap(err, "incite: fatal error from CloudWatch Logs for chunk %q [%s..%s)", s.Text, next, end), true)
-			m.stats.Add(s.GetStats())
+			m.stats.add(s.GetStats())
 			m.Logger.Printf("incite: QueryManager(%p) permanent failure to start %q [%s..%s) due to fatal error from CloudWatch Logs: %s",
 				m, s.Text, next, end, err.Error())
 		}
@@ -573,7 +573,7 @@ func (m *mgr) startNextChunk() error {
 		heap.Push(&m.pq, s)
 	} else {
 		s.next = time.Time{} // All chunks are in-flight or finished.
-		m.stats.Add(s.GetStats())
+		m.stats.add(s.GetStats())
 	}
 
 	c := &chunk{
@@ -891,23 +891,23 @@ func (m *mgr) Query(q QuerySpec) (Stream, error) {
 	// Validation that does not require lock.
 	q.Text = strings.TrimSpace(q.Text)
 	if q.Text == "" {
-		return nil, errors.New("incite: blank query text")
+		return nil, errors.New(textBlankMsg)
 	}
 
 	q.Start = q.Start.UTC()
 	if hasSubSecond(q.Start) {
-		return nil, errors.New("incite: start has sub-second granularity")
+		return nil, errors.New(startSubSecondMsg)
 	}
 	q.End = q.End.UTC()
 	if hasSubSecond(q.End) {
-		return nil, errors.New("incite: end has sub-second granularity")
+		return nil, errors.New(endSubSecondMsg)
 	}
 	if !q.End.After(q.Start) {
-		return nil, errors.New("incite: end not before start")
+		return nil, errors.New(endNotBeforeStartMsg)
 	}
 
 	if len(q.Groups) == 0 {
-		return nil, errors.New("incite: no log groups")
+		return nil, errors.New(noGroupsMsg)
 	}
 	groups := make([]*string, len(q.Groups))
 	for i := range q.Groups {
@@ -956,6 +956,8 @@ func (m *mgr) Query(q QuerySpec) (Stream, error) {
 		groups:    groups,
 
 		next: q.Start,
+
+		wait: make(chan struct{}),
 	}
 
 	heap.Push(&m.pq, s)
@@ -1106,13 +1108,16 @@ func (s *stream) setErr(err error, lock bool) bool {
 	}
 
 	s.err = err
+	if s.waiting {
+		s.wait <- struct{}{}
+	}
 	return true
 }
 
 func (s *stream) addChunkStats(stats Stats) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.stats.Add(stats)
+	s.stats.add(stats)
 }
 
 func (s *stream) alive() bool {
