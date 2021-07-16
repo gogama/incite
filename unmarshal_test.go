@@ -478,9 +478,45 @@ func TestUnmarshal(t *testing.T) {
 					},
 				},
 			},
+
+			{
+				name: "[]struct{},data:nil",
+				v:    &[]struct{}{},
+				w:    &[]struct{}{},
+			},
+			{
+				name: "[]struct{},data:empty",
+				data: []Result{},
+				v:    &[]struct{}{},
+				w:    &[]struct{}{},
+			},
+			{
+				name: "[]struct{},data:single",
+				data: single,
+				v:    &[]struct{}{},
+				w:    &[]struct{}{{}},
+			},
+			{
+				name: "[]struct{},data:multiple",
+				data: []Result{
+					{
+						{
+							Field: "foo",
+							Value: "bar",
+						},
+					},
+					{
+						{
+							Field: "hello",
+							Value: "world",
+						},
+					},
+				},
+				v: &[]struct{}{},
+				w: &[]struct{}{{}, {}},
+			},
 		}
 
-		// TODO: Case where input slice contains pointers to maps, structs, etc.
 		// TODO: Data longer than input slice case.
 		// TODO: Data shorter than input slice case.
 		// TODO: Array cases.

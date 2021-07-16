@@ -9,6 +9,7 @@ import (
 // TODO: More examples: Unmarshal struct with/without tags.
 //                    : Timestamps.
 //                    : Copy.
+//                    : Show that pointers don't matter.
 //
 // https://blog.golang.org/examples
 
