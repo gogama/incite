@@ -329,6 +329,8 @@ func (s *decodeState) selStructRowColDecodeFunc(structRowType reflect.Type, stru
 		switch field {
 		case "@timestamp", "@ingestionTime":
 			selector = selStructRowColDecodeFuncForInsightsTime
+		case "@deleted":
+			selector = selStructRolColDecodeFuncForDeletedFlag
 		case "-":
 			field = ""
 			f = nil
@@ -387,7 +389,17 @@ func selStructRowColDecodeFuncForInsightsTime(colType reflect.Type) (decodeFunc,
 			return decodeColAsInsightsTime, nil
 		}
 	}
-	return nil, errors.New("timestamp result field does not target string or time.Time in struct")
+	return nil, errors.New("timestamp result field does not target time.Time or string in struct")
+}
+
+func selStructRolColDecodeFuncForDeletedFlag(colType reflect.Type) (decodeFunc, error) {
+	switch colType.Kind() {
+	case reflect.String:
+		return decodeColToString, nil
+	case reflect.Bool:
+		return decodeColToBool, nil
+	}
+	return nil, errors.New("deleted flag field does not target bool or string in struct")
 }
 
 func selStructRowColDecodeFuncByType(colType reflect.Type) (decodeFunc, error) {

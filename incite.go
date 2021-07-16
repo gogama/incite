@@ -53,7 +53,24 @@ type QuerySpec struct {
 	// queried. It may not be empty.
 	Groups []string
 
-	// Chunk optionally specifies a chunk size for chunked queries.
+	// Limit optionally specifies the maximum number of results to be
+	// returned by the query.
+	//
+	// If Limit is zero or negative, the value DefaultLimit is used
+	// instead. If Limit exceeds MaxLimit, the query operation will fail
+	// with an error.
+	//
+	// In a chunked query, Limit applies to each chunk separately, so
+	// up to (n × Limit) final results may be returned, where n is the
+	// number of chunks.
+	//
+	// Note that as of 2021-07-15, the CloudWatch Logs StartQuery API
+	// seems to ignore the `limit` command in the query text, so if you
+	// want to apply a limit you must use the Limit field.
+	Limit int64
+
+	// Chunk optionally requests a chunked query and indicates the chunk
+	// size.
 	//
 	// If Chunk is zero, negative, or greater than the difference between
 	// End and Start, the query is not chunked. If Chunk is positive and
@@ -67,18 +84,20 @@ type QuerySpec struct {
 	// and can increase performance because chunks can be run in parallel.
 	// However, the following considerations should be taken into account:
 	//
+	// • In a chunked query, Limit applies separately to each chunk. So
+	// a query with 50 chunks and a limit of 50 could produce up to 2500
+	// final results.
+	//
 	// • If Text contains a sort command, the sort will only apply
 	// within each individual chunk. If the QuerySpec is executed by a
 	// QueryManager configured with a parallelism factor above 1, then
 	// the results may appear be out of order since the order of
 	// completion of chunks is not guaranteed.
 	//
-	// • If Text contains a limit command, the results may be
-	// surprising as the limit will be applied separately to each chunk
-	// and there may be up to n × limit results.
-	//
 	// • If Text contains a stats command, the statistical aggregation
-	// will be applied to each chunk and each expected
+	// will be applied to each chunk in a chunked query, meaning up to n
+	// versions of each aggregate data point may be returned, one per
+	// chunk, necessitating further aggregation on the client side.
 	//
 	// • In general if you use chunking with query text which implies
 	// any kind of server-side aggregation, you may need to perform
@@ -93,9 +112,23 @@ type QuerySpec struct {
 	// application but requires care since not all intermediate results
 	// are valid members of the final result set.
 	//
-	// The Preview option should typically be avoided if Text contains a
-	// sort or stats command, unless you are prepared to post-process
-	// the results.
+	// When Preview is true, the query result Stream may produce some
+	// intermediate results which it later determines are invalid
+	// because they shouldn't be final members of the result set. For
+	// each such invalid result, an extra trivial Result will be sent to
+	// the result Stream with the following structure:
+	//
+	// 	incite.Result{
+	// 		{ Field: "@ptr", Value: "<Unique @ptr of the earlier invalid result>" },
+	//		{ Field: "@deleted", Value: "true" },
+	// 	}
+	//
+	// The presence of the "@deleted" field can be used to identify and
+	// delete the earlier invalid result.
+	//
+	// The Preview option has no effect if the results returned from
+	// CloudWatch Logs do not contain an @ptr field, which can happen,
+	// for example, if the query Text contains a `stats` command.
 	Preview bool
 
 	// Priority optionally allows a query operation to be given a higher
@@ -103,6 +136,14 @@ type QuerySpec struct {
 	// by the same QueryManager. This can help the QueryManager manage
 	// finite resources to stay within CloudWatch Logs service quota
 	// limits.
+	//
+	// A lower number indicates a higher priority. The default zero
+	// value is appropriate for many cases.
+	//
+	// The Priority field may be set to any valid int value. A query
+	// whose Priority number is lower is allocated CloudWatch Logs
+	// service query capacity in preference to a query whose Priority
+	// number is higher, but only with the same QueryManager.
 	Priority int
 
 	// Hint optionally indicates the rough expected size of the result
@@ -289,6 +330,7 @@ const (
 	// The documented service quota may increase over time, in which case
 	// this value should be updated to match the documentation.
 	QueryConcurrencyQuotaLimit = 10
+
 	// DefaultParallel is the default maximum number of parallel
 	// CloudWatch Logs Insights queries a QueryManager will attempt to
 	// run at any one time.
@@ -297,6 +339,14 @@ const (
 	// limit to leave some concurrency available for other users even if
 	// the QueryManager is at maximum capacity.
 	DefaultParallel = QueryConcurrencyQuotaLimit - 2
+
+	// DefaultLimit is the default result count limit applied to query
+	// operations if no value is explicitly set.
+	DefaultLimit = 1000
+
+	// MaxLimit is the maximum result count limit a query operation may
+	// specify.
+	MaxLimit = 10000
 )
 
 // Config provides the NewQueryManager function with the information it
@@ -533,14 +583,13 @@ func (m *mgr) startNextChunk() error {
 	}
 	starts := next.Unix()
 	ends := end.Add(-time.Second).Unix() // CWL uses inclusive time ranges at 1 second granularity, we use exclusive ranges.
-	limit := int64(10000)                // CWL max limit. Use `limit` command in query spec text to sub-limit.
 
 	input := cloudwatchlogs.StartQueryInput{
 		QueryString:   &s.Text,
 		StartTime:     &starts,
 		EndTime:       &ends,
 		LogGroupNames: s.groups,
-		Limit:         &limit,
+		Limit:         &s.Limit,
 	}
 	var output *cloudwatchlogs.StartQueryOutput
 	var err error
@@ -690,6 +739,9 @@ func (m *mgr) pollChunk(c *chunk) error {
 	case cloudwatchlogs.QueryStatusScheduled:
 		return nil
 	case cloudwatchlogs.QueryStatusRunning:
+		if c.ptr == nil {
+			return nil // Ignore non-previewable results.
+		}
 		return sendChunkBlock(c, output.Results, output.Statistics, false)
 	case cloudwatchlogs.QueryStatusComplete:
 		return sendChunkBlock(c, output.Results, output.Statistics, true)
@@ -744,7 +796,7 @@ func (m *mgr) waitForWork() (result int) {
 	return
 }
 
-func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, stats *cloudwatchlogs.QueryStatistics, done bool) error {
+func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, stats *cloudwatchlogs.QueryStatistics, eof bool) error {
 	var block []Result
 	var err error
 
@@ -753,12 +805,12 @@ func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, stats *cl
 	}
 
 	if c.ptr != nil {
-		block, err = translateResultsPart(c, results)
-	} else if !done {
-		block, err = translateResultsFull(c.id, results)
+		block, err = translateResultsPreview(c, results, eof)
+	} else {
+		block, err = translateResultsNoPreview(c.id, results)
 	}
 
-	if !done && len(block) == 0 && err != nil {
+	if !eof && len(block) == 0 && err != nil {
 		return nil
 	}
 
@@ -768,7 +820,7 @@ func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, stats *cl
 	if len(block) > 0 {
 		c.stream.blocks = append(c.stream.blocks, block)
 	}
-	if c.status == cloudwatchlogs.QueryStatusComplete {
+	if eof {
 		c.stream.m++
 		if c.stream.m == c.stream.n && err == nil {
 			err = io.EOF
@@ -797,7 +849,7 @@ func translateStats(stats *cloudwatchlogs.QueryStatistics) (result Stats) {
 	return
 }
 
-func translateResultsFull(id string, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
+func translateResultsNoPreview(id string, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
 	var err error
 	block := make([]Result, len(results))
 	for i, r := range results {
@@ -806,12 +858,16 @@ func translateResultsFull(id string, results [][]*cloudwatchlogs.ResultField) ([
 	return block, err
 }
 
-func translateResultsPart(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
+func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField, eof bool) ([]Result, error) {
+	// Create a slice to contain the block of results.
 	guess := int(c.stream.Hint) - len(c.ptr)
 	if guess <= len(results) {
 		guess = len(results)
 	}
 	block := make([]Result, 0, guess)
+	// Create a map to track which @ptr are new with this batch of results.
+	newPtr := make(map[string]bool, len(results))
+	// Collect all the results actually returned from CloudWatch Logs.
 	for _, r := range results {
 		var ptr *string
 		for _, f := range r {
@@ -825,18 +881,40 @@ func translateResultsPart(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]
 			ptr = v
 			break
 		}
-		if ptr == nil {
-			return nil, errNoPtr(c.id)
-		}
-		if !c.ptr[*ptr] {
+		if ptr == nil && !eof {
+			continue // No @ptr, likely a stats command, not previewable, skip.
+		} else if ptr != nil && !eof && c.ptr[*ptr] {
+			continue // We've already put this @ptr into the stream.
+		} else {
 			rr, err := translateResult(c.id, r)
 			if err != nil {
 				return nil, err
 			}
 			block = append(block, rr)
-			c.ptr[*ptr] = true
+			if ptr != nil {
+				newPtr[*ptr] = true
+			}
 		}
 	}
+	// If there were any results delivered in a previous block that had
+	// an @ptr that is not present in this block, insert an @deleted
+	// result for each such obsolete result.
+	for ptr := range c.ptr {
+		if !newPtr[ptr] {
+			block = append(block, deleteResult(ptr))
+			delete(c.ptr, ptr)
+		} else {
+			delete(newPtr, ptr)
+		}
+	}
+	// Add the @ptr for each result seen in the current batch, but which
+	// hasn't been delivered in a previous block, into the chunk's @ptr
+	// map.
+	for ptr := range newPtr {
+		c.ptr[ptr] = true
+	}
+
+	// Return the block so it can be sent to the stream.
 	return block, nil
 }
 
@@ -850,6 +928,9 @@ func translateResult(id string, r []*cloudwatchlogs.ResultField) (Result, error)
 		if v == nil {
 			return Result{}, errNoValue(id, *k)
 		}
+		// TODO: Should rename key if it is "@deleted" by adding an
+		//       additional "@" prefix, similar to what CWL does, since
+		//       we are using @deleted as a reserved keyword.
 		rr[i] = ResultField{
 			Field: *k,
 			Value: *v,
@@ -858,16 +939,17 @@ func translateResult(id string, r []*cloudwatchlogs.ResultField) (Result, error)
 	return rr, nil
 }
 
-func errNoPtr(id string) error {
-	return fmt.Errorf("incite: query chunk %q: no @ptr in result", id)
-}
-
-func errNoKey(id string) error {
-	return fmt.Errorf("incite: query chunk %q: foo", id)
-}
-
-func errNoValue(id, key string) error {
-	return fmt.Errorf("incite: query chunk %q: no value for key %q", id, key)
+func deleteResult(ptr string) Result {
+	return Result{
+		{
+			Field: "@ptr",
+			Value: ptr,
+		},
+		{
+			Field: "@deleted",
+			Value: "true",
+		},
+	}
 }
 
 func (m *mgr) Close() error {
@@ -924,6 +1006,12 @@ func (m *mgr) Query(q QuerySpec) (Stream, error) {
 	n := int64(d / q.Chunk)
 	if int64(d)%n != 0 {
 		n++
+	}
+
+	if q.Limit <= 0 {
+		q.Limit = DefaultLimit
+	} else if q.Limit > MaxLimit {
+		return nil, errors.New(exceededMaxLimitMsg)
 	}
 
 	if q.Hint < minHint {

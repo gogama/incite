@@ -31,6 +31,14 @@ func (w *wrappedErr) Unwrap() error {
 	return w.cause
 }
 
+func errNoKey(id string) error {
+	return fmt.Errorf("incite: query chunk %q: foo", id)
+}
+
+func errNoValue(id, key string) error {
+	return fmt.Errorf("incite: query chunk %q: no value for key %q", id, key)
+}
+
 const (
 	nilActionsMsg = "incite: nil actions"
 	nilReaderMsg  = "incite: nil reader"
@@ -40,4 +48,5 @@ const (
 	endSubSecondMsg      = "incite: end has sub-second granularity"
 	endNotBeforeStartMsg = "incite: end not before start"
 	noGroupsMsg          = "incite: no log groups"
+	exceededMaxLimitMsg  = "incite: exceeded MaxLimit"
 )

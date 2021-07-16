@@ -675,7 +675,7 @@ func TestUnmarshal(t *testing.T) {
 					RowType:   reflect.TypeOf(badStructTimestamp{}),
 					Field:     "@timestamp",
 					FieldType: reflect.TypeOf(0),
-					Message:   "timestamp result field does not target string or time.Time in struct",
+					Message:   "timestamp result field does not target time.Time or string in struct",
 				},
 			},
 			{
@@ -686,7 +686,18 @@ func TestUnmarshal(t *testing.T) {
 					RowType:   reflect.TypeOf(badStructIngestionTime{}),
 					Field:     "@ingestionTime",
 					FieldType: reflect.TypeOf(false),
-					Message:   "timestamp result field does not target string or time.Time in struct",
+					Message:   "timestamp result field does not target time.Time or string in struct",
+				},
+			},
+			{
+				name: "Bad Struct Field: @deleted",
+				v:    &[]badStructDeleted{},
+				err: &InvalidUnmarshalError{
+					Type:      reflect.PtrTo(reflect.TypeOf([]badStructDeleted{})),
+					RowType:   reflect.TypeOf(badStructDeleted{}),
+					Field:     "@deleted",
+					FieldType: reflect.TypeOf([]int{}),
+					Message:   "deleted flag field does not target bool or string in struct",
 				},
 			},
 			{
@@ -869,6 +880,10 @@ type badStructTimestamp struct {
 
 type badStructIngestionTime struct {
 	IT bool `incite:"@ingestionTime"`
+}
+
+type badStructDeleted struct {
+	DelFlag []int `incite:"@deleted"`
 }
 
 type badStructChanTagged struct {

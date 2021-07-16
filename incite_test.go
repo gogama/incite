@@ -599,6 +599,17 @@ func TestQueryManager_Query(t *testing.T) {
 				},
 				err: noGroupsMsg,
 			},
+			{
+				name: "MaxLimit.Exceeded",
+				QuerySpec: QuerySpec{
+					Text:   "eggs",
+					Start:  defaultStart,
+					End:    defaultEnd,
+					Groups: []string{"spam"},
+					Limit:  MaxLimit + 1,
+				},
+				err: exceededMaxLimitMsg,
+			},
 		}
 
 		for _, testCase := range testCases {
@@ -649,6 +660,7 @@ func TestQueryManager_Query(t *testing.T) {
 					Start:  defaultStart,
 					End:    defaultEnd,
 					Groups: []string{"bar", "Baz"},
+					Limit:  DefaultLimit,
 					Chunk:  5 * time.Minute,
 					Hint:   minHint,
 				},
