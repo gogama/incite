@@ -51,5 +51,5 @@ func ExampleUnmarshal_mapStringInterface() {
 	var v []map[string]interface{}
 	_ = incite.Unmarshal(data, &v) // Error ignored for simplicity.
 	fmt.Println(v)
-	// Output: [map[@ptr:def456 Object:map[key:value] QuotedString:hello UnquotedString:world]]
+	// Output: [map[Object:map[key:value] QuotedString:hello UnquotedString:world]]
 }
