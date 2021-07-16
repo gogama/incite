@@ -5,7 +5,6 @@ import (
 	"container/ring"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -603,7 +602,13 @@ func (m *mgr) startNextChunk() error {
 			m.Logger.Printf("incite: QueryManager(%p) temporary failure to start chunk %q [%s..%s): %s",
 				m, s.Text, next, end, err.Error())
 		} else {
-			s.setErr(wrap(err, "incite: fatal error from CloudWatch Logs for chunk %q [%s..%s)", s.Text, next, end), true, Stats{})
+			err = &StartQueryError{
+				Text:  s.Text,
+				Start: next,
+				End:   end,
+				Cause: err,
+			}
+			s.setErr(err, true, Stats{})
 			m.stats.add(s.GetStats())
 			m.Logger.Printf("incite: QueryManager(%p) permanent failure to start %q [%s..%s) due to fatal error from CloudWatch Logs: %s",
 				m, s.Text, next, end, err.Error())
@@ -725,13 +730,15 @@ func (m *mgr) pollChunk(c *chunk) error {
 		output, err = m.Actions.GetQueryResultsWithContext(c.ctx, &input)
 		m.lastReq[GetQueryResults] = time.Now()
 	})
-	if err != nil {
-		return wrap(err, "incite: query chunk %q: failed to poll", c.id)
+	if err != nil && isTemporary(err) {
+		return nil
+	} else if err != nil {
+		return &UnexpectedQueryError{c.id, c.stream.Text, err}
 	}
 
 	status := output.Status
 	if status == nil {
-		return fmt.Errorf("incite: query chunk %q: nil status in GetQueryResults output from CloudWatch Logs", c.id)
+		return &UnexpectedQueryError{c.id, c.stream.Text, errNilStatus()}
 	}
 
 	c.status = *status
@@ -745,10 +752,8 @@ func (m *mgr) pollChunk(c *chunk) error {
 		return sendChunkBlock(c, output.Results, output.Statistics, false)
 	case cloudwatchlogs.QueryStatusComplete:
 		return sendChunkBlock(c, output.Results, output.Statistics, true)
-	case cloudwatchlogs.QueryStatusCancelled, cloudwatchlogs.QueryStatusFailed, "Timeout":
-		return fmt.Errorf("incite: query chunk %q: unexpected terminal status: %s", c.id, c.status)
 	default:
-		return fmt.Errorf("incite: query chunk %q: unhandled status: %s", c.id, c.status)
+		return &TerminalQueryStatusError{c.id, c.status, c.stream.Text}
 	}
 }
 

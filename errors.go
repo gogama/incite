@@ -3,6 +3,7 @@ package incite
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 var (
@@ -11,24 +12,43 @@ var (
 	ErrClosed = errors.New("incite: operation on a closed object")
 )
 
-type wrappedErr struct {
-	cause error
-	msg   string
+type StartQueryError struct {
+	Text  string
+	Start time.Time
+	End   time.Time
+	Cause error
 }
 
-func wrap(cause error, format string, a ...interface{}) error {
-	return &wrappedErr{
-		cause: cause,
-		msg:   fmt.Sprintf(format, a...),
-	}
+func (err *StartQueryError) Error() string {
+	return fmt.Sprintf("incite: CloudWatch Logs failed to start query for chunk %q [%s..%s): %s", err.Text, err.Start, err.End, err.Cause)
 }
 
-func (w *wrappedErr) Error() string {
-	return w.msg + ": " + w.cause.Error()
+func (err *StartQueryError) Unwrap() error {
+	return err.Cause
 }
 
-func (w *wrappedErr) Unwrap() error {
-	return w.cause
+type TerminalQueryStatusError struct {
+	QueryID string
+	Status  string
+	Text    string
+}
+
+func (err *TerminalQueryStatusError) Error() string {
+	return fmt.Sprintf("incite: query %q has terminal status %q (text %q)", err.QueryID, err.Status, err.Text)
+}
+
+type UnexpectedQueryError struct {
+	QueryID string
+	Text    string
+	Cause   error
+}
+
+func (err *UnexpectedQueryError) Error() string {
+	return fmt.Sprintf("incite: query %q had unexpected error (text %q): %s", err.QueryID, err.Text, err.Cause)
+}
+
+func (err *UnexpectedQueryError) Unwrap() error {
+	return err.Cause
 }
 
 func errNoKey(id string) error {
@@ -37,6 +57,10 @@ func errNoKey(id string) error {
 
 func errNoValue(id, key string) error {
 	return fmt.Errorf("incite: query chunk %q: no value for key %q", id, key)
+}
+
+func errNilStatus() error {
+	return errors.New("incite: nil status in GetQueryResults output from CloudWatch Logs")
 }
 
 const (

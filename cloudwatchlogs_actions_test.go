@@ -2,6 +2,7 @@ package incite
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws/request"
@@ -12,6 +13,7 @@ import (
 
 type mockActions struct {
 	mock.Mock
+	lock sync.RWMutex
 }
 
 func newMockActions(t *testing.T) *mockActions {
@@ -21,6 +23,9 @@ func newMockActions(t *testing.T) *mockActions {
 }
 
 func (m *mockActions) StartQueryWithContext(ctx context.Context, input *cloudwatchlogs.StartQueryInput, _ ...request.Option) (*cloudwatchlogs.StartQueryOutput, error) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
 	args := m.Called(ctx, input)
 	if output, ok := args.Get(0).(*cloudwatchlogs.StartQueryOutput); ok {
 		return output, args.Error(1)
@@ -29,6 +34,9 @@ func (m *mockActions) StartQueryWithContext(ctx context.Context, input *cloudwat
 }
 
 func (m *mockActions) StopQueryWithContext(ctx context.Context, input *cloudwatchlogs.StopQueryInput, _ ...request.Option) (*cloudwatchlogs.StopQueryOutput, error) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
 	args := m.Called(ctx, input)
 	if output, ok := args.Get(0).(*cloudwatchlogs.StopQueryOutput); ok {
 		return output, args.Error(1)
@@ -37,6 +45,9 @@ func (m *mockActions) StopQueryWithContext(ctx context.Context, input *cloudwatc
 }
 
 func (m *mockActions) GetQueryResultsWithContext(ctx context.Context, input *cloudwatchlogs.GetQueryResultsInput, _ ...request.Option) (*cloudwatchlogs.GetQueryResultsOutput, error) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
 	args := m.Called(ctx, input)
 	if output, ok := args.Get(0).(*cloudwatchlogs.GetQueryResultsOutput); ok {
 		return output, args.Error(1)
