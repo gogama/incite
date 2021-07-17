@@ -756,6 +756,7 @@ func TestUnmarshal(t *testing.T) {
 		// TODO: Array cases.
 		// TODO: Struct cases ensuring irrelevant/untagged fields are ignored even if wrong type.
 		// TODO: Keep the []byte case or not? And should it be base64 decoding or what?
+		// TODO: Handling for "-" and "-," tags.
 
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {

@@ -1,7 +1,8 @@
 package incite
 
-// TimeLayout is a Go time layout which defines the format of the time values
-// returned in the timestamp fields of CloudWatch Logs Insights queries.
+// TimeLayout is a Go time layout which documenting the format of the
+// time values returned in the timestamp fields of CloudWatch Logs
+// Insights queries.
 //
 // TimeLayout defines the format by showing how the Go reference time of
 //

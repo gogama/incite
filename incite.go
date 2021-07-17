@@ -336,12 +336,12 @@ const (
 	// the QueryManager is at maximum capacity.
 	DefaultParallel = QueryConcurrencyQuotaLimit - 2
 
-	// DefaultLimit is the default result count limit applied to query
-	// operations if no value is explicitly set.
+	// DefaultLimit is the default result count limit used if the Limit
+	// field of a QuerySpec is zero or negative.
 	DefaultLimit = 1000
 
-	// MaxLimit is the maximum result count limit a query operation may
-	// specify.
+	// MaxLimit is the maximum value the result count limit field in a
+	// QuerySpec may be set to.
 	MaxLimit = 10000
 )
 

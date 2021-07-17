@@ -16,33 +16,34 @@ import (
 // pointed to by v.
 //
 // The argument v must contain a non-nil pointer whose ultimate target
-// is a slice, array, or interface value. If v ultimately targets a
+// is a slice, array, or interface value. If v ultimately targets an
 // interface{}, it is treated as if it targets a []map[string]string.
 //
 // The element type of the array or slice must target a map type, struct
-// type. As special cases, elements of type interface{} and Result
-// are also allowed. If the element type targets a map, the maps keys
-// must be strings and its value type must target a string type,
-// interface{}, or any type that implements encoding.TextUnmarshaler.
+// type, or one of two special cases. As special cases, elements of type
+// interface{} and Result are allowed. If the element type targets a
+// map, the maps keys must be strings and its value type must target a
+// string type, interface{}, or any type that implements
+// encoding.TextUnmarshaler.
 //
 // To unmarshal data into an array or slice of maps, Unmarshal uses
 // the ResultField name as the map key and the ResultField value as its
 // value. If the map value targets an encoding.TextUnmarshaler, the
-// value's UnmarshalText value is used to unmarshal the value. If the
+// value's UnmarshalText method is used to unmarshal the value. If the
 // map value targets a string type, the ResultField's value is directly
 // inserted as the field value in the map. As a special case, if the
 // map value targets interface{}, Unmarshal first tries to unmarshal
-// the value as JSON using json.Unmarshal, and falls back to the plain
-// string value if JSON unmarshaling fails.
+// the field value as JSON using json.Unmarshal, and falls back to the
+// plain string value if JSON unmarshaling fails.
 //
 // To unmarshal data into a struct type, Unmarshal uses the following
-// rules top-level rules:
+// top-level rules:
 //
 // • A struct field with an "incite" tag receives the value of the
 // ResultField field named in the tag. Unmarshaling of the field value
-// is done according to rules discussed below. If the tag is "-" the
-// field is ignored. If the field type does not ultimately target a
-// struct field unmarshalable type, an InvalidUnmarshalError is
+// is done according to additional rules discussed below. If the tag is
+// "-" the field is ignored. If the field type does not ultimately
+// target a struct field unmarshalable type, an InvalidUnmarshalError is
 // returned.
 //
 // • A struct field with a "json" tag receives the the value of the
@@ -51,8 +52,8 @@ import (
 // address as the target. If the tag is "-" the field is ignored. The
 // field type is not checked for validity.
 //
-// • The "incite" tag takes precedence over the "json" tag so they
-// should not be used together on the same struct field.
+// • An "incite" tag takes precedence over a "json" tag so there is no
+// point using both tags on the same struct field.
 //
 // • A struct field with no "incite" or "json" tag receives the value
 // of the ResultField field sharing the same case-sensitive name as the
@@ -62,8 +63,8 @@ import (
 // The following types are considered struct field unmarshalable types:
 //
 //  bool
-//  int8, int16, int32, int64, int
-//  uint8, uint16, uint32, uint64, uint
+//  int, int8, int16, int32, int64
+//  uint, uint8, uint16, uint32, uint64
 //  float32, float64
 //  interface{}
 //  []byte
@@ -76,7 +77,9 @@ import (
 // a CloudWatch Logs timestamp field (@timestamp or @ingestionTime) is
 // named in an "incite" tag, it may only target a time.Time or string
 // value. If it targets a time.Time, the value is decoded using
-// TimeLayout with the time.Parse function.
+// TimeLayout with the time.Parse function. As a further special case,
+// Incite's intermediate result deletion field (@deleted) may only
+// target a bool or string field.
 //
 // If a target type rule is violated, Unmarshal returns
 // InvalidUnmarshalError. If a result field value cannot be decoded,
