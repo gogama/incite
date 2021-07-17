@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"sort"
 	"testing"
 	"time"
@@ -674,8 +673,8 @@ func TestQueryManager_Query(t *testing.T) {
 				expectedNext:      defaultStart,
 			},
 
-			// TODO: Add limit and update QuerySpec docs before adding
-			//       more test cases here.
+			// TODO: Add test case for negative, zero, max Limit.
+			// TODO: Add test case for anything else.
 		}
 
 		for _, testCase := range testCases {
@@ -814,7 +813,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: false,
 			},
 		},
-		err: regexp.MustCompile(`incite: CloudWatch Logs failed to start query for chunk "a poorly written query" .*: InvalidParameterException: terrible query writing there bud$`),
+		err: &StartQueryError{"a poorly written query", defaultStart, defaultEnd, cwlErr(cloudwatchlogs.ErrCodeInvalidParameterException, "terrible query writing there bud")},
 	},
 	{
 		note: "NoStart.UnexpectedError",
@@ -837,7 +836,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: false,
 			},
 		},
-		err: regexp.MustCompile(`incite: CloudWatch Logs failed to start query for chunk "an ill-fated query" .*: pow exclamation point$`),
+		err: &StartQueryError{"an ill-fated query", defaultStart, defaultEnd, errors.New("pow exclamation point")},
 	},
 
 	{
@@ -894,7 +893,7 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: `incite: query "scenario:3|chunk:0|OneChunk.OnePoll.Status.Cancelled" has terminal status "Cancelled" (text "destined for cancellation")`,
+		err: &TerminalQueryStatusError{"scenario:3|chunk:0|OneChunk.OnePoll.Status.Cancelled", "Cancelled", "destined for cancellation"},
 	},
 	{
 		note: "OneChunk.OnePoll.Status.Failed",
@@ -922,7 +921,7 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: `incite: query "scenario:4|chunk:0|OneChunk.OnePoll.Status.Failed" has terminal status "Failed" (text "fated for failure")`,
+		err: &TerminalQueryStatusError{"scenario:4|chunk:0|OneChunk.OnePoll.Status.Failed", "Failed", "fated for failure"},
 	},
 	{
 		note: "OneChunk.OnePoll.Status.Timeout",
@@ -950,12 +949,12 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: `incite: query "scenario:5|chunk:0|OneChunk.OnePoll.Status.Timeout" has terminal status "Timeout" (text "tempting a timeout")`,
+		err: &TerminalQueryStatusError{"scenario:5|chunk:0|OneChunk.OnePoll.Status.Timeout", "Timeout", "tempting a timeout"},
 	},
 	{
 		note: "OneChunk.OnePoll.Status.Unexpected",
 		QuerySpec: QuerySpec{
-			Text:    "expecting the unexpected",
+			Text:    "expecting the unexpected...status",
 			Start:   defaultStart,
 			End:     defaultEnd,
 			Groups:  []string{"/any/group"},
@@ -964,7 +963,7 @@ var scenarios = []queryScenario{
 		chunks: []chunkPlan{
 			{
 				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("expecting the unexpected"),
+					QueryString:   sp("expecting the unexpected...status"),
 					StartTime:     startTimeSeconds(defaultStart),
 					EndTime:       endTimeSeconds(defaultEnd),
 					Limit:         defaultLimit,
@@ -978,7 +977,34 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: `incite: query "scenario:6|chunk:0|OneChunk.OnePoll.Status.Unexpected" has terminal status "Did you see this coming?" (text "expecting the unexpected")`,
+		err: &TerminalQueryStatusError{"scenario:6|chunk:0|OneChunk.OnePoll.Status.Unexpected", "Did you see this coming?", "expecting the unexpected...status"},
+	},
+	{
+		note: "OneChunk.OnePoll.Error.Unexpected",
+		QuerySpec: QuerySpec{
+			Text:   "expecting the unexpected...error",
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: []string{"/foo/bar"},
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("expecting the unexpected...error"),
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultEnd),
+					Limit:         defaultLimit,
+					LogGroupNames: []*string{sp("/foo/bar")},
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						err: errors.New("very bad news"),
+					},
+				},
+			},
+		},
+		err: &UnexpectedQueryError{"scenario:7|chunk:0|OneChunk.OnePoll.Error.Unexpected", "expecting the unexpected...error", errors.New("very bad news")},
 	},
 	{
 		note: "OneChunk.OnePoll.WithResults",
@@ -1029,7 +1055,83 @@ var scenarios = []queryScenario{
 		},
 		stats: Stats{1, 2, 3},
 	},
-	// OneChunk.MultiPoll.(one case with limit exceeded, throttling, scheduled, unknown, and several running statuses with intermediate results that get ignored)
+	{
+		note: "OneChunk.MultiPoll",
+		QuerySpec: QuerySpec{
+			Text:   "many happy results",
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: []string{"/thomas/gray", "/thomas/aquinas"},
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("many happy results"),
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultEnd),
+					Limit:         defaultLimit,
+					LogGroupNames: []*string{sp("/thomas/gray"), sp("/thomas/aquinas")},
+				},
+				startQueryErrs: []error{
+					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "use less"),
+					cwlErr("Throttling", "slow down"),
+					cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "wait for it..."),
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusScheduled,
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						stats:  &Stats{3, 0, 1},
+					},
+					{
+						err: cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "a blip in service"),
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						results: []Result{
+							{
+								{"@ptr", "789"},
+								{"MyField", "world"},
+							},
+						},
+						stats: &Stats{99, 98, 97},
+					},
+					{
+						err: cwlErr("throttling has occurred", "and you were the recipient of the throttling"),
+					},
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						results: []Result{
+							{
+								{"@ptr", "101"},
+								{"MyField", "hello"},
+							},
+							{
+								{"@ptr", "789"},
+								{"MyField", "world"},
+							},
+						},
+						stats: &Stats{100, 99, 98},
+					},
+				},
+			},
+		},
+		results: []Result{
+			{
+				{"@ptr", "101"},
+				{"MyField", "hello"},
+			},
+			{
+				{"@ptr", "789"},
+				{"MyField", "world"},
+			},
+		},
+		stats: Stats{100, 99, 98},
+	},
+
 	// OneChunk.Preview.Stats (noPtr)
 	// OneChunk.Preview.Normal (with @ptr)
 	// MultiChunk.Fractional.LessThanOne
@@ -1046,7 +1148,7 @@ type queryScenario struct {
 	note       string              // Optional note describing the scenario
 	chunks     []chunkPlan         // Sub-scenario for each chunk
 	closeEarly bool                // Whether to prematurely close the stream.
-	err        interface{}         // Final expected error. Must be nil, string, or *regexp.Regexp.
+	err        error               // Final expected error.
 	results    []Result            // Final results in the expected order after optional sorting using less.
 	less       func(i, j int) bool // Optional less function for sorting results, needed for chunked scenarios.
 	stats      Stats               // Final stats
@@ -1054,9 +1156,9 @@ type queryScenario struct {
 }
 
 func (qs *queryScenario) play(t *testing.T, i int, m QueryManager, actions *mockActions) {
-	// Set up the chunk scenarios.
-	for j, chunkPlan := range qs.chunks {
-		chunkPlan.setup(i, j, qs.note, qs.closeEarly, actions)
+	// Set up the cp scenarios.
+	for j, cp := range qs.chunks {
+		cp.setup(i, j, qs.note, qs.closeEarly, actions)
 	}
 
 	// Start the scenario query.
@@ -1086,13 +1188,7 @@ func (qs *queryScenario) play(t *testing.T, i int, m QueryManager, actions *mock
 		}
 		assert.Equal(t, expectedResults, r)
 	} else {
-		switch x := qs.err.(type) {
-		case string:
-			assert.EqualError(t, err, x)
-		case *regexp.Regexp:
-			assert.Error(t, err)
-			assert.Regexp(t, x, err.Error(), "expected Error string to match Regexp %s, but it did not: %s", x, err.Error())
-		}
+		assert.Equal(t, qs.err, err)
 		assert.Empty(t, r)
 	}
 	assert.Equal(t, qs.stats, s.GetStats())
@@ -1148,7 +1244,8 @@ func (cp *chunkPlan) setup(i, j int, note string, closeEarly bool, actions *mock
 			QueryId: &queryID,
 		}, nil)
 
-	for _, pollOutput := range cp.pollOutputs {
+	for poi := range cp.pollOutputs {
+		pollOutput := cp.pollOutputs[poi]
 		input := &cloudwatchlogs.GetQueryResultsInput{
 			QueryId: &queryID,
 		}

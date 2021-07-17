@@ -641,7 +641,7 @@ func (m *mgr) startNextChunk() error {
 }
 
 func isTemporary(err error) bool {
-	if x, ok := err.(awserr.RequestFailure); ok {
+	if x, ok := err.(awserr.Error); ok {
 		switch x.Code() {
 		case cloudwatchlogs.ErrCodeLimitExceededException, cloudwatchlogs.ErrCodeServiceUnavailableException:
 			return true
