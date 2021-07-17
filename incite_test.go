@@ -512,6 +512,9 @@ func TestQueryManager_Close(t *testing.T) {
 	t.Run("Close Cancels Queries", func(t *testing.T) {
 		// TODO: Simple test case with multiple in-flight queries that get cancelled.
 	})
+
+	// TODO: Test multi-thread read case. Second reader should be blocking on
+	//       the stream lock and not get in, but why not test?
 }
 
 func TestQueryManager_GetStats(t *testing.T) {
@@ -775,17 +778,6 @@ func TestQueryManager_Query(t *testing.T) {
 			})
 		}
 	})
-
-	// TODO: Need to think of cases. Some possibles:
-	//        1. HAPPIEST PATH: One query, one chunk, one request.
-	//        2. One query, two chunks, one request each.
-	//        3. 10 queries, 10 chunks each, each chunk needing to be polled multiple times.
-	//
-	// For the above, can vary the following:
-	//     1. Parallelism
-	//     2. Chunking
-	//     3. Result Limit
-	//     4. Hint
 }
 
 var scenarios = []queryScenario{
@@ -1223,10 +1215,10 @@ func (cp *chunkPlan) setup(i, j int, note string, closeEarly bool, actions *mock
 	actions.lock.Lock()
 	defer actions.lock.Unlock()
 
-	for _, err := range cp.startQueryErrs {
+	for k := range cp.startQueryErrs {
 		actions.
 			On("StartQueryWithContext", anyContext, &cp.startQueryInput).
-			Return(nil, err).
+			Return(nil, cp.startQueryErrs[k]).
 			Once()
 	}
 
@@ -1244,8 +1236,8 @@ func (cp *chunkPlan) setup(i, j int, note string, closeEarly bool, actions *mock
 			QueryId: &queryID,
 		}, nil)
 
-	for poi := range cp.pollOutputs {
-		pollOutput := cp.pollOutputs[poi]
+	for k := range cp.pollOutputs {
+		pollOutput := cp.pollOutputs[k]
 		input := &cloudwatchlogs.GetQueryResultsInput{
 			QueryId: &queryID,
 		}
@@ -1261,8 +1253,8 @@ func (cp *chunkPlan) setup(i, j int, note string, closeEarly bool, actions *mock
 			}
 			if pollOutput.results != nil {
 				output.Results = make([][]*cloudwatchlogs.ResultField, len(pollOutput.results))
-				for k := range pollOutput.results {
-					output.Results[k] = pollOutput.results[k].backOut()
+				for l := range pollOutput.results {
+					output.Results[l] = pollOutput.results[l].backOut()
 				}
 			}
 			if pollOutput.stats != nil {

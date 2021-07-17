@@ -823,10 +823,8 @@ func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, stats *cl
 	}
 	if err != nil {
 		c.stream.setErr(err, false, c.Stats)
-	}
-	if c.stream.waiting {
-		c.stream.waiting = false
-		c.stream.wait <- struct{}{}
+	} else {
+		c.stream.more.Signal()
 	}
 	return err
 }
@@ -1039,9 +1037,8 @@ func (m *mgr) Query(q QuerySpec) (Stream, error) {
 		groups:    groups,
 
 		next: q.Start,
-
-		wait: make(chan struct{}, 1),
 	}
+	s.more = sync.NewCond(&s.lock)
 
 	heap.Push(&m.pq, s)
 	if m.waiting {
@@ -1115,16 +1112,15 @@ type stream struct {
 	next time.Time // Next chunk start time
 
 	// Lock controlling access to the below mutable fields.
-	lock sync.RWMutex // TODO: Do we ever use read part?
+	lock sync.RWMutex
 
 	// Mutable fields controlled by stream using lock.
-	stats   Stats
-	blocks  [][]Result
-	m       int64         // Number of chunks completed
-	i, j    int           // Block index and position within block
-	wait    chan struct{} // Used to block a Read pending more blocks
-	waiting bool          // True if and only if the stream is blocked on wait
-	err     error         // Error to return, if any
+	stats  Stats
+	blocks [][]Result
+	m      int64      // Number of chunks completed
+	i, j   int        // Block index and position within block
+	more   *sync.Cond // Used to block a Read pending more blocks
+	err    error      // Error to return, if any
 }
 
 func (s *stream) Close() error {
@@ -1138,35 +1134,32 @@ func (s *stream) Close() error {
 }
 
 func (s *stream) Read(r []Result) (int, error) {
-	for {
-		n, err := s.read(r)
-		if !s.waiting {
-			return n, err
-		}
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
-		select {
-		case <-s.ctx.Done():
-		case <-s.wait:
+	for {
+		n := s.read(r)
+		if n > 0 || s.err != nil || len(r) == 0 {
+			return n, s.err
 		}
+		s.more.Wait()
 	}
 }
 
 func (s *stream) GetStats() Stats {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
+
 	return s.stats
 }
 
-func (s *stream) read(r []Result) (int, error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
+func (s *stream) read(r []Result) int {
 	n := 0
 	for s.i < len(s.blocks) {
 		block := s.blocks[s.i]
 		for s.j < len(block) {
 			if n == len(r) {
-				return n, nil
+				return n
 			}
 			r[n] = block[s.j]
 			n++
@@ -1175,9 +1168,7 @@ func (s *stream) read(r []Result) (int, error) {
 		s.i++
 		s.j = 0
 	}
-
-	s.waiting = s.err == nil && n == 0 && len(r) > 0
-	return n, s.err
+	return n
 }
 
 func (s *stream) setErr(err error, lock bool, stats Stats) bool {
@@ -1192,9 +1183,7 @@ func (s *stream) setErr(err error, lock bool, stats Stats) bool {
 
 	s.err = err
 	s.stats.add(stats)
-	if s.waiting {
-		s.wait <- struct{}{}
-	}
+	s.more.Signal()
 	return true
 }
 
