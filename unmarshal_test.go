@@ -3,6 +3,7 @@ package incite
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -515,12 +516,246 @@ func TestUnmarshal(t *testing.T) {
 				v: &[]struct{}{},
 				w: &[]struct{}{{}, {}},
 			},
+
+			{
+				name: "[]*struct{},data:nil",
+				v:    &[]*struct{}{},
+				w:    &[]*struct{}{},
+			},
+			{
+				name: "[]*struct{},data:empty",
+				data: []Result{},
+				v:    &[]*struct{}{},
+				w:    &[]*struct{}{},
+			},
+			{
+				name: "[]*struct{},data:single",
+				data: single,
+				v:    &[]*struct{}{},
+				w:    &[]*struct{}{{}},
+			},
+			{
+				name: "[]*struct{},data:multiple",
+				data: []Result{
+					{
+						{
+							Field: "foo",
+							Value: "bar",
+						},
+					},
+					{
+						{
+							Field: "hello",
+							Value: "world",
+						},
+					},
+				},
+				v: &[]*struct{}{},
+				w: &[]*struct{}{{}, {}},
+			},
+
+			{
+				name: "[]strongestTypedStruct,data:nil",
+				v:    &[]strongestTypedStruct{},
+				w:    &[]strongestTypedStruct{},
+			},
+			{
+				name: "[]strongestTypedStruct{},data:empty",
+				data: []Result{},
+				v:    &[]strongestTypedStruct{},
+				w:    &[]strongestTypedStruct{},
+			},
+			{
+				name: "[]strongestTypedStruct{},data:single",
+				data: single,
+				v:    &[]strongestTypedStruct{},
+				w:    &[]strongestTypedStruct{{Ptr: "foo"}},
+			},
+			{
+				name: "[]strongestTypedStruct{},data:multiple",
+				data: []Result{
+					{
+						{"@ptr", "first row"},
+						{"@timestamp", "2021-07-17 00:28:40.123"},
+						{"@ingestionTime", "2021-07-17 00:29:01.500"},
+						{"@deleted", "true"},
+						{"ObjectOfJSON", `{"key":"value"}`},
+						{"ArrayOfJSON", `["first","second"]`},
+						{"StringOfJSON", `"str"`},
+						{"NumberOfJSON", `-99.9`},
+						{"BoolOfJSON", `true`},
+						{"TaggedText", "tagged text"},
+						{"Text2", "untagged text"},
+						{"Int", "-999"},
+						{"Int8", "-128"},
+						{"Int16", "32767"},
+						{"Int32", "100"},
+						{"Int64", "-200"},
+						{"Uint", "999"},
+						{"Uint8", "250"},
+						{"Uint16", "65000"},
+						{"Uint32", "500"},
+						{"Uint64", "600"},
+						{"Float32", "-100"},
+						{"Float64", "-200"},
+						{"Bool", "1"},
+						{"TaggedString", "tagged string"},
+						{"String2", "untagged string"},
+						{"ignored field 1", "ignored value 1"},
+					},
+					{
+						{"@timestamp", "2021-07-17 00:39:00.000"},
+						{"@ptr", "second row"},
+						{"@deleted", "false"},
+						{"ObjectOfJSON", "{}"},
+						{"Uint64", "111"},
+						{"Strings", `["a","bb","CCC"]`},
+					},
+				},
+				v: &[]strongestTypedStruct{},
+				w: &[]strongestTypedStruct{
+					{
+						Ptr:           "first row",
+						Timestamp:     time.Date(2021, 7, 17, 0, 28, 40, 123000000, time.UTC),
+						IngestionTime: tmp(time.Date(2021, 7, 17, 0, 29, 1, 500000000, time.UTC)),
+						Deleted:       true,
+						JSONObject:    map[string]interface{}{"key": "value"},
+						JSONArray:     []interface{}{"first", "second"},
+						JSONString:    "str",
+						JSONNumber:    -99.9,
+						JSONBool:      true,
+						Text1:         indirectDummyTextUnmarshaler{"tagged text"},
+						Text2:         indirectDummyTextUnmarshaler{"untagged text"},
+						Int:           -999,
+						Int8:          -128,
+						Int16:         32767,
+						Int32:         100,
+						Int64:         -200,
+						Uint:          999,
+						Uint8:         250,
+						Uint16:        65000,
+						Uint32:        500,
+						Uint64:        600,
+						Float32:       -100,
+						Float64:       -200,
+						Bool:          true,
+						String1:       "tagged string",
+						String2:       "untagged string",
+					},
+					{
+						Ptr:        "second row",
+						Timestamp:  time.Date(2021, 7, 17, 0, 39, 0, 0, time.UTC),
+						JSONObject: map[string]interface{}{},
+						Uint64:     111,
+						Strings:    []string{"a", "bb", "CCC"},
+					},
+				},
+			},
+
+			{
+				name: "[]*strongestTypedStruct,data:nil",
+				v:    &[]*strongestTypedStruct{},
+				w:    &[]*strongestTypedStruct{},
+			},
+			{
+				name: "[]*strongestTypedStruct{},data:empty",
+				data: []Result{},
+				v:    &[]*strongestTypedStruct{},
+				w:    &[]*strongestTypedStruct{},
+			},
+			{
+				name: "[]*strongestTypedStruct{},data:single",
+				data: single,
+				v:    &[]*strongestTypedStruct{},
+				w:    &[]*strongestTypedStruct{{Ptr: "foo"}},
+			},
+			{
+				name: "[]*strongestTypedStruct{},data:multiple",
+				data: []Result{
+					{
+						{"@ptr", "first row"},
+						{"@timestamp", "2021-07-17 00:28:40.123"},
+						{"@ingestionTime", "2021-07-17 00:29:01.500"},
+						{"@deleted", "true"},
+						{"ObjectOfJSON", `{"key":"value"}`},
+						{"ArrayOfJSON", `["first","second"]`},
+						{"StringOfJSON", `"str"`},
+						{"NumberOfJSON", `-99.9`},
+						{"BoolOfJSON", `true`},
+						{"TaggedText", "tagged text"},
+						{"Text2", "untagged text"},
+						{"Int", "-999"},
+						{"Int8", "-128"},
+						{"Int16", "32767"},
+						{"Int32", "100"},
+						{"Int64", "-200"},
+						{"Uint", "999"},
+						{"Uint8", "250"},
+						{"Uint16", "65000"},
+						{"Uint32", "500"},
+						{"Uint64", "600"},
+						{"Float32", "-100"},
+						{"Float64", "-200"},
+						{"Bool", "1"},
+						{"TaggedString", "tagged string"},
+						{"String2", "untagged string"},
+						{"ignored field 1", "ignored value 1"},
+					},
+					{
+						{"@timestamp", "2021-07-17 00:39:00.000"},
+						{"@ptr", "second row"},
+						{"@deleted", "false"},
+						{"ObjectOfJSON", "{}"},
+						{"Uint64", "111"},
+						{"Strings", `["a","bb","CCC"]`},
+					},
+				},
+				v: &[]*strongestTypedStruct{},
+				w: &[]*strongestTypedStruct{
+					{
+						Ptr:           "first row",
+						Timestamp:     time.Date(2021, 7, 17, 0, 28, 40, 123000000, time.UTC),
+						IngestionTime: tmp(time.Date(2021, 7, 17, 0, 29, 1, 500000000, time.UTC)),
+						Deleted:       true,
+						JSONObject:    map[string]interface{}{"key": "value"},
+						JSONArray:     []interface{}{"first", "second"},
+						JSONString:    "str",
+						JSONNumber:    -99.9,
+						JSONBool:      true,
+						Text1:         indirectDummyTextUnmarshaler{"tagged text"},
+						Text2:         indirectDummyTextUnmarshaler{"untagged text"},
+						Int:           -999,
+						Int8:          -128,
+						Int16:         32767,
+						Int32:         100,
+						Int64:         -200,
+						Uint:          999,
+						Uint8:         250,
+						Uint16:        65000,
+						Uint32:        500,
+						Uint64:        600,
+						Float32:       -100,
+						Float64:       -200,
+						Bool:          true,
+						String1:       "tagged string",
+						String2:       "untagged string",
+					},
+					{
+						Ptr:        "second row",
+						Timestamp:  time.Date(2021, 7, 17, 0, 39, 0, 0, time.UTC),
+						JSONObject: map[string]interface{}{},
+						Uint64:     111,
+						Strings:    []string{"a", "bb", "CCC"},
+					},
+				},
+			},
 		}
 
 		// TODO: Data longer than input slice case.
 		// TODO: Data shorter than input slice case.
 		// TODO: Array cases.
 		// TODO: Struct cases ensuring irrelevant/untagged fields are ignored even if wrong type.
+		// TODO: Keep the []byte case or not? And should it be base64 decoding or what?
 
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {
@@ -736,6 +971,8 @@ func TestUnmarshal(t *testing.T) {
 			// notPointer[...various...]
 			// notSlice[...various...]
 			// notStruct[...various...]
+			// TODO: Can't target the same ResultField twice with two different struct fields???
+			// TODO: Numeric overflow cases?
 		}
 
 		for _, testCase := range testCases {
@@ -898,6 +1135,40 @@ type badStructComplex64Tagged struct {
 	Complex64Field complex64 `incite:"MyComplex"`
 }
 
+type strongestTypedStruct struct {
+	Ptr           string     `incite:"@ptr"`
+	Timestamp     time.Time  `incite:"@timestamp"`
+	IngestionTime *time.Time `incite:"@ingestionTime"`
+	Deleted       bool       `incite:"@deleted"`
+
+	JSONObject map[string]interface{} `json:"ObjectOfJSON"`
+	JSONArray  []interface{}          `json:"ArrayOfJSON"`
+	JSONString string                 `json:"StringOfJSON"`
+	JSONNumber float64                `json:"NumberOfJSON"`
+	JSONBool   bool                   `json:"BoolOfJSON"`
+
+	Text1 indirectDummyTextUnmarshaler `incite:"TaggedText"`
+	Text2 indirectDummyTextUnmarshaler
+
+	Int       int
+	Int8      int8
+	Int16     int16
+	Int32     int32
+	Int64     int64
+	Uint      uint
+	Uint8     uint8
+	Uint16    uint16
+	Uint32    uint32
+	Uint64    uint64
+	Float32   float32
+	Float64   float64
+	Bool      bool
+	String1   string `incite:"TaggedString"`
+	String2   string
+	Strings   []string
+	ByteArray []byte // TODO: I'mt not sure what to do with this.
+}
+
 func ip(i interface{}) *interface{} {
 	return &i
 }
@@ -914,6 +1185,10 @@ func sp(s string) *string {
 func spp(s string) **string {
 	p := sp(s)
 	return &p
+}
+
+func tmp(t time.Time) *time.Time {
+	return &t
 }
 
 type directDummyTextUnmarshaler []string

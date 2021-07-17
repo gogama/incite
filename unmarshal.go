@@ -90,12 +90,11 @@ func Unmarshal(data []Result, v interface{}) error {
 		return &InvalidUnmarshalError{Type: reflect.TypeOf(v)}
 	}
 
-	// TODO: Dig here to cut through any extra pointers.
-
+	t, depth := dig(rv.Elem().Type())
+	a := fill(rv.Elem(), depth)
 	m := len(data)
-	a := rv.Elem()
 
-	switch a.Kind() {
+	switch t.Kind() {
 	case reflect.Slice: // v is a pointer to a slice
 		n := a.Cap()
 		if m > n {
