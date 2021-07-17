@@ -6,11 +6,11 @@ import (
 
 // ReadAll reads from s until an error or EOF and returns the data it
 // read. A successful call returns err == nil, nor err == EOF. Because
-// ReadAll is defined to read from r until EOF, it does not treat an EOF
+// ReadAll is defined to read from s until EOF, it does not treat an EOF
 // from Read as an error to be reported.
-func ReadAll(r Reader) ([]Result, error) {
-	if r == nil {
-		panic(nilReaderMsg)
+func ReadAll(s Stream) ([]Result, error) {
+	if s == nil {
+		panic(nilStream)
 	}
 
 	// For interests' sake, this implementation is borrowed almost
@@ -22,7 +22,7 @@ func ReadAll(r Reader) ([]Result, error) {
 			// Add more capacity (let append pick now much).
 			x = append(x, Result{})[:len(x)]
 		}
-		n, err := r.Read(x[len(x):cap(x)])
+		n, err := s.Read(x[len(x):cap(x)])
 		x = x[:len(x)+n]
 		if err != nil {
 			if err == io.EOF {

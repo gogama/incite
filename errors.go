@@ -12,6 +12,7 @@ var (
 	ErrClosed = errors.New("incite: operation on a closed object")
 )
 
+// TODO: Document, and document Stream.Read can return it also.
 type StartQueryError struct {
 	Text  string
 	Start time.Time
@@ -27,6 +28,7 @@ func (err *StartQueryError) Unwrap() error {
 	return err.Cause
 }
 
+// TODO: Document, and document Stream.Read can return it also.
 type TerminalQueryStatusError struct {
 	QueryID string
 	Status  string
@@ -37,6 +39,7 @@ func (err *TerminalQueryStatusError) Error() string {
 	return fmt.Sprintf("incite: query %q has terminal status %q (text %q)", err.QueryID, err.Status, err.Text)
 }
 
+// TODO: Document, and document Stream.Read can return it also.
 type UnexpectedQueryError struct {
 	QueryID string
 	Text    string
@@ -65,7 +68,7 @@ func errNilStatus() error {
 
 const (
 	nilActionsMsg = "incite: nil actions"
-	nilReaderMsg  = "incite: nil reader"
+	nilStream     = "incite: nil stream"
 
 	textBlankMsg         = "incite: blank query text"
 	startSubSecondMsg    = "incite: start has sub-second granularity"

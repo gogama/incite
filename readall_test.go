@@ -13,14 +13,14 @@ import (
 
 func TestReadAll(t *testing.T) {
 	t.Run("Panic", func(t *testing.T) {
-		assert.PanicsWithValue(t, nilReaderMsg, func() {
-			ReadAll(nil)
+		assert.PanicsWithValue(t, nilStream, func() {
+			_, _ = ReadAll(nil)
 		})
 	})
 
 	t.Run("Error", func(t *testing.T) {
 		expectedErr := errors.New("foo")
-		m := newMockReader(t)
+		m := newMockStream(t)
 		m.
 			On("Read", matchResultsSliceLen(1, maxLen)).Return(0, expectedErr).
 			Once()
@@ -35,7 +35,7 @@ func TestReadAll(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		t.Run("ZeroEOF", func(t *testing.T) {
-			m := newMockReader(t)
+			m := newMockStream(t)
 			m.
 				On("Read", matchResultsSliceLen(1, maxLen)).
 				Return(0, io.EOF).
@@ -50,7 +50,7 @@ func TestReadAll(t *testing.T) {
 
 		t.Run("PositiveEOF", func(t *testing.T) {
 			var expectedData []Result
-			m := newMockReader(t)
+			m := newMockStream(t)
 			m.On("Read", matchResultsSliceLen(1, maxLen)).
 				Run(fillResultSlice(&expectedData, func(_ int) int { return 1 })).
 				Return(1, io.EOF).
@@ -64,7 +64,7 @@ func TestReadAll(t *testing.T) {
 		})
 
 		t.Run("NothingHappened", func(t *testing.T) {
-			m := newMockReader(t)
+			m := newMockStream(t)
 			m.
 				On("Read", matchResultsSliceLen(1, maxLen)).
 				Return(0, nil).
@@ -83,7 +83,7 @@ func TestReadAll(t *testing.T) {
 
 		t.Run("GotLessThanInitialCap", func(t *testing.T) {
 			var expectedData []Result
-			m := newMockReader(t)
+			m := newMockStream(t)
 			m.On("Read", matchResultsSliceLen(1, maxLen)).
 				Run(fillResultSlice(&expectedData, func(n int) int { return n - 1 })).
 				Return(lenFunc(func(n int) int { return n - 1 }), io.EOF).
@@ -101,7 +101,7 @@ func TestReadAll(t *testing.T) {
 
 		t.Run("GotExactlyInitialCap", func(t *testing.T) {
 			var expectedData []Result
-			m := newMockReader(t)
+			m := newMockStream(t)
 			m.On("Read", matchResultsSliceLen(1, maxLen)).
 				Run(fillResultSlice(&expectedData, func(n int) int { return n })).
 				Return(lenFunc(func(n int) int { return n }), io.EOF).
@@ -119,7 +119,7 @@ func TestReadAll(t *testing.T) {
 
 		t.Run("GotMoreThanInitialCap", func(t *testing.T) {
 			var expectedData1, expectedData2 []Result
-			m := newMockReader(t)
+			m := newMockStream(t)
 			m.On("Read", matchResultsSliceLen(1, maxLen)).
 				Run(fillResultSlice(&expectedData1, func(n int) int { return n })).
 				Return(lenFunc(func(n int) int { return n }), nil).
@@ -143,20 +143,20 @@ func TestReadAll(t *testing.T) {
 	})
 }
 
-type mockReader struct {
+type mockStream struct {
 	mock.Mock
-	Reader
+	Stream
 }
 
-func newMockReader(t *testing.T) *mockReader {
-	m := &mockReader{}
+func newMockStream(t *testing.T) *mockStream {
+	m := &mockStream{}
 	m.Test(t)
 	return m
 }
 
 type lenFunc func(n int) int
 
-func (m *mockReader) Read(r []Result) (int, error) {
+func (m *mockStream) Read(r []Result) (int, error) {
 	args := m.Called(r)
 	var n int
 	if f, ok := args.Get(0).(lenFunc); ok {

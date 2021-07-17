@@ -153,13 +153,6 @@ type QuerySpec struct {
 	Hint uint16
 }
 
-// The Queryer interface provides the ability to run a CloudWatch Logs
-// Insights query. Use NewQueryManager to create a QueryManager, which
-// contains this interface.
-type Queryer interface {
-	Query(QuerySpec) (Stream, error)
-}
-
 // Stats contains metadata returned by CloudWatch Logs about the amount
 // of data scanned and number of result records matched during one or
 // more Insights queries.
@@ -219,8 +212,8 @@ type StatsGetter interface {
 // all queries run within the QueryManager since it was created.
 type QueryManager interface {
 	io.Closer
-	Queryer
 	StatsGetter
+	Query(QuerySpec) (Stream, error)
 }
 
 // Result represents a single result row from a CloudWatch Logs Insights
@@ -234,63 +227,67 @@ type ResultField struct {
 	Value string
 }
 
-// Reader provides a basic Read method to allow reading CloudWatch Logs
-// Insights query results as a stream.
+// Stream provides access to the result stream from a query operation
+// either using a QueryManager or the global Query function.
 //
-// Read reads up to len(p) CloudWatch Logs Insights results into p. It
-// returns the number of results read (0 <= n <= len(p)) and any error
-// encountered. Even if Read returns n < len(p), it may use all of p as
-// scratch space during the call. If some data are available but fewer
-// than len(p) results, Read conventionally returns what is available
-// instead of waiting for more.
+// Use the Close method if you need to prematurely cancel the query
+// operation, releasing the local (in-process) and remote (in the
+// CloudWatch Logs service) resources it consumes.
 //
-// When Read encounters an error or end-of-file condition after
-// successfully reading n > 0 results, it returns the number of results
-// read. It may return the (non-nil) error from the same call or return
-// the error (and n == 0) from a subsequent call. An instance of this
-// general case is that a Reader returning a non-zero number of results
-// at the end of the input stream may return either err == EOF or
-// err == nil. The next Read should return 0, EOF.
+// Use the Read method to read query results from the stream. The Read
+// method returns io.EOF when the entire results stream has been
+// consumed. At this point the query is over and all local and remote
+// resources have been released, so it is not necessary to close the
+// Stream explicitly.
 //
-// Callers should always process the n > 0 results returned before
-// considering the error err. Doing so correctly handles I/O errors
-// that happen after reading some results and also both of the allowed
-// EOF behaviors.
-//
-// Implementations of Read are discouraged from returning a zero result
-// count with a nil error, except when len(p) == 0. Callers should treat
-// a return of 0 and nil as indicating that nothing happened; in
-// particular it does not indicate EOF.
-//
-// Implementations must not retain p.
-//
-// As a convenience, the ReadAll function may be used to read all
-// remaining results available in a reader.
-type Reader interface {
-	Read(p []Result) (n int, err error)
-}
-
-// Stream provides access to the result stream from a query operation either
-// using a QueryManager or the global Query function.
-//
-// Use the Close method if you need to prematurely cancel the query operation,
-// releasing the local (in-process) and remote (in the CloudWatch Logs service)
-// resources it consumes.
-//
-// Use the Read method to read query results from the stream. The Read method
-// returns io.EOF when the entire results stream has been consumed. At this
-// point the query is over and all local and remote resources have been released,
-// so it is not necessary to close the stream explicitly.
-//
-// Use the GetStats method to obtain the Insights statistics pertaining to the
-// query. Note that the results from the GetStats method may change over time
-// as new results are pulled from the CloudWatch Logs web service, but will stop
-// changing after the Read method returns io.EOF. If the query was chunked, the
-// stats will be summed across multiple chunks.
+// Use the GetStats method to obtain the Insights statistics pertaining
+// to the query. Note that the results from the GetStats method may
+// change over time as new results are pulled from the CloudWatch Logs
+// web service, but will stop changing after the Read method returns
+// io.EOF or any other error. If the query was chunked, the stats will
+// be summed across multiple chunks.
 type Stream interface {
 	io.Closer
-	Reader
 	StatsGetter
+
+	// Read reads up to len(p) CloudWatch Logs Insights results into p.
+	// It returns the number of results read (0 <= n <= len(p)) and any
+	// error encountered. Even if Read returns n < len(p), it may use
+	// all of p as scratch space during the call. If some data are
+	// available but fewer than len(p) results, Read conventionally
+	// returns what is available instead of waiting for more.
+	//
+	// When Read encounters an error or end-of-file condition after
+	// successfully reading n > 0 results, it returns the number of
+	// results read. It may return the (non-nil) error from the same
+	// call or return the error (and n == 0) from a subsequent call. An
+	// instance of this general case is that a Stream returning a
+	// non-zero number of results at the end of the input stream may
+	// return either err == EOF or err == nil. The next Read should
+	// return 0, EOF.
+	//
+	// Callers should always process the n > 0 results returned before
+	// considering the error err. Doing so correctly handles I/O errors
+	// that happen after reading some results and also both of the
+	// allowed EOF behaviors.
+	//
+	// Implementations of Read are discouraged from returning a zero
+	// result count with a nil error, except when len(p) == 0. Callers
+	// should treat a return of 0 and nil as indicating that nothing
+	// happened; in particular it does not indicate EOF.
+	//
+	// Implementations must not retain p.
+	//
+	// As a convenience, the ReadAll function may be used to read all
+	// remaining results available in a Stream.
+	//
+	// If the query underlying the Stream failed permanently, then err
+	// may be one of:
+	//
+	// 	*StartQueryError
+	// 	*TerminalQueryStatusError
+	// -*UnexpectedQueryError
+	Read(p []Result) (n int, err error)
 }
 
 type mgr struct {
@@ -602,12 +599,7 @@ func (m *mgr) startNextChunk() error {
 			m.Logger.Printf("incite: QueryManager(%p) temporary failure to start chunk %q [%s..%s): %s",
 				m, s.Text, next, end, err.Error())
 		} else {
-			err = &StartQueryError{
-				Text:  s.Text,
-				Start: next,
-				End:   end,
-				Cause: err,
-			}
+			err = &StartQueryError{s.Text, next, end, err}
 			s.setErr(err, true, Stats{})
 			m.stats.add(s.GetStats())
 			m.Logger.Printf("incite: QueryManager(%p) permanent failure to start %q [%s..%s) due to fatal error from CloudWatch Logs: %s",
@@ -618,8 +610,8 @@ func (m *mgr) startNextChunk() error {
 
 	queryID := output.QueryId
 	if queryID == nil {
-		m.Logger.Printf("incite: QueryManager(%p) nil query ID for %q [%s..%s)", m, s.Text, next, end)
-		return errors.New("incite: nil query ID")
+		m.Logger.Printf("incite: QueryManager(%p) nil query ID for %q [%s..%s) <Will be retried>", m, s.Text, next, end)
+		return errors.New("incite: nil query ID") // Will be retried.
 	}
 
 	if end.Before(s.End) {
