@@ -1124,6 +1124,67 @@ var scenarios = []queryScenario{
 		stats: Stats{100, 99, 98},
 	},
 
+	{
+		note: "OneChunk.Preview.SimulateStatsCommand.NoPtr",
+		QuerySpec: QuerySpec{
+			Text:    "stats count_distinct(Foo) by bar",
+			Start:   defaultStart.Add(-time.Hour),
+			End:     defaultEnd.Add(time.Hour),
+			Groups:  []string{"/trove/of/data"},
+			Preview: true,
+			Hint:    1,
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("stats count_distinct(Foo) by bar"),
+					StartTime:     startTimeSeconds(defaultStart.Add(-time.Hour)),
+					EndTime:       endTimeSeconds(defaultEnd.Add(time.Hour)),
+					Limit:         defaultLimit,
+					LogGroupNames: []*string{sp("/trove/of/data")},
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{status: cloudwatchlogs.QueryStatusScheduled},
+					{status: cloudwatchlogs.QueryStatusRunning},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						results: []Result{
+							{{"count_distinct(Foo)", "100"}, {"bar", "ham"}},
+						},
+						stats: &Stats{1, 2, 3},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						results: []Result{
+							{{"count_distinct(Foo)", "37"}, {"bar", "eggs"}},
+							{{"count_distinct(Foo)", "100"}, {"bar", "ham"}},
+						},
+						stats: &Stats{2, 4, 6},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						results: []Result{
+							{{"count_distinct(Foo)", "200"}, {"bar", "ham"}},
+							{{"count_distinct(Foo)", "41"}, {"bar", "eggs"}},
+							{{"count_distinct(Foo)", "10"}, {"bar", "spam"}},
+						},
+						stats: &Stats{4, 5, 8},
+					},
+				},
+			},
+		},
+		results: []Result{
+			{{"count_distinct(Foo)", "100"}, {"bar", "ham"}},
+			{{"count_distinct(Foo)", "37"}, {"bar", "eggs"}},
+			{{"count_distinct(Foo)", "100"}, {"bar", "ham"}},
+			{{"count_distinct(Foo)", "200"}, {"bar", "ham"}},
+			{{"count_distinct(Foo)", "41"}, {"bar", "eggs"}},
+			{{"count_distinct(Foo)", "10"}, {"bar", "spam"}},
+		},
+		stats: Stats{4, 5, 8},
+	},
+
 	// OneChunk.Preview.Stats (noPtr)
 	// OneChunk.Preview.Normal (with @ptr)
 	// MultiChunk.Fractional.LessThanOne

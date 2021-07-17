@@ -114,7 +114,7 @@ type QuerySpec struct {
 	// When Preview is true, the query result Stream may produce some
 	// intermediate results which it later determines are invalid
 	// because they shouldn't be final members of the result set. For
-	// each such invalid result, an extra trivial Result will be sent to
+	// each such invalid result, an extra dummy Result will be sent to
 	// the result Stream with the following structure:
 	//
 	// 	incite.Result{
@@ -125,9 +125,13 @@ type QuerySpec struct {
 	// The presence of the "@deleted" field can be used to identify and
 	// delete the earlier invalid result.
 	//
-	// The Preview option has no effect if the results returned from
-	// CloudWatch Logs do not contain an @ptr field, which can happen,
-	// for example, if the query Text contains a `stats` command.
+	// If the results from CloudWatch Logs do not contain an @ptr field,
+	// the Preview option does not detect invalidated results and
+	// consequently does not create dummy @deleted items. Since the
+	// `stats` command creates results that do not contain @ptr,
+	// applications should either avoid combining Preview mode with
+	// `stats` or apply their own custom logic to eliminate obsolete
+	//intermediate results.
 	Preview bool
 
 	// Priority optionally allows a query operation to be given a higher
@@ -874,9 +878,7 @@ func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField, 
 			ptr = v
 			break
 		}
-		if ptr == nil && !eof {
-			continue // No @ptr, likely a stats command, not previewable, skip.
-		} else if ptr != nil && !eof && c.ptr[*ptr] {
+		if ptr != nil && !eof && c.ptr[*ptr] {
 			continue // We've already put this @ptr into the stream.
 		} else {
 			rr, err := translateResult(c.id, r)
