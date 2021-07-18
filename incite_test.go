@@ -728,56 +728,50 @@ func TestQueryManager_Query(t *testing.T) {
 	t.Run("Empty Read Buffer Does Not Block", func(t *testing.T) {
 		// TODO: Need a test to verify that s.Read([]Result{}) does not block.
 	})
+}
 
-	t.Run("Scenarios", func(t *testing.T) {
-		// Run the scenarios serially first to catch the obvious issues.
-		t.Run("Serial", func(t *testing.T) {
+func TestScenariosSerial(t *testing.T) {
+	actions := newMockActions(t)
+	m := NewQueryManager(Config{
+		Actions: actions,
+	})
+	require.NotNil(t, m)
+	defer func() {
+		err := m.Close()
+		assert.NoError(t, err)
+	}()
+
+	for i, s := range scenarios {
+		s.test(t, i, m, actions, false)
+	}
+
+	actions.AssertExpectations(t)
+}
+
+func TestScenariosParallel(t *testing.T) {
+	parallels := []int{1, 2, DefaultParallel, QueryConcurrencyQuotaLimit}
+	for p := range parallels {
+		parallel := parallels[p]
+		t.Run(fmt.Sprintf("Parallel=%d", parallel), func(t *testing.T) {
 			actions := newMockActions(t)
 			m := NewQueryManager(Config{
-				Actions: actions,
+				Actions:  actions,
+				Parallel: parallel,
+				RPS:      RPSQuotaLimits,
 			})
 			require.NotNil(t, m)
-			defer func() {
+			t.Cleanup(func() {
 				err := m.Close()
-				assert.NoError(t, err)
-			}()
-
-			for i, s := range scenarios {
-				t.Run(fmt.Sprintf("Scenario=%d", i), func(t *testing.T) {
-					s.play(t, i, m, actions)
-				})
-			}
-
-			actions.AssertExpectations(t)
-		})
-
-		// Run the scenarios in parallel with varying levels of parallelism to
-		// look for additional issues.
-		for p := 0; p < QueryConcurrencyQuotaLimit; p++ {
-			t.Run(fmt.Sprintf("Parallel=%d", p), func(t *testing.T) {
-				actions := newMockActions(t)
-				m := NewQueryManager(Config{
-					Actions:  actions,
-					Parallel: p,
-					RPS:      RPSQuotaLimits,
-				})
-				require.NotNil(t, m)
-				t.Cleanup(func() {
-					err := m.Close()
-					if err != nil {
-						t.Errorf("Cleanup: failed to close m: %s", err.Error())
-					}
-				})
-
-				for i, s := range scenarios {
-					t.Run(fmt.Sprintf("Scenario=%d", i), func(t *testing.T) {
-						t.Parallel() // Run scenarios in parallel.
-						s.play(t, i, m, actions)
-					})
+				if err != nil {
+					t.Errorf("Cleanup: failed to close m: %s", err.Error())
 				}
 			})
-		}
-	})
+
+			for i := range scenarios {
+				scenarios[i].test(t, i, m, actions, true)
+			}
+		})
+	}
 }
 
 var scenarios = []queryScenario{
@@ -1206,6 +1200,15 @@ type queryScenario struct {
 	less       func(i, j int) bool // Optional less function for sorting results, needed for chunked scenarios.
 	stats      Stats               // Final stats
 	closeAfter bool                // Whether to close the stream after the scenario.
+}
+
+func (qs *queryScenario) test(t *testing.T, i int, m QueryManager, actions *mockActions, parallel bool) {
+	t.Run(fmt.Sprintf("Scenario=%d", i), func(t *testing.T) {
+		if parallel {
+			t.Parallel()
+		}
+		qs.play(t, i, m, actions)
+	})
 }
 
 func (qs *queryScenario) play(t *testing.T, i int, m QueryManager, actions *mockActions) {
