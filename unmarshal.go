@@ -67,7 +67,6 @@ import (
 //  uint, uint8, uint16, uint32, uint64
 //  float32, float64
 //  interface{}
-//  []byte
 //  Any map, struct, slice, or array type
 //
 // A struct field targeting interface{} or any map, struct, slice, or
@@ -219,7 +218,6 @@ type decodeFunc func(*decodeState) error
 
 var (
 	resultType          = reflect.TypeOf(Result{})
-	byteSliceType       = reflect.TypeOf([]byte{})
 	textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
 	jsonUnmarshalerType = reflect.TypeOf((*json.Unmarshaler)(nil)).Elem()
 )
@@ -425,12 +423,7 @@ func selStructRowColDecodeFuncByType(colType reflect.Type) (decodeFunc, error) {
 		return decodeColToFloat, nil
 	case reflect.Bool:
 		return decodeColToBool, nil
-	case reflect.Slice:
-		if colType == byteSliceType {
-			return decodeColToByteSlice, nil
-		}
-		fallthrough
-	case reflect.Interface, reflect.Struct, reflect.Map, reflect.Array:
+	case reflect.Interface, reflect.Struct, reflect.Map, reflect.Slice, reflect.Array:
 		return decodeColAsJSON, nil
 	default:
 		return nil, errors.New("unsupported struct field type")
@@ -444,11 +437,6 @@ func decodeRowByCopying(s *decodeState) error {
 
 func decodeColToString(s *decodeState) error {
 	s.dst.SetString(s.col().Value)
-	return nil
-}
-
-func decodeColToByteSlice(s *decodeState) error {
-	s.dst.SetBytes([]byte(s.col().Value))
 	return nil
 }
 
