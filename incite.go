@@ -868,16 +868,12 @@ func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) 
 	// Collect all the results actually returned from CloudWatch Logs.
 	for _, r := range results {
 		var ptr *string
-		for _, f := range r {
-			k, v := f.Field, f.Value
-			if k == nil {
-				return nil, errNoKey(c.id)
+		for f := range r {
+			k, v := r[f].Field, r[f].Value
+			if k != nil && *k == "@ptr" {
+				ptr = v
+				break
 			}
-			if *k != "@ptr" {
-				continue
-			}
-			ptr = v
-			break
 		}
 		if ptr != nil {
 			newPtr[*ptr] = true
@@ -887,7 +883,7 @@ func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) 
 		}
 		rr, err := translateResult(c.id, r)
 		if err != nil {
-			return nil, err
+			return nil, &UnexpectedQueryError{c.id, c.stream.Text, err}
 		}
 		block = append(block, rr)
 	}
@@ -923,9 +919,6 @@ func translateResult(id string, r []*cloudwatchlogs.ResultField) (Result, error)
 		if v == nil {
 			return Result{}, errNoValue(id, *k)
 		}
-		// TODO: Should rename key if it is "@deleted" by adding an
-		//       additional "@" prefix, similar to what CWL does, since
-		//       we are using @deleted as a reserved keyword.
 		rr[i] = ResultField{
 			Field: *k,
 			Value: *v,
