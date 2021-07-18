@@ -804,7 +804,7 @@ func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, stats *cl
 	}
 
 	if c.ptr != nil {
-		block, err = translateResultsPreview(c, results, eof)
+		block, err = translateResultsPreview(c, results)
 	} else {
 		block, err = translateResultsNoPreview(c.id, results)
 	}
@@ -855,7 +855,7 @@ func translateResultsNoPreview(id string, results [][]*cloudwatchlogs.ResultFiel
 	return block, err
 }
 
-func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField, eof bool) ([]Result, error) {
+func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
 	// Create a slice to contain the block of results.
 	guess := int(c.stream.Hint) - len(c.ptr)
 	if guess <= len(results) {
@@ -878,18 +878,17 @@ func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField, 
 			ptr = v
 			break
 		}
-		if ptr != nil && !eof && c.ptr[*ptr] {
-			continue // We've already put this @ptr into the stream.
-		} else {
-			rr, err := translateResult(c.id, r)
-			if err != nil {
-				return nil, err
-			}
-			block = append(block, rr)
-			if ptr != nil {
-				newPtr[*ptr] = true
+		if ptr != nil {
+			newPtr[*ptr] = true
+			if c.ptr[*ptr] {
+				continue // We've already put this @ptr into the stream.
 			}
 		}
+		rr, err := translateResult(c.id, r)
+		if err != nil {
+			return nil, err
+		}
+		block = append(block, rr)
 	}
 	// If there were any results delivered in a previous block that had
 	// an @ptr that is not present in this block, insert an @deleted

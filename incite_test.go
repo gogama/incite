@@ -1119,6 +1119,95 @@ var scenarios = []queryScenario{
 	},
 
 	{
+		note: "OneChunk.Preview.SimulateNormalQuery.NoPtr",
+		QuerySpec: QuerySpec{
+			Text:    "fields Foo, Bar",
+			Start:   defaultStart,
+			End:     defaultEnd,
+			Groups:  []string{"/normal/log/group"},
+			Limit:   MaxLimit,
+			Preview: true,
+			Hint:    5,
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("fields Foo, Bar"),
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultEnd),
+					Limit:         int64p(MaxLimit),
+					LogGroupNames: []*string{sp("/normal/log/group")},
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{status: cloudwatchlogs.QueryStatusScheduled},
+					{status: cloudwatchlogs.QueryStatusRunning},
+					{status: cloudwatchlogs.QueryStatusRunning},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						results: []Result{
+							{{"Foo", "Foo.0.0"}, {"Bar", "Bar.0.0"}, {"@ptr", "0"}},
+						},
+						stats: &Stats{1, 2, 3},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						results: []Result{
+							{{"Foo", "Foo.0.0"}, {"Bar", "Bar.0.0"}, {"@ptr", "0"}},
+							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
+						},
+						stats: &Stats{2, 4, 6},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						results: []Result{
+							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
+						},
+						stats: &Stats{3, 6, 9},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						results: []Result{
+							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
+							{{"Foo", "Foo.2.0"}, {"Bar", "Bar.2.0"}, {"@ptr", "2"}},
+						},
+						stats: &Stats{4, 8, 12},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						results: []Result{
+							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
+							{{"Foo", "Foo.2.0"}, {"Bar", "Bar.2.0"}, {"@ptr", "2"}},
+							{{"Foo", "Foo.3.0"}, {"Bar", "Bar.3.0"}, {"@ptr", "3"}},
+						},
+						stats: &Stats{5, 10, 15},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						results: []Result{
+							{{"Foo", "Foo.0.0"}, {"Bar", "Bar.0.0"}, {"@ptr", "0"}},
+							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
+							{{"Foo", "Foo.3.0"}, {"Bar", "Bar.3.0"}, {"@ptr", "3"}},
+							{{"Foo", "Foo.4.0"}, {"Bar", "Bar.4.0"}, {"@ptr", "4"}},
+						},
+						stats: &Stats{6, 12, 18},
+					},
+				},
+			},
+		},
+		results: []Result{
+			{{"Foo", "Foo.0.0"}, {"Bar", "Bar.0.0"}, {"@ptr", "0"}},
+			{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
+			{{"@ptr", "0"}, {"@deleted", "true"}},
+			{{"Foo", "Foo.2.0"}, {"Bar", "Bar.2.0"}, {"@ptr", "2"}},
+			{{"Foo", "Foo.3.0"}, {"Bar", "Bar.3.0"}, {"@ptr", "3"}},
+			{{"Foo", "Foo.0.0"}, {"Bar", "Bar.0.0"}, {"@ptr", "0"}},
+			{{"Foo", "Foo.4.0"}, {"Bar", "Bar.4.0"}, {"@ptr", "4"}},
+			{{"@ptr", "2"}, {"@deleted", "true"}},
+		},
+		stats: Stats{6, 12, 18},
+	},
+	{
 		note: "OneChunk.Preview.SimulateStatsCommand.NoPtr",
 		QuerySpec: QuerySpec{
 			Text:    "stats count_distinct(Foo) by bar",
@@ -1179,8 +1268,6 @@ var scenarios = []queryScenario{
 		stats: Stats{4, 5, 8},
 	},
 
-	// OneChunk.Preview.Stats (noPtr)
-	// OneChunk.Preview.Normal (with @ptr)
 	// MultiChunk.Fractional.LessThanOne
 	// MultiChunk.Fractional.OneAligned
 	// MultiChunk.Fractional.TwoAligned
@@ -1203,7 +1290,7 @@ type queryScenario struct {
 }
 
 func (qs *queryScenario) test(t *testing.T, i int, m QueryManager, actions *mockActions, parallel bool) {
-	t.Run(fmt.Sprintf("Scenario=%d", i), func(t *testing.T) {
+	t.Run(fmt.Sprintf("Scenario=%d[%s]", i, qs.note), func(t *testing.T) {
 		if parallel {
 			t.Parallel()
 		}
