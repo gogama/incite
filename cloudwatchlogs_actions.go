@@ -16,20 +16,8 @@ import (
 // type, so you may use either of these AWS SDK for Go types to provide
 // the CloudWatch Logs capabilities.
 type CloudWatchLogsActions interface {
-	CloudWatchLogsQueryStarter
-	CloudWatchLogsQueryStopper
-	CloudWatchLogsQueryResultsGetter
-}
-
-type CloudWatchLogsQueryStarter interface {
 	StartQueryWithContext(context.Context, *cloudwatchlogs.StartQueryInput, ...request.Option) (*cloudwatchlogs.StartQueryOutput, error)
-}
-
-type CloudWatchLogsQueryStopper interface {
 	StopQueryWithContext(context.Context, *cloudwatchlogs.StopQueryInput, ...request.Option) (*cloudwatchlogs.StopQueryOutput, error)
-}
-
-type CloudWatchLogsQueryResultsGetter interface {
 	GetQueryResultsWithContext(context.Context, *cloudwatchlogs.GetQueryResultsInput, ...request.Option) (*cloudwatchlogs.GetQueryResultsOutput, error)
 }
 
