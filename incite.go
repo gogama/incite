@@ -498,7 +498,6 @@ func (m *mgr) shutdown() {
 	// Close all open streams.
 	for _, s := range m.pq {
 		s.setErr(ErrClosed, true, Stats{})
-		m.stats.add(s.GetStats())
 	}
 
 	// Free any other resources.
@@ -677,10 +676,11 @@ func (m *mgr) pollNextChunk() int {
 		err := m.pollChunk(c)
 		if err == errClosing {
 			return -1
-		} else if err != nil && err != io.EOF {
+		} else if err != nil && err != errEndOfChunk {
 			m.numChunks--
 			m.chunks.Unlink(1)
 			c.stream.setErr(err, true, c.Stats)
+			m.stats.add(c.Stats)
 			continue
 		}
 
@@ -688,10 +688,11 @@ func (m *mgr) pollNextChunk() int {
 		// the chunk isn't done, or remove the chunk from the ring if it
 		// is done.
 		r := m.chunks.Unlink(1)
-		if err != io.EOF {
-			m.chunks.Prev().Link(r)
-		} else {
+		if err == errEndOfChunk {
 			m.numChunks--
+			m.stats.add(c.Stats)
+		} else {
+			m.chunks.Prev().Link(r)
 		}
 		return 1
 	}
@@ -809,7 +810,7 @@ func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, stats *cl
 		block, err = translateResultsNoPreview(c.id, results)
 	}
 
-	if !eof && len(block) == 0 && err != nil {
+	if !eof && len(block) == 0 && err == nil {
 		return nil
 	}
 
@@ -823,11 +824,11 @@ func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, stats *cl
 		c.stream.m++
 		if c.stream.m == c.stream.n && err == nil {
 			err = io.EOF
+		} else if err == nil {
+			err = errEndOfChunk
 		}
 	}
-	if err != nil {
-		c.stream.setErr(err, false, c.Stats)
-	} else {
+	if err == nil {
 		c.stream.more.Signal()
 	}
 	return err
@@ -1210,5 +1211,6 @@ type chunk struct {
 }
 
 var (
-	errClosing = errors.New("incite: closed")
+	errClosing    = errors.New("incite: closed")
+	errEndOfChunk = errors.New("incite: end of chunk")
 )

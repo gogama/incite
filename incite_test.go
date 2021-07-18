@@ -741,10 +741,13 @@ func TestScenariosSerial(t *testing.T) {
 		assert.NoError(t, err)
 	}()
 
+	var allStats Stats
 	for i, s := range scenarios {
 		s.test(t, i, m, actions, false)
+		allStats.add(s.stats)
 	}
 
+	assert.Equal(t, allStats, m.GetStats())
 	actions.AssertExpectations(t)
 }
 
