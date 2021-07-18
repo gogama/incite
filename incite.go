@@ -172,10 +172,10 @@ type Stats struct {
 	RecordsScanned float64
 }
 
-func (a *Stats) add(b Stats) {
-	a.BytesScanned += b.BytesScanned
-	a.RecordsMatched += b.RecordsMatched
-	a.RecordsScanned += b.RecordsScanned
+func (s *Stats) add(t Stats) {
+	s.BytesScanned += t.BytesScanned
+	s.RecordsMatched += t.RecordsMatched
+	s.RecordsScanned += t.RecordsScanned
 }
 
 // StatsGetter provides access to the Insights query statistics
@@ -681,6 +681,7 @@ func (m *mgr) pollNextChunk() int {
 			m.chunks.Unlink(1)
 			c.stream.setErr(err, true, c.Stats)
 			m.stats.add(c.Stats)
+			m.cancelChunkMaybe(c, err)
 			continue
 		}
 
@@ -768,6 +769,19 @@ func (m *mgr) cancelChunk(c *chunk) {
 		})
 		m.lastReq[StopQuery] = time.Now()
 	})
+}
+
+func (m *mgr) cancelChunkMaybe(c *chunk, err error) {
+	if err == io.EOF {
+		return
+	}
+	if terminalErr, ok := err.(*TerminalQueryStatusError); ok {
+		switch terminalErr.Status {
+		case cloudwatchlogs.QueryStatusFailed, cloudwatchlogs.QueryStatusCancelled, "Timeout":
+			return
+		}
+	}
+	m.cancelChunk(c)
 }
 
 func (m *mgr) waitForWork() (result int) {
@@ -992,7 +1006,7 @@ func (m *mgr) Query(q QuerySpec) (Stream, error) {
 	}
 
 	n := int64(d / q.Chunk)
-	if int64(d)%n != 0 {
+	if d%q.Chunk != 0 {
 		n++
 	}
 

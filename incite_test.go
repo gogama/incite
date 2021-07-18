@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -648,7 +649,7 @@ func TestQueryManager_Query(t *testing.T) {
 			name              string
 			before            QuerySpec
 			after             QuerySpec
-			expectedN         int
+			expectedN         int64
 			expectedChunkHint uint16
 			expectedGroups    []*string
 			expectedNext      time.Time
@@ -675,9 +676,52 @@ func TestQueryManager_Query(t *testing.T) {
 				expectedGroups:    []*string{sp("bar"), sp("Baz")},
 				expectedNext:      defaultStart,
 			},
-
-			// TODO: Add test case for negative, zero, max Limit.
-			// TODO: Add test case for anything else.
+			{
+				name: "ChunkExceedsRange",
+				before: QuerySpec{
+					Text:   "foo",
+					Start:  defaultStart,
+					End:    defaultEnd,
+					Groups: []string{"bar", "Baz"},
+					Chunk:  24 * time.Hour,
+				},
+				after: QuerySpec{
+					Text:   "foo",
+					Start:  defaultStart,
+					End:    defaultEnd,
+					Groups: []string{"bar", "Baz"},
+					Limit:  DefaultLimit,
+					Chunk:  5 * time.Minute,
+					Hint:   minHint,
+				},
+				expectedN:         1,
+				expectedChunkHint: minHint,
+				expectedGroups:    []*string{sp("bar"), sp("Baz")},
+				expectedNext:      defaultStart,
+			},
+			{
+				name: "PartialChunk",
+				before: QuerySpec{
+					Text:   "foo",
+					Start:  defaultStart,
+					End:    defaultEnd,
+					Groups: []string{"bar", "Baz"},
+					Chunk:  4 * time.Minute,
+				},
+				after: QuerySpec{
+					Text:   "foo",
+					Start:  defaultStart,
+					End:    defaultEnd,
+					Groups: []string{"bar", "Baz"},
+					Limit:  DefaultLimit,
+					Chunk:  4 * time.Minute,
+					Hint:   minHint,
+				},
+				expectedN:         2,
+				expectedChunkHint: minHint,
+				expectedGroups:    []*string{sp("bar"), sp("Baz")},
+				expectedNext:      defaultStart,
+			},
 		}
 
 		for _, testCase := range testCases {
@@ -703,11 +747,16 @@ func TestQueryManager_Query(t *testing.T) {
 				require.IsType(t, &stream{}, s)
 				s2 := s.(*stream)
 				assert.Equal(t, testCase.after, s2.QuerySpec)
+				assert.Equal(t, testCase.expectedN, s2.n)
+				assert.Equal(t, testCase.expectedChunkHint, s2.chunkHint)
+				assert.Equal(t, testCase.expectedGroups, s2.groups)
+				assert.Equal(t, testCase.expectedNext, s2.next)
 				r := make([]Result, 1)
 				n, err := s.Read(r)
 				assert.Equal(t, 0, n)
-				assert.EqualError(t, err, `incite: CloudWatch Logs failed to start query for chunk "foo" [2020-08-25 03:30:00 +0000 UTC..2020-08-25 03:35:00 +0000 UTC): super fatal error`)
-				assert.ErrorIs(t, err, causeErr)
+				var sqe *StartQueryError
+				assert.ErrorAs(t, err, &sqe)
+				assert.Same(t, sqe.Cause, causeErr)
 				assert.Equal(t, Stats{}, s.GetStats())
 
 				err = s.Close()
@@ -722,11 +771,154 @@ func TestQueryManager_Query(t *testing.T) {
 	})
 
 	t.Run("QueryManager Already Closed", func(t *testing.T) {
-		// TODO: Simple test case. Make query manager, close it, verify Query fails.
+		actions := newMockActions(t)
+		m := NewQueryManager(Config{
+			Actions: actions,
+		})
+		require.NotNil(t, m)
+		err := m.Close()
+		assert.NoError(t, err)
+
+		s, err := m.Query(QuerySpec{
+			Text:   "this should fail because the manager is closed",
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: []string{"g"},
+		})
+
+		assert.Nil(t, s)
+		assert.Same(t, ErrClosed, err)
 	})
 
 	t.Run("Empty Read Buffer Does Not Block", func(t *testing.T) {
-		// TODO: Need a test to verify that s.Read([]Result{}) does not block.
+		// This test verifies that calling Read with an empty buffer
+		// does not block even if there are no results available.
+		//
+		// We run a single one-chunk query and make it get stuck in the
+		// StartQuery API call.
+
+		// ARRANGE:
+		event := make(chan time.Time)
+		actions := newMockActions(t)
+		actions.
+			On("StartQueryWithContext", anyContext, anyStartQueryInput).
+			WaitUntil(event).
+			Return(nil, context.Canceled).
+			Once()
+		m := NewQueryManager(Config{
+			Actions: actions,
+		})
+		require.NotNil(t, m)
+		s, err := m.Query(QuerySpec{
+			Text:   "I see the future and this query never happens.",
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: []string{"/never/queried/group"},
+		})
+		require.NotNil(t, s)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			close(event)
+			_ = m.Close()
+		})
+
+		// ACT.
+		b := make([]Result, 0)
+		n, readErr := s.Read(b)
+		event <- time.Now()
+		closeErr := m.Close()
+
+		// ASSERT.
+		actions.AssertExpectations(t)
+		assert.Equal(t, 0, n)
+		assert.NoError(t, readErr)
+		assert.NoError(t, closeErr)
+	})
+
+	t.Run("Closing Query Releases Chunk Resources", func(t *testing.T) {
+		// This test verifies that Close-ing a query that is stuck on a
+		// long CWL API call to GetQueryResults does cancel the
+		// in-flight API calls and call StopQuery where appropriate.
+		//
+		// ARRANGE:
+		var wg1, wg2 sync.WaitGroup
+		wg1.Add(3)
+		wg2.Add(1)
+		event := make(chan time.Time)
+		actions := newMockActions(t)
+		actions.
+			On("StartQueryWithContext", anyContext, anyStartQueryInput).
+			Run(func(_ mock.Arguments) { wg1.Done() }).
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("a")}, nil).
+			Once()
+		actions.
+			On("StartQueryWithContext", anyContext, anyStartQueryInput).
+			Run(func(_ mock.Arguments) { wg1.Done() }).
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("b")}, nil).
+			Once()
+		actions.
+			On("GetQueryResultsWithContext", anyContext, anyGetQueryResultsInput).
+			Run(func(_ mock.Arguments) {
+				wg1.Done()
+				<-event
+			}).
+			Return(nil, context.Canceled).
+			Once()
+		actions.
+			On("GetQueryResultsWithContext", anyContext, anyGetQueryResultsInput).
+			Run(func(_ mock.Arguments) {
+				wg2.Done()
+				<-event
+			}).
+			Return(nil, context.Canceled).
+			Once()
+		actions.
+			On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: sp("a")}).
+			Return(&cloudwatchlogs.StopQueryOutput{}, nil).
+			Once()
+		actions.
+			On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: sp("b")}).
+			Return(&cloudwatchlogs.StopQueryOutput{}, nil).
+			Once()
+		m := NewQueryManager(Config{
+			Actions: actions,
+		})
+		require.NotNil(t, m)
+		s1, err := m.Query(QuerySpec{
+			Text:   "uno",
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: []string{"/first/one"},
+		})
+		require.NotNil(t, s1)
+		require.NoError(t, err)
+		s2, err := m.Query(QuerySpec{
+			Text:   "due",
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: []string{"/second/one"},
+		})
+		require.NotNil(t, s2)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			close(event)
+			_ = m.Close()
+		})
+
+		// ACT.
+		wg1.Wait()
+		err1 := s1.Close()
+		event <- time.Now()
+		wg2.Wait()
+		err2 := s2.Close()
+		event <- time.Now()
+		err3 := m.Close()
+
+		// Assert
+		//actions.AssertExpectations(t)
+		assert.NoError(t, err1)
+		assert.NoError(t, err2)
+		assert.NoError(t, err3)
 	})
 }
 
@@ -966,7 +1158,8 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: &TerminalQueryStatusError{"scenario:6|chunk:0|OneChunk.OnePoll.Status.Unexpected", "Did you see this coming?", "expecting the unexpected...status"},
+		expectStop: true,
+		err:        &TerminalQueryStatusError{"scenario:6|chunk:0|OneChunk.OnePoll.Status.Unexpected", "Did you see this coming?", "expecting the unexpected...status"},
 	},
 	{
 		note: "OneChunk.OnePoll.Error.Unexpected",
@@ -993,7 +1186,8 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: &UnexpectedQueryError{"scenario:7|chunk:0|OneChunk.OnePoll.Error.Unexpected", "expecting the unexpected...error", errors.New("very bad news")},
+		expectStop: true,
+		err:        &UnexpectedQueryError{"scenario:7|chunk:0|OneChunk.OnePoll.Error.Unexpected", "expecting the unexpected...error", errors.New("very bad news")},
 	},
 	{
 		note: "OneChunk.OnePoll.WithResults",
@@ -1290,6 +1484,7 @@ type queryScenario struct {
 	less       func(i, j int) bool // Optional less function for sorting results, needed for chunked scenarios.
 	stats      Stats               // Final stats
 	closeAfter bool                // Whether to close the stream after the scenario.
+	expectStop bool                // Whether to expect a StopQuery call
 }
 
 func (qs *queryScenario) test(t *testing.T, i int, m QueryManager, actions *mockActions, parallel bool) {
@@ -1304,7 +1499,7 @@ func (qs *queryScenario) test(t *testing.T, i int, m QueryManager, actions *mock
 func (qs *queryScenario) play(t *testing.T, i int, m QueryManager, actions *mockActions) {
 	// Set up the cp scenarios.
 	for j, cp := range qs.chunks {
-		cp.setup(i, j, qs.note, qs.closeEarly, actions)
+		cp.setup(i, j, qs.note, qs.closeEarly, qs.expectStop, actions)
 	}
 
 	// Start the scenario query.
@@ -1365,7 +1560,7 @@ type chunkPollOutput struct {
 	stats   *Stats
 }
 
-func (cp *chunkPlan) setup(i, j int, note string, closeEarly bool, actions *mockActions) {
+func (cp *chunkPlan) setup(i, j int, note string, closeEarly, cancelChunk bool, actions *mockActions) {
 	actions.lock.Lock()
 	defer actions.lock.Unlock()
 
@@ -1425,14 +1620,18 @@ func (cp *chunkPlan) setup(i, j int, note string, closeEarly bool, actions *mock
 		}
 	}
 
-	if closeEarly {
+	if closeEarly || cancelChunk {
 		input := &cloudwatchlogs.StopQueryInput{
 			QueryId: &queryID,
 		}
-		actions.
+		call := actions.
 			On("StopQueryWithContext", anyContext, input).
-			Return(&cloudwatchlogs.StopQueryOutput{}, nil).
-			Maybe()
+			Return(&cloudwatchlogs.StopQueryOutput{}, nil)
+		if cancelChunk {
+			call.Once()
+		} else {
+			call.Maybe()
+		}
 	}
 }
 
@@ -1481,5 +1680,6 @@ var (
 	anyContext   = mock.MatchedBy(func(ctx context.Context) bool {
 		return ctx != nil
 	})
-	anyStartQueryInput = mock.AnythingOfType("*cloudwatchlogs.StartQueryInput")
+	anyStartQueryInput      = mock.AnythingOfType("*cloudwatchlogs.StartQueryInput")
+	anyGetQueryResultsInput = mock.AnythingOfType("*cloudwatchlogs.GetQueryResultsInput")
 )
