@@ -12,11 +12,26 @@ var (
 	ErrClosed = errors.New("incite: operation on a closed object")
 )
 
-// TODO: Document, and document Stream.Read can return it also.
+// StartQueryError is returned by Stream.Read when CloudWatch Logs
+// Insights returned a fatal error when attempting to start a chunk of
+// the stream's query.
+//
+// When StartQueryError is returned by Stream.Read, the stream's query
+// is considered failed and all subsequent reads on the stream will
+// return an error.
 type StartQueryError struct {
-	Text  string
+	// Text is the text of the query that could not be started.
+	Text string
+	// Start is the start time of the query chunk that could not be
+	// started. If the query has more than one chunk, this could differ
+	// from the value originally set in the QuerySpec.
 	Start time.Time
-	End   time.Time
+	// End is the end time of the query chunk that could not be started
+	// If the query has more than one chunk, this could differ from the
+	// value originally set in the QuerySpec.
+	End time.Time
+	// Cause is the causing error, which will typically be an AWS SDK
+	// for Go error type.
 	Cause error
 }
 
@@ -28,26 +43,48 @@ func (err *StartQueryError) Unwrap() error {
 	return err.Cause
 }
 
-// TODO: Document, and document Stream.Read can return it also.
+// TerminalQueryStatusError is returned by Stream.Read when CloudWatch
+// Logs Insights indicated that a chunk of the stream's query is in a
+// failed status, such as Cancelled, Failed, or Timeout.
+//
+// When TerminalQueryStatusError is returned by Stream.Read, the
+// stream's query is considered failed and all subsequent reads on the
+// stream will return an error.
 type TerminalQueryStatusError struct {
+	// QueryID is the CloudWatch Logs Insights query ID of the chunk
+	// that was reported in a terminal status.
 	QueryID string
-	Status  string
-	Text    string
+	// Status is the status string returned by CloudWatch Logs via the
+	// GetQueryResults API action.
+	Status string
+	// Text is the text of the query that was reported in terminal
+	// status.
+	Text string
 }
 
 func (err *TerminalQueryStatusError) Error() string {
-	return fmt.Sprintf("incite: query %q has terminal status %q (text %q)", err.QueryID, err.Status, err.Text)
+	return fmt.Sprintf("incite: query ID %q has terminal status %q [query text %q]", err.QueryID, err.Status, err.Text)
 }
 
-// TODO: Document, and document Stream.Read can return it also.
+// UnexpectedQueryError is returned by Stream.Read when the CloudWatch
+// Logs Insights API behaved unexpectedly while Incite was polling a
+// chunk status via the CloudWatch Logs GetQueryResults API action.
+//
+// When UnexpectedQueryError is returned by Stream.Read, the stream's
+// query is considered failed and all subsequent reads on the stream
+// will return an error.
 type UnexpectedQueryError struct {
+	// QueryID is the CloudWatch Logs Insights query ID of the chunk
+	// that experienced an unexpected event.
 	QueryID string
-	Text    string
-	Cause   error
+	// Text is the text of the query for the chunk.
+	Text string
+	// Cause is the causing error.
+	Cause error
 }
 
 func (err *UnexpectedQueryError) Error() string {
-	return fmt.Sprintf("incite: query %q had unexpected error (text %q): %s", err.QueryID, err.Text, err.Cause)
+	return fmt.Sprintf("incite: query ID %q had unexpected error [query text %q]: %s", err.QueryID, err.Text, err.Cause)
 }
 
 func (err *UnexpectedQueryError) Unwrap() error {
@@ -55,11 +92,11 @@ func (err *UnexpectedQueryError) Unwrap() error {
 }
 
 func errNoKey(id string) error {
-	return fmt.Errorf("incite: query chunk %q: foo", id)
+	return fmt.Errorf("incite: query ID %q: result field missing key", id)
 }
 
 func errNoValue(id, key string) error {
-	return fmt.Errorf("incite: query chunk %q: no value for key %q", id, key)
+	return fmt.Errorf("incite: query ID %q: no value for key %q", id, key)
 }
 
 func errNilStatus() error {
