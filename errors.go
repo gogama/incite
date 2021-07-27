@@ -12,9 +12,9 @@ var (
 	ErrClosed = errors.New("incite: operation on a closed object")
 )
 
-// StartQueryError is returned by Stream.Read when CloudWatch Logs
-// Insights returned a fatal error when attempting to start a chunk of
-// the stream's query.
+// StartQueryError is returned by Stream.Read to indicate that the
+// CloudWatch Logs service API returned a fatal error when attempting
+// to start a chunk of the stream's query.
 //
 // When StartQueryError is returned by Stream.Read, the stream's query
 // is considered failed and all subsequent reads on the stream will

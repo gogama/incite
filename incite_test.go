@@ -111,12 +111,12 @@ func TestNewQueryManager(t *testing.T) {
 					name: "RPS.SameAsDefault",
 					before: Config{
 						Actions: actions,
-						RPS:     DefaultRPS,
+						RPS:     RPSDefaults,
 					},
 					after: Config{
 						Actions:  actions,
 						Parallel: DefaultParallel,
-						RPS:      DefaultRPS,
+						RPS:      RPSDefaults,
 						Logger:   NopLogger,
 					},
 					minDelay: minDelay,

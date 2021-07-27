@@ -18,20 +18,23 @@ import (
 // QuerySpec specifies the parameter for a query operation either using
 // the global Query function or a QueryManager.
 type QuerySpec struct {
-	// Text contains the actual text of the CloudWatch Insights query,
-	// following the query syntax documented at
-	// https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/CWL_QuerySyntax.html.
-	//
-	// To limit the number of results returned by the query, add the
-	// `limit` command to your query text. Note that if the QuerySpec
-	// specifies a chunked query then the limit will apply to the
-	// results obtained from each chunk, not to the global query.
+	// Text contains the actual text of the CloudWatch Insights query.
 	//
 	// Text may not contain an empty or blank string. Beyond checking
 	// for blank text, Incite does not attempt to parse Text and simply
 	// forwards it to the CloudWatch Logs service. Care must be taken to
 	// specify query text compatible with the Chunk and Preview fields
 	// or the results may be misleading.
+	//
+	// To limit the number of results returned by the query, use the
+	// Limit field, since the Insights API seems to ignore the `limit`
+	// command. Note that if the QuerySpec specifies a chunked query,
+	// then Limit will apply to the results obtained from each chunk,
+	// not to the global query.
+	//
+	// To learn the Insights query syntax, please see the official
+	// documentation at:
+	// https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/CWL_QuerySyntax.html.
 	Text string
 
 	// Start specifies the beginning of the time range to query,
@@ -106,10 +109,10 @@ type QuerySpec struct {
 	// Preview optionally requests preview results from a running query.
 	//
 	// If Preview is true, intermediate results for the query are
-	// sent to the results stream as soon as they are available. This
-	// can result in increased responsiveness for the end-user of your
-	// application but requires care since not all intermediate results
-	// are valid members of the final result set.
+	// sent to the result Stream as soon as they are available. This
+	// can improve your application's responsiveness for the end user
+	// but requires care since not all intermediate results are valid
+	// members of the final result set.
 	//
 	// When Preview is true, the query result Stream may produce some
 	// intermediate results which it later determines are invalid
@@ -123,7 +126,7 @@ type QuerySpec struct {
 	// 	}
 	//
 	// The presence of the "@deleted" field can be used to identify and
-	// delete the earlier invalid result.
+	// delete the earlier invalid result sharing the same "@ptr" field.
 	//
 	// If the results from CloudWatch Logs do not contain an @ptr field,
 	// the Preview option does not detect invalidated results and
@@ -131,7 +134,7 @@ type QuerySpec struct {
 	// `stats` command creates results that do not contain @ptr,
 	// applications should either avoid combining Preview mode with
 	// `stats` or apply their own custom logic to eliminate obsolete
-	//intermediate results.
+	// intermediate results.
 	Preview bool
 
 	// Priority optionally allows a query operation to be given a higher
@@ -145,8 +148,8 @@ type QuerySpec struct {
 	//
 	// The Priority field may be set to any valid int value. A query
 	// whose Priority number is lower is allocated CloudWatch Logs
-	// service query capacity in preference to a query whose Priority
-	// number is higher, but only with the same QueryManager.
+	// query capacity in preference to a query whose Priority number is
+	// higher, but only within the same QueryManager.
 	Priority int
 
 	// Hint optionally indicates the rough expected size of the result
@@ -206,9 +209,10 @@ type StatsGetter interface {
 //
 // Calling the Query method will return a result Stream from which the
 // query results can be read as they become available. Use the
-// Unmarshal to unmarshal the bare results into other structured types.
+// Unmarshal function to unmarshal the bare results into other
+// structured types.
 //
-// Calling the Close method will immediately cancel all running queries]
+// Calling the Close method will immediately cancel all running queries
 // started with the Query, as if the query's Stream had been explicitly
 // closed.
 //
@@ -288,9 +292,9 @@ type Stream interface {
 	// If the query underlying the Stream failed permanently, then err
 	// may be one of:
 	//
-	// 	*StartQueryError
-	// 	*TerminalQueryStatusError
-	// -*UnexpectedQueryError
+	// • StartQueryError
+	// • TerminalQueryStatusError
+	// • UnexpectedQueryError
 	Read(p []Result) (n int, err error)
 }
 
@@ -396,7 +400,7 @@ type Config struct {
 	// from being throttled by the web service.
 	//
 	// If RPS has a missing, zero, or negative number for any required
-	// CloudWatch Logs capability, the value specified in DefaultRPS is
+	// CloudWatch Logs capability, the value specified in RPSDefaults is
 	// used instead.
 	RPS map[CloudWatchLogsAction]int
 
@@ -418,7 +422,7 @@ func NewQueryManager(cfg Config) QueryManager {
 		cfg.Parallel = QueryConcurrencyQuotaLimit
 	}
 	minDelay := make(map[CloudWatchLogsAction]time.Duration, numActions)
-	for action, defaultRPS := range DefaultRPS {
+	for action, defaultRPS := range RPSDefaults {
 		rps := cfg.RPS[action]
 		if rps <= 0 {
 			rps = defaultRPS

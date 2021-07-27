@@ -13,8 +13,8 @@ import (
 //
 // This interface is compatible with the AWS SDK for Go (v1)'s
 // cloudwatchlogsiface.CloudWatchLogsAPI interface and *cloudwatchlogs.CloudWatchLogs
-// type, so you may use either of these AWS SDK for Go types to provide
-// the CloudWatch Logs capabilities.
+// type, so you may use either of these AWS SDK types to provide the
+// CloudWatch Logs action capabilities.
 type CloudWatchLogsActions interface {
 	StartQueryWithContext(context.Context, *cloudwatchlogs.StartQueryInput, ...request.Option) (*cloudwatchlogs.StartQueryOutput, error)
 	StopQueryWithContext(context.Context, *cloudwatchlogs.StopQueryInput, ...request.Option) (*cloudwatchlogs.StopQueryOutput, error)
@@ -32,7 +32,9 @@ const (
 	StopQuery
 	// GetQueryResults indicates the CloudWatchLogs GetQueryResults action.
 	GetQueryResults
-	// numActions is the number of CloudWatch Logs actions we need.
+	// numActions is the number of CloudWatch Logs actions supported by
+	// CloudWatchLogsActions and required to construct a QueryManager
+	// using NewQueryManager.
 	numActions
 )
 
@@ -49,10 +51,10 @@ var RPSQuotaLimits = map[CloudWatchLogsAction]int{
 	GetQueryResults: 5,
 }
 
-// DefaultRPS specifies the maximum number of requests per second which
+// RPSDefaults specifies the maximum number of requests per second which
 // the QueryManager may make to the CloudWatch Logs web service for each
 // CloudWatch Logs action.
-var DefaultRPS = map[CloudWatchLogsAction]int{
+var RPSDefaults = map[CloudWatchLogsAction]int{
 	StartQuery:      RPSQuotaLimits[StartQuery] - 2,
 	StopQuery:       RPSQuotaLimits[StopQuery] - 2,
 	GetQueryResults: RPSQuotaLimits[GetQueryResults] - 2,

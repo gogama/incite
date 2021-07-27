@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Unmarshal converts the CloudWatch Logs Insights result data into the
+// Unmarshal converts CloudWatch Logs Insights result data into the
 // user-defined type indicated by v, and stores the result in the value
 // pointed to by v.
 //
@@ -20,10 +20,10 @@ import (
 // interface{}, it is treated as if it targets a []map[string]string.
 //
 // The element type of the array or slice must target a map type, struct
-// type, or one of two special cases. As special cases, elements of type
-// interface{} and Result are allowed. If the element type targets a
-// map, the maps keys must be strings and its value type must target a
-// string type, interface{}, or any type that implements
+// type, or one of two special cases. The two special cases allow array
+// or slice elements of type interface{} and Result. If the element type
+// targets a map, the maps keys must be strings and its value type must
+// target a string type, interface{}, or any type that implements
 // encoding.TextUnmarshaler.
 //
 // To unmarshal data into an array or slice of maps, Unmarshal uses

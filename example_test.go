@@ -4,8 +4,31 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+
+	"github.com/aws/aws-sdk-go/aws/session"
+
 	"github.com/gogama/incite"
 )
+
+func ExampleQuery_QuerySpec() {
+	s := session.Must(session.NewSession())
+	a := cloudwatchlogs.New(s)
+	end := time.Now()
+	data, err := incite.Query(a, incite.QuerySpec{
+		Text:   "fields @timestamp, @message | filter @message =~ /foo/ | sort @timestamp desc",
+		Start:  end.Add(-15 * time.Minute),
+		End:    end,
+		Groups: []string{"/my/log/group"},
+		Limit:  100,
+	})
+	if err != nil {
+		fmt.Println("ERROR", err)
+		return
+	}
+	fmt.Println("RESULTS", data)
+
+}
 
 func ExampleUnmarshal_mapStringString() {
 	data := []incite.Result{

@@ -1,12 +1,16 @@
 package incite
 
-// A Logger represents a logging object that which can receive log messages
+// A Logger represents a logging object which can receive log messages
 // from a QueryManager and send them to an output sink.
 //
-// Logger is compatible with *log.Logger. Therefore you may, for example, set
-// log.DefaultLogger(), or any other *log.Logger, as the logger field in a
-// Config.
+// Logger is compatible with *log.Logger. Therefore you may, for
+// example, set log.DefaultLogger(), or any other *log.Logger, as the
+// logger field when constructing
 type Logger interface {
+	// Printf sends a line of output to the logger. Arguments are
+	// handled in the manner of fmt.Printf. If the formatted string
+	// does not end in a newline, the logger implementation should
+	// append a final newline.
 	Printf(format string, v ...interface{})
 }
 

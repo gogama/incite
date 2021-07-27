@@ -5,7 +5,7 @@ import (
 )
 
 // ReadAll reads from s until an error or EOF and returns the data it
-// read. A successful call returns err == nil, nor err == EOF. Because
+// read. A successful call returns err == nil, not err == EOF. Because
 // ReadAll is defined to read from s until EOF, it does not treat an EOF
 // from Read as an error to be reported.
 func ReadAll(s Stream) ([]Result, error) {
