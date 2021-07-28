@@ -400,8 +400,15 @@ type Config struct {
 	// from being throttled by the web service.
 	//
 	// If RPS has a missing, zero, or negative number for any required
-	// CloudWatch Logs capability, the value specified in RPSDefaults is
-	// used instead.
+	// CloudWatch Logs action, the value specified in RPSDefaults is
+	// used instead. The default behavior should be adequate for many
+	// use cases, so you typically will not need to set this field
+	// explicitly.
+	//
+	// The values in RPS should ideally not exceed the corresponding
+	// values in RPSQuotaLimits as this will almost certainly result in
+	// throttling, worse performance, and your application being a "bad
+	// citizen" affecting other users of the same AWS account.
 	RPS map[CloudWatchLogsAction]int
 
 	// Logger optionally specifies a logging object to which the
@@ -426,10 +433,6 @@ func NewQueryManager(cfg Config) QueryManager {
 		rps := cfg.RPS[action]
 		if rps <= 0 {
 			rps = defaultRPS
-		}
-		maxRPS := RPSQuotaLimits[action]
-		if rps > maxRPS {
-			rps = maxRPS
 		}
 		minDelay[action] = time.Second / time.Duration(rps)
 	}

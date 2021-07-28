@@ -180,7 +180,7 @@ func TestNewQueryManager(t *testing.T) {
 					},
 				},
 				{
-					name: "RPS.StartQueryOverride.AtLimit",
+					name: "RPS.StartQueryOverride.AtQuotaLimit",
 					before: Config{
 						Actions: actions,
 						RPS: map[CloudWatchLogsAction]int{
@@ -202,7 +202,7 @@ func TestNewQueryManager(t *testing.T) {
 					},
 				},
 				{
-					name: "RPS.StartQueryOverride.AboveLimit",
+					name: "RPS.StartQueryOverride.AboveQuotaLimit",
 					before: Config{
 						Actions: actions,
 						RPS: map[CloudWatchLogsAction]int{
@@ -218,7 +218,7 @@ func TestNewQueryManager(t *testing.T) {
 						Logger: NopLogger,
 					},
 					minDelay: map[CloudWatchLogsAction]time.Duration{
-						StartQuery:      time.Second / time.Duration(RPSQuotaLimits[StartQuery]),
+						StartQuery:      time.Second / time.Duration(RPSQuotaLimits[StartQuery]+1),
 						StopQuery:       time.Second / time.Duration(3),
 						GetQueryResults: time.Second / time.Duration(3),
 					},
@@ -282,7 +282,7 @@ func TestNewQueryManager(t *testing.T) {
 					},
 				},
 				{
-					name: "RPS.StopQueryOverride.AtLimit",
+					name: "RPS.StopQueryOverride.AtQuotaLimit",
 					before: Config{
 						Actions: actions,
 						RPS: map[CloudWatchLogsAction]int{
@@ -304,7 +304,7 @@ func TestNewQueryManager(t *testing.T) {
 					},
 				},
 				{
-					name: "RPS.StopQueryOverride.AboveLimit",
+					name: "RPS.StopQueryOverride.AboveQuotaLimit",
 					before: Config{
 						Actions: actions,
 						RPS: map[CloudWatchLogsAction]int{
@@ -321,7 +321,7 @@ func TestNewQueryManager(t *testing.T) {
 					},
 					minDelay: map[CloudWatchLogsAction]time.Duration{
 						StartQuery:      time.Second / time.Duration(3),
-						StopQuery:       time.Second / time.Duration(RPSQuotaLimits[StopQuery]),
+						StopQuery:       time.Second / time.Duration(RPSQuotaLimits[StopQuery]+1),
 						GetQueryResults: time.Second / time.Duration(3),
 					},
 				},
@@ -384,7 +384,7 @@ func TestNewQueryManager(t *testing.T) {
 					},
 				},
 				{
-					name: "RPS.GetQueryResultsOverride.AtLimit",
+					name: "RPS.GetQueryResultsOverride.AtQuotaLimit",
 					before: Config{
 						Actions: actions,
 						RPS: map[CloudWatchLogsAction]int{
@@ -406,7 +406,7 @@ func TestNewQueryManager(t *testing.T) {
 					},
 				},
 				{
-					name: "RPS.GetQueryResultsOverride.AboveLimit",
+					name: "RPS.GetQueryResultsOverride.AboveQuotaLimit",
 					before: Config{
 						Actions: actions,
 						RPS: map[CloudWatchLogsAction]int{
@@ -424,7 +424,7 @@ func TestNewQueryManager(t *testing.T) {
 					minDelay: map[CloudWatchLogsAction]time.Duration{
 						StartQuery:      time.Second / time.Duration(3),
 						StopQuery:       time.Second / time.Duration(3),
-						GetQueryResults: time.Second / time.Duration(RPSQuotaLimits[GetQueryResults]),
+						GetQueryResults: time.Second / time.Duration(RPSQuotaLimits[GetQueryResults]+1),
 					},
 				},
 				{
@@ -941,6 +941,7 @@ func TestScenariosSerial(t *testing.T) {
 	actions := newMockActions(t)
 	m := NewQueryManager(Config{
 		Actions: actions,
+		RPS:     lotsOfRPS,
 	})
 	require.NotNil(t, m)
 	defer func() {
@@ -967,7 +968,7 @@ func TestScenariosParallel(t *testing.T) {
 			m := NewQueryManager(Config{
 				Actions:  actions,
 				Parallel: parallel,
-				RPS:      RPSQuotaLimits,
+				RPS:      lotsOfRPS,
 			})
 			require.NotNil(t, m)
 			t.Cleanup(func() {
@@ -1692,7 +1693,12 @@ var (
 	defaultStart = time.Date(2020, 8, 25, 3, 30, 0, 0, time.UTC)
 	defaultEnd   = defaultStart.Add(5 * time.Minute)
 	defaultLimit = int64p(DefaultLimit)
-	anyContext   = mock.MatchedBy(func(ctx context.Context) bool {
+	lotsOfRPS    = map[CloudWatchLogsAction]int{
+		StartQuery:      100_000,
+		GetQueryResults: 100_000,
+		StopQuery:       100_000,
+	}
+	anyContext = mock.MatchedBy(func(ctx context.Context) bool {
 		return ctx != nil
 	})
 	anyStartQueryInput      = mock.AnythingOfType("*cloudwatchlogs.StartQueryInput")
