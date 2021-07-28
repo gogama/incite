@@ -516,6 +516,17 @@ func TestQueryManager_Close(t *testing.T) {
 
 	// TODO: Test multi-thread read case. Second reader should be blocking on
 	//       the stream lock and not get in, but why not test?
+	// TODO: PRIORITIZATION. Run a test where a master goroutine creates say
+	//       1000 queries with priorities 1..1000 and then read them from, again,
+	//       that single master goroutine. For each query i, the query text is just
+	//       the stringized number i. Hook the StartQueryWithContext calls and put
+	//       them into an array. Assert that it is in ascending order of
+	//       priority. Have each query be in two chunks and have GetQueryResults
+	//       return InProgress once and Completed on the second try. Hook the
+	//       GetQueryResults calls and record them into an array. Assert the
+	//       array is in priority order, and time order within the same query.
+	//       When done, look within the *mgr and assert that pq and chunks are
+	//       both empty.
 }
 
 func TestQueryManager_GetStats(t *testing.T) {
@@ -841,9 +852,10 @@ func TestQueryManager_Query(t *testing.T) {
 		// in-flight API calls and call StopQuery where appropriate.
 		//
 		// ARRANGE:
-		var wg1, wg2 sync.WaitGroup
+		var wg1, wg2, wg3 sync.WaitGroup
 		wg1.Add(3)
 		wg2.Add(1)
+		wg3.Add(2)
 		event := make(chan time.Time)
 		actions := newMockActions(t)
 		actions.
@@ -874,10 +886,12 @@ func TestQueryManager_Query(t *testing.T) {
 			Once()
 		actions.
 			On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: sp("a")}).
+			Run(func(_ mock.Arguments) { wg3.Done() }).
 			Return(&cloudwatchlogs.StopQueryOutput{}, nil).
 			Once()
 		actions.
 			On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: sp("b")}).
+			Run(func(_ mock.Arguments) { wg3.Done() }).
 			Return(&cloudwatchlogs.StopQueryOutput{}, nil).
 			Once()
 		m := NewQueryManager(Config{
@@ -913,9 +927,10 @@ func TestQueryManager_Query(t *testing.T) {
 		err2 := s2.Close()
 		event <- time.Now()
 		err3 := m.Close()
+		wg3.Wait()
 
 		// Assert
-		//actions.AssertExpectations(t)
+		actions.AssertExpectations(t)
 		assert.NoError(t, err1)
 		assert.NoError(t, err2)
 		assert.NoError(t, err3)
