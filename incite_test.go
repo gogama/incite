@@ -1481,13 +1481,62 @@ var scenarios = []queryScenario{
 		stats: Stats{4, 5, 8},
 	},
 
-	// MultiChunk.Fractional.LessThanOne
-	// MultiChunk.Fractional.OneAligned
-	// MultiChunk.Fractional.TwoAligned
-	// MultiChunk.Fractional.TwoMisaligned
-	// MultiChunk.Fractional.ThreeMisaligned
-	// MultiChunk.NoPreview
-	// MultiChunk.Preview
+	{
+		note: "MultiChunk.Fractional.LessThanOne",
+		QuerySpec: QuerySpec{
+			Text:   "stats count_distinct(Eggs) as EggCount By Spam",
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: []string{"/very/full/log/group"},
+			Chunk:  6 * time.Minute,
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("stats count_distinct(Eggs) as EggCount By Spam"),
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultEnd),
+					Limit:         defaultLimit,
+					LogGroupNames: []*string{sp("/very/full/log/group")},
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						results: []Result{
+							{{"EggCount", "1"}, {"Spam", "true"}},
+							{{"EggCount", "2"}, {"Span", "false"}},
+						},
+						stats: &Stats{77, 777, 7},
+					},
+				},
+			},
+		},
+		results: []Result{
+			{{"EggCount", "1"}, {"Spam", "true"}},
+			{{"EggCount", "2"}, {"Span", "false"}},
+		},
+		stats: Stats{77, 777, 7},
+	},
+
+	//{
+	//	note: "MultiChunk.Fractional.OneAligned",
+	//},
+	//{
+	//	note: "MultiChunk.Fractional.TwoAligned",
+	//},
+	//{
+	//	note: "MultiChunk.Fractional.TwoMisaligned",
+	//},
+	//{
+	//	note: "MultiChunk.Fractional.ThreeMisaligned",
+	//},
+	//{
+	//	note: "MultiChunk.Fractional.NoPreview",
+	//},
+	//{
+	//	note: "MultiChunk.Fractional.Preview",
+	//},
 }
 
 type queryScenario struct {
