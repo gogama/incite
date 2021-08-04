@@ -309,21 +309,11 @@ type mgr struct {
 	chunks    ring.Ring                              // Circular list of chunks, first item is a sentry
 	numChunks int
 
-	// Lock controlling access to the below mutable fields.
-	//
-	// The mgr loop goroutine holds this lock by "default" and only
-	// releases it while doing long-running things such as waiting for
-	// work or making service calls to the CloudWatch Logs service.
-	// Temporary release is in mgr's doWithoutLock method.
-	lock sync.RWMutex
-
-	// Mutable fields controlled by mgr using lock.
-	stats   Stats      // Read by GetStats, written by mgr loop goroutine
-	pq      streamHeap // Written by Query, written by mgr loop goroutine
-	close   chan struct{}
-	closed  bool
-	query   chan struct{}
-	waiting bool
+	stats     Stats         // Read by GetStats, written by mgr loop goroutine
+	statsLock sync.RWMutex  // Controls access to stats
+	pq        streamHeap    // Written by Query, written by mgr loop goroutine
+	close     chan struct{} // Receives notification on Close()
+	query     chan *stream  // Receives notification of new Query()
 }
 
 const (
@@ -447,12 +437,11 @@ func NewQueryManager(cfg Config) QueryManager {
 		minDelay: minDelay,
 		lastReq:  make(map[CloudWatchLogsAction]time.Time, numActions),
 
-		close: make(chan struct{}, 1),
-		query: make(chan struct{}),
+		close: make(chan struct{}),
+		query: make(chan *stream),
 	}
 
-	m.lock.Lock()
-	go m.loop() // Lock ownership passes to loop goroutine
+	go m.loop()
 
 	return m
 }
@@ -492,9 +481,6 @@ func (m *mgr) loop() {
 }
 
 func (m *mgr) shutdown() {
-	// Release the lock so calls to Close() don't block forever.
-	defer m.lock.Unlock()
-
 	// On a best effort basis, close all open chunks.
 	m.chunks.Do(func(i interface{}) {
 		if i != nil {
@@ -514,12 +500,6 @@ func (m *mgr) shutdown() {
 
 	// Log a final stop event.
 	m.Logger.Printf("incite: QueryManager (%p) stop", m)
-}
-
-func (m *mgr) doWithoutLock(f func()) {
-	m.lock.Unlock()
-	defer m.lock.Lock()
-	f()
 }
 
 func (m *mgr) setTimer(d time.Duration) bool {
@@ -566,19 +546,17 @@ func (m *mgr) startNextChunk() error {
 	s := heap.Pop(&m.pq).(*stream)
 
 	if m.setTimerRPS(StartQuery) {
-		var err error
-		m.doWithoutLock(func() {
-			select {
-			case <-m.close:
-				err = errClosing
-			case <-m.timer.C:
-				m.ding = true
-			case <-s.ctx.Done():
-				err = s.ctx.Err()
-			}
-		})
-		if err != nil {
-			return err
+		select {
+		case <-m.close:
+			return errClosing
+		case ss := <-m.query:
+			heap.Push(&m.pq, s)
+			heap.Push(&m.pq, ss)
+			return errInterrupted
+		case <-m.timer.C:
+			m.ding = true
+		case <-s.ctx.Done():
+			return s.ctx.Err()
 		}
 	}
 
@@ -597,12 +575,8 @@ func (m *mgr) startNextChunk() error {
 		LogGroupNames: s.groups,
 		Limit:         &s.Limit,
 	}
-	var output *cloudwatchlogs.StartQueryOutput
-	var err error
-	m.doWithoutLock(func() {
-		output, err = m.Actions.StartQueryWithContext(s.ctx, &input)
-		m.lastReq[StartQuery] = time.Now()
-	})
+	output, err := m.Actions.StartQueryWithContext(s.ctx, &input)
+	m.lastReq[StartQuery] = time.Now()
 	if err != nil {
 		if isTemporary(err) {
 			heap.Push(&m.pq, s)
@@ -611,7 +585,6 @@ func (m *mgr) startNextChunk() error {
 		} else {
 			err = &StartQueryError{s.Text, next, end, err}
 			s.setErr(err, true, Stats{})
-			m.stats.add(s.GetStats())
 			m.Logger.Printf("incite: QueryManager(%p) permanent failure to start %q [%s..%s) due to fatal error from CloudWatch Logs: %s",
 				m, s.Text, next, end, err.Error())
 		}
@@ -620,8 +593,10 @@ func (m *mgr) startNextChunk() error {
 
 	queryID := output.QueryId
 	if queryID == nil {
-		m.Logger.Printf("incite: QueryManager(%p) nil query ID for %q [%s..%s) <Will be retried>", m, s.Text, next, end)
-		return errors.New("incite: nil query ID") // Will be retried.
+		err = &StartQueryError{s.Text, next, end, errors.New("incite: nil query ID")}
+		s.setErr(err, true, Stats{})
+		m.Logger.Printf("incite: QueryManager(%p) nil query ID from CloudWatch Logs for %q [%s..%s)", m, s.Text, next, end)
+		return err
 	}
 
 	if end.Before(s.End) {
@@ -629,7 +604,6 @@ func (m *mgr) startNextChunk() error {
 		heap.Push(&m.pq, s)
 	} else {
 		s.next = time.Time{} // All chunks are in-flight or finished.
-		m.stats.add(s.GetStats())
 	}
 
 	c := &chunk{
@@ -683,11 +657,15 @@ func (m *mgr) pollNextChunk() int {
 		err := m.pollChunk(c)
 		if err == errClosing {
 			return -1
+		} else if err == errInterrupted {
+			return 0
 		} else if err != nil && err != errEndOfChunk {
 			m.numChunks--
 			m.chunks.Unlink(1)
 			c.stream.setErr(err, true, c.Stats)
+			m.statsLock.Lock()
 			m.stats.add(c.Stats)
+			m.statsLock.Unlock()
 			m.cancelChunkMaybe(c, err)
 			continue
 		}
@@ -698,7 +676,9 @@ func (m *mgr) pollNextChunk() int {
 		r := m.chunks.Unlink(1)
 		if err == errEndOfChunk {
 			m.numChunks--
+			m.statsLock.Lock()
 			m.stats.add(c.Stats)
+			m.statsLock.Unlock()
 		} else {
 			m.chunks.Prev().Link(r)
 		}
@@ -710,31 +690,24 @@ func (m *mgr) pollNextChunk() int {
 
 func (m *mgr) pollChunk(c *chunk) error {
 	if m.setTimerRPS(GetQueryResults) {
-		var err error
-		m.doWithoutLock(func() {
-			select {
-			case <-m.close:
-				err = errClosing
-			case <-m.timer.C:
-				m.ding = true
-			case <-c.ctx.Done():
-				err = c.ctx.Err()
-			}
-		})
-		if err != nil {
-			return err
+		select {
+		case <-m.close:
+			return errClosing
+		case s := <-m.query:
+			heap.Push(&m.pq, s)
+			return errInterrupted
+		case <-m.timer.C:
+			m.ding = true
+		case <-c.ctx.Done():
+			return c.ctx.Err()
 		}
 	}
 
 	input := cloudwatchlogs.GetQueryResultsInput{
 		QueryId: &c.id,
 	}
-	var output *cloudwatchlogs.GetQueryResultsOutput
-	var err error
-	m.doWithoutLock(func() {
-		output, err = m.Actions.GetQueryResultsWithContext(c.ctx, &input)
-		m.lastReq[GetQueryResults] = time.Now()
-	})
+	output, err := m.Actions.GetQueryResultsWithContext(c.ctx, &input)
+	m.lastReq[GetQueryResults] = time.Now()
 	if err != nil && isTemporary(err) {
 		return nil
 	} else if err != nil {
@@ -764,18 +737,14 @@ func (m *mgr) pollChunk(c *chunk) error {
 
 func (m *mgr) cancelChunk(c *chunk) {
 	if m.setTimerRPS(StopQuery) {
-		m.doWithoutLock(func() {
-			<-m.timer.C
-			m.ding = true
-		})
+		<-m.timer.C
+		m.ding = true
 	}
 
-	m.doWithoutLock(func() {
-		_, _ = m.Actions.StopQueryWithContext(context.Background(), &cloudwatchlogs.StopQueryInput{
-			QueryId: &c.id,
-		})
-		m.lastReq[StopQuery] = time.Now()
+	_, _ = m.Actions.StopQueryWithContext(context.Background(), &cloudwatchlogs.StopQueryInput{
+		QueryId: &c.id,
 	})
+	m.lastReq[StopQuery] = time.Now()
 }
 
 func (m *mgr) cancelChunkMaybe(c *chunk, err error) {
@@ -791,30 +760,22 @@ func (m *mgr) cancelChunkMaybe(c *chunk, err error) {
 	m.cancelChunk(c)
 }
 
-func (m *mgr) waitForWork() (result int) {
-	m.waiting = true
-	defer func() {
-		m.waiting = false
-	}()
-
+func (m *mgr) waitForWork() int {
 	if m.numChunks == 0 && len(m.pq) == 0 {
 		m.setTimer(0)
 	} else if !m.setTimerRPS(GetQueryResults) {
 		m.setTimer(m.minDelay[GetQueryResults])
 	}
 
-	m.doWithoutLock(func() {
-		select {
-		case <-m.close:
-			result = -1
-		case <-m.query:
-			result = 0
-		case <-m.timer.C:
-			result = 0
-		}
-	})
-
-	return
+	select {
+	case <-m.close:
+		return -1
+	case s := <-m.query:
+		heap.Push(&m.pq, s)
+		return 0
+	case <-m.timer.C:
+		return 0
+	}
 }
 
 func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, stats *cloudwatchlogs.QueryStatistics, eof bool) error {
@@ -961,24 +922,22 @@ func deleteResult(ptr string) Result {
 	}
 }
 
-func (m *mgr) Close() error {
-	m.lock.Lock()
-	defer m.lock.Unlock()
+func (m *mgr) Close() (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = ErrClosed
+		}
+	}()
 
-	if m.closed {
-		return ErrClosed
-	}
-
-	m.closed = true
 	m.close <- struct{}{}
-	return nil
+	return
 }
 
 const (
 	minHint = 100
 )
 
-func (m *mgr) Query(q QuerySpec) (Stream, error) {
+func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 	// Validation that does not require lock.
 	q.Text = strings.TrimSpace(q.Text)
 	if q.Text == "" {
@@ -1032,18 +991,9 @@ func (m *mgr) Query(q QuerySpec) (Stream, error) {
 		chunkHint = minHint
 	}
 
-	// Acquire lock.
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	// Fail if the manager is already closed.
-	if m.closed {
-		return nil, ErrClosed
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 
-	s := &stream{
+	ss := &stream{
 		QuerySpec: q,
 
 		ctx:       ctx,
@@ -1054,15 +1004,17 @@ func (m *mgr) Query(q QuerySpec) (Stream, error) {
 
 		next: q.Start,
 	}
-	s.more = sync.NewCond(&s.lock)
+	ss.more = sync.NewCond(&ss.lock)
 
-	heap.Push(&m.pq, s)
-	if m.waiting {
-		m.waiting = false
-		m.query <- struct{}{}
-	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ErrClosed
+		}
+	}()
 
-	return s, nil
+	m.query <- ss
+
+	return ss, nil
 }
 
 func hasSubSecond(t time.Time) bool {
@@ -1070,8 +1022,8 @@ func hasSubSecond(t time.Time) bool {
 }
 
 func (m *mgr) GetStats() Stats {
-	m.lock.RLock()
-	defer m.lock.RUnlock()
+	m.statsLock.RLock()
+	defer m.statsLock.RUnlock()
 	return m.stats
 }
 
@@ -1225,6 +1177,7 @@ type chunk struct {
 }
 
 var (
-	errClosing    = errors.New("incite: closed")
-	errEndOfChunk = errors.New("incite: end of chunk")
+	errClosing     = errors.New("incite: closed")
+	errEndOfChunk  = errors.New("incite: end of chunk")
+	errInterrupted = errors.New("incite: timer wait interrupted")
 )

@@ -854,22 +854,26 @@ func TestQueryManager_Query(t *testing.T) {
 		// ARRANGE:
 		var wg1, wg2, wg3 sync.WaitGroup
 		wg1.Add(3)
-		wg2.Add(1)
+		wg2.Add(3)
 		wg3.Add(2)
 		event := make(chan time.Time)
 		actions := newMockActions(t)
 		actions.
-			On("StartQueryWithContext", anyContext, anyStartQueryInput).
+			On("StartQueryWithContext", anyContext, mock.MatchedBy(func(input *cloudwatchlogs.StartQueryInput) bool {
+				return *input.QueryString == "uno"
+			})).
 			Run(func(_ mock.Arguments) { wg1.Done() }).
 			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("a")}, nil).
 			Once()
 		actions.
-			On("StartQueryWithContext", anyContext, anyStartQueryInput).
-			Run(func(_ mock.Arguments) { wg1.Done() }).
+			On("StartQueryWithContext", anyContext, mock.MatchedBy(func(input *cloudwatchlogs.StartQueryInput) bool {
+				return *input.QueryString == "due"
+			})).
+			Run(func(_ mock.Arguments) { wg2.Done() }).
 			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("b")}, nil).
 			Once()
 		actions.
-			On("GetQueryResultsWithContext", anyContext, anyGetQueryResultsInput).
+			On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: sp("a")}).
 			Run(func(_ mock.Arguments) {
 				wg1.Done()
 				<-event
@@ -877,7 +881,7 @@ func TestQueryManager_Query(t *testing.T) {
 			Return(nil, context.Canceled).
 			Once()
 		actions.
-			On("GetQueryResultsWithContext", anyContext, anyGetQueryResultsInput).
+			On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: sp("b")}).
 			Run(func(_ mock.Arguments) {
 				wg2.Done()
 				<-event
@@ -898,22 +902,30 @@ func TestQueryManager_Query(t *testing.T) {
 			Actions: actions,
 		})
 		require.NotNil(t, m)
-		s1, err := m.Query(QuerySpec{
-			Text:   "uno",
-			Start:  defaultStart,
-			End:    defaultEnd,
-			Groups: []string{"/first/one"},
+		var s1, s2 Stream
+		var err1, err2 error
+		s1, err1 = m.Query(QuerySpec{
+			Text:     "uno",
+			Start:    defaultStart,
+			End:      defaultEnd,
+			Groups:   []string{"/first/one"},
+			Priority: 1,
 		})
 		require.NotNil(t, s1)
-		require.NoError(t, err)
-		s2, err := m.Query(QuerySpec{
-			Text:   "due",
-			Start:  defaultStart,
-			End:    defaultEnd,
-			Groups: []string{"/second/one"},
-		})
-		require.NotNil(t, s2)
-		require.NoError(t, err)
+		require.NoError(t, err1)
+		wg1.Done()
+		go func() {
+			s2, err2 = m.Query(QuerySpec{
+				Text:     "due",
+				Start:    defaultStart,
+				End:      defaultEnd,
+				Groups:   []string{"/second/one"},
+				Priority: 2,
+			})
+			require.NotNil(t, s2)
+			require.NoError(t, err2)
+			wg2.Done()
+		}()
 		t.Cleanup(func() {
 			close(event)
 			_ = m.Close()
@@ -921,10 +933,10 @@ func TestQueryManager_Query(t *testing.T) {
 
 		// ACT.
 		wg1.Wait()
-		err1 := s1.Close()
+		err1 = s1.Close()
 		event <- time.Now()
 		wg2.Wait()
-		err2 := s2.Close()
+		err2 = s2.Close()
 		event <- time.Now()
 		err3 := m.Close()
 		wg3.Wait()
@@ -1562,7 +1574,7 @@ func (qs *queryScenario) test(t *testing.T, i int, m QueryManager, actions *mock
 }
 
 func (qs *queryScenario) play(t *testing.T, i int, m QueryManager, actions *mockActions) {
-	// Set up the cp scenarios.
+	// Set up the chunk polling scenarios.
 	for j, cp := range qs.chunks {
 		cp.setup(i, j, qs.note, qs.closeEarly, qs.expectStop, actions)
 	}
