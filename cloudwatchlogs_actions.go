@@ -51,9 +51,11 @@ var RPSQuotaLimits = map[CloudWatchLogsAction]int{
 	GetQueryResults: 5,
 }
 
-// RPSDefaults specifies the maximum number of requests per second which
-// the QueryManager may make to the CloudWatch Logs web service for each
-// CloudWatch Logs action.
+// RPSDefaults specifies the default maximum number of requests per
+// second which the QueryManager will make to the CloudWatch Logs web
+// service for each CloudWatch Logs action. These default values are
+// operative unless explicitly overwritten in the Config structure
+// passed to NewQueryManager.
 var RPSDefaults = map[CloudWatchLogsAction]int{
 	StartQuery:      RPSQuotaLimits[StartQuery] - 2,
 	StopQuery:       RPSQuotaLimits[StopQuery] - 2,
