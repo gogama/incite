@@ -678,8 +678,11 @@ func (m *mgr) pollNextChunk() int {
 		if err == errEndOfChunk {
 			m.numChunks--
 			m.statsLock.Lock()
+			c.stream.lock.Lock()
 			m.stats.add(c.Stats)
+			c.stream.stats.add(c.Stats)
 			m.statsLock.Unlock()
+			c.stream.lock.Unlock()
 		} else {
 			m.chunks.Prev().Link(r)
 		}
