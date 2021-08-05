@@ -306,14 +306,15 @@ type mgr struct {
 	ding      bool
 	minDelay  map[CloudWatchLogsAction]time.Duration // Used to stay under TPS limit
 	lastReq   map[CloudWatchLogsAction]time.Time     // Used to stay under TPS limit
+	pq        streamHeap                             // Written by Query, written by mgr loop goroutine
 	chunks    ring.Ring                              // Circular list of chunks, first item is a sentry
 	numChunks int
-
-	stats     Stats         // Read by GetStats, written by mgr loop goroutine
-	statsLock sync.RWMutex  // Controls access to stats
-	pq        streamHeap    // Written by Query, written by mgr loop goroutine
 	close     chan struct{} // Receives notification on Close()
 	query     chan *stream  // Receives notification of new Query()
+
+	// Fields written by mgr loop and potentially read by any goroutine.
+	stats     Stats        // Read by GetStats, written by mgr loop goroutine
+	statsLock sync.RWMutex // Controls access to stats
 }
 
 const (
