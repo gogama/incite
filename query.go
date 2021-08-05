@@ -45,3 +45,7 @@ func Query(a CloudWatchLogsActions, q interface{}) ([]Result, error) {
 	}
 	return ReadAll(s)
 }
+
+// TODO: We can make this testable by replacing the direct NewQueryManager
+//       call with a function pointer variable, and then the test itself
+//       can swap in a function that does mocking.

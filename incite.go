@@ -1165,7 +1165,7 @@ func (s *stream) alive() bool {
 
 // A chunk represents a single active CloudWatch Logs Insights query
 // owned by a stream. A stream has one or more chunks, depending on
-// whether the QuerySpec operation was chunked. A chunk is a passive data
+// whether the QuerySpec indicated chunking. A chunk is a passive data
 // structure: it owns no goroutines and presents no interface that is
 // accessible outside the package.
 type chunk struct {
