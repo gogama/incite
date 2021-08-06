@@ -1,0 +1,17 @@
+# This is the official list of people who can contribute
+# (and typically have contributed) code to the incite project.
+# The AUTHORS file lists the copyright holders; this file
+# lists people.
+
+# Names should be added to this file like so:
+#     Individual's name <submission email address>
+#     Individual's name <submission email address> <email2> <emailN>
+#
+# An entry with multiple email addresses specifies that the
+# first address should be used in the commit logs and
+# that the other addresses should be recognized as the
+# same person when interacting with Git.
+
+# Please keep the list sorted.
+
+Victor Schappert <victor.schappert@protonmail.com> <schapper@amazon.com>
