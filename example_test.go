@@ -15,7 +15,7 @@ import (
 	"github.com/gogama/incite"
 )
 
-func ExampleQuery_QuerySpec() {
+func ExampleQuery() {
 	s := session.Must(session.NewSession())
 	a := cloudwatchlogs.New(s)
 	end := time.Now()
@@ -31,7 +31,6 @@ func ExampleQuery_QuerySpec() {
 		return
 	}
 	fmt.Println("RESULTS", data)
-
 }
 
 func ExampleUnmarshal_mapStringString() {

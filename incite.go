@@ -41,6 +41,10 @@ type QuerySpec struct {
 	// https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/CWL_QuerySyntax.html.
 	Text string
 
+	// Groups lists the names of the CloudWatch Logs log groups to be
+	// queried. It may not be empty.
+	Groups []string
+
 	// Start specifies the beginning of the time range to query,
 	// inclusive of Start itself.
 	//
@@ -54,10 +58,6 @@ type QuerySpec struct {
 	// End must be strictly after Start, and must represent a whole
 	// number of seconds (it cannot have sub-second granularity).
 	End time.Time
-
-	// Groups lists the names of the CloudWatch Logs log groups to be
-	// queried. It may not be empty.
-	Groups []string
 
 	// Limit optionally specifies the maximum number of results to be
 	// returned by the query.
