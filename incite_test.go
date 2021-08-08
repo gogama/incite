@@ -1765,18 +1765,293 @@ var scenarios = []queryScenario{
 		stats: Stats{3, 3, 2},
 	},
 
-	//{
-	//	note: "MultiChunk.Fractional.TwoMisaligned",
-	//},
-	//{
-	//	note: "MultiChunk.Fractional.ThreeMisaligned",
-	//},
-	//{
-	//	note: "MultiChunk.Fractional.NoPreview",
-	//},
-	//{
-	//	note: "MultiChunk.Fractional.Preview",
-	//},
+	{
+		note: "MultiChunk.TwoMisaligned",
+		QuerySpec: QuerySpec{
+			Text:   "QuerySpec indicates chunking and [start, end) defines two chunks, the second of which is not full sized",
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: []string{"forest"},
+			Chunk:  4 * time.Minute,
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("QuerySpec indicates chunking and [start, end) defines two chunks, the second of which is not full sized"),
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultStart.Add(4 * time.Minute)),
+					LogGroupNames: []*string{sp("forest")},
+					Limit:         int64p(DefaultLimit),
+				},
+				startQueryErrs: []error{
+					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "use less"),
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusScheduled,
+					},
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						results: []Result{
+							{{Field: "@ptr", Value: "1"}},
+							{{Field: "@ptr", Value: "2"}},
+						},
+						stats: &Stats{49, 23, 1},
+					},
+				},
+			},
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("QuerySpec indicates chunking and [start, end) defines two chunks, the second of which is not full sized"),
+					StartTime:     startTimeSeconds(defaultStart.Add(4 * time.Minute)),
+					EndTime:       endTimeSeconds(defaultEnd),
+					LogGroupNames: []*string{sp("forest")},
+					Limit:         int64p(DefaultLimit),
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						stats:  &Stats{3, 2, 3},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						results: []Result{
+							{{Field: "@ptr", Value: "3"}},
+							{{Field: "@ptr", Value: "4"}},
+						},
+						stats: &Stats{51, 77, 99},
+					},
+				},
+			},
+		},
+		results: []Result{
+			{{Field: "@ptr", Value: "1"}},
+			{{Field: "@ptr", Value: "2"}},
+			{{Field: "@ptr", Value: "3"}},
+			{{Field: "@ptr", Value: "4"}},
+		},
+		postprocess: func(r []Result) {
+			sort.Slice(r, func(i, j int) bool {
+				return r[i].get("@ptr") < r[j].get("@ptr")
+			})
+		},
+		stats: Stats{100, 100, 100},
+	},
+
+	{
+		note: "MultiChunk.ThreeMisaligned",
+		QuerySpec: QuerySpec{
+			Text:   "QuerySpec indicates chunking and [start, end) defines three chunks, the third of which is fractional sized",
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: []string{"lumberyard"},
+			Chunk:  2 * time.Minute,
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("QuerySpec indicates chunking and [start, end) defines three chunks, the third of which is fractional sized"),
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultStart.Add(2 * time.Minute)),
+					LogGroupNames: []*string{sp("lumberyard")},
+					Limit:         int64p(DefaultLimit),
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						results: []Result{
+							{{Field: "@ptr", Value: "1"}},
+						},
+						stats: &Stats{11, 22, 33},
+					},
+				},
+			},
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("QuerySpec indicates chunking and [start, end) defines three chunks, the third of which is fractional sized"),
+					StartTime:     startTimeSeconds(defaultStart.Add(2 * time.Minute)),
+					EndTime:       endTimeSeconds(defaultStart.Add(4 * time.Minute)),
+					LogGroupNames: []*string{sp("lumberyard")},
+					Limit:         int64p(DefaultLimit),
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						results: []Result{
+							{{Field: "@ptr", Value: "2"}},
+							{{Field: "@ptr", Value: "3"}},
+						},
+						stats: &Stats{44, 55, 66},
+					},
+				},
+			},
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("QuerySpec indicates chunking and [start, end) defines three chunks, the third of which is fractional sized"),
+					StartTime:     startTimeSeconds(defaultStart.Add(4 * time.Minute)),
+					EndTime:       endTimeSeconds(defaultEnd),
+					LogGroupNames: []*string{sp("lumberyard")},
+					Limit:         int64p(DefaultLimit),
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						results: []Result{
+							{{Field: "@ptr", Value: "4"}},
+						},
+						stats: &Stats{77, 88, 99},
+					},
+				},
+			},
+		},
+		results: []Result{
+			{{Field: "@ptr", Value: "1"}},
+			{{Field: "@ptr", Value: "2"}},
+			{{Field: "@ptr", Value: "3"}},
+			{{Field: "@ptr", Value: "4"}},
+		},
+		postprocess: func(r []Result) {
+			sort.Slice(r, func(i, j int) bool {
+				return r[i].get("@ptr") < r[j].get("@ptr")
+			})
+		},
+		stats: Stats{132, 165, 198},
+	},
+
+	{
+		note: "MultiChunk.Preview",
+		QuerySpec: QuerySpec{
+			Text:    "QuerySpec indicates a previewed query in three chunks",
+			Groups:  []string{"fireplace"},
+			Start:   defaultStart,
+			End:     defaultEnd,
+			Limit:   5,
+			Chunk:   2 * time.Minute,
+			Preview: true,
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("QuerySpec indicates a previewed query in three chunks"),
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultStart.Add(2 * time.Minute)),
+					LogGroupNames: []*string{sp("fireplace")},
+					Limit:         int64p(5),
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusScheduled,
+					},
+					{
+						status: cloudwatchlogs.QueryStatusScheduled,
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						results: []Result{
+							{{"@ptr", "1"}, {"instance", "1"}},
+						},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						results: []Result{
+							{{"@ptr", "1"}, {"instance", "1"}},
+						},
+						stats: &Stats{1, 1, 1},
+					},
+				},
+			},
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("QuerySpec indicates a previewed query in three chunks"),
+					StartTime:     startTimeSeconds(defaultStart.Add(2 * time.Minute)),
+					EndTime:       endTimeSeconds(defaultStart.Add(4 * time.Minute)),
+					LogGroupNames: []*string{sp("fireplace")},
+					Limit:         int64p(5),
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						results: []Result{
+							{{"@ptr", "2"}, {"instance", "1"}},
+						},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						results: []Result{
+							{{"@ptr", "3"}, {"instance", "1"}},
+						},
+					},
+				},
+			},
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("QuerySpec indicates a previewed query in three chunks"),
+					StartTime:     startTimeSeconds(defaultStart.Add(4 * time.Minute)),
+					EndTime:       endTimeSeconds(defaultEnd),
+					LogGroupNames: []*string{sp("fireplace")},
+					Limit:         int64p(5),
+				},
+				startQueryErrs: []error{
+					cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "wait for it..."),
+					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "use less"),
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						results: []Result{
+							{{"@ptr", "4"}, {"instance", "1"}},
+						},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						results: []Result{
+							{{"@ptr", "5"}, {"instance", "1"}},
+							{{"@ptr", "6"}, {"instance", "1"}},
+						},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						results: []Result{
+							{{"@ptr", "4"}, {"instance", "2"}},
+							{{"@ptr", "6"}, {"instance", "1"}},
+							{{"@ptr", "7"}, {"instance", "1"}},
+							{{"@ptr", "8"}, {"instance", "1"}},
+						},
+						stats: &Stats{1, 1, 1},
+					},
+				},
+			},
+		},
+		results: []Result{
+			{{Field: "@ptr", Value: "1"}, {Field: "instance", Value: "1"}},
+			{{Field: "@ptr", Value: "2"}, {Field: "instance", Value: "1"}},
+			{{Field: "@ptr", Value: "2"}, {Field: "@deleted", Value: "true"}},
+			{{Field: "@ptr", Value: "3"}, {Field: "instance", Value: "1"}},
+			{{Field: "@ptr", Value: "4"}, {Field: "instance", Value: "1"}},
+			{{Field: "@ptr", Value: "4"}, {Field: "@deleted", Value: "true"}},
+			{{Field: "@ptr", Value: "4"}, {Field: "instance", Value: "2"}},
+			{{Field: "@ptr", Value: "5"}, {Field: "instance", Value: "1"}},
+			{{Field: "@ptr", Value: "5"}, {Field: "@deleted", Value: "true"}},
+			{{Field: "@ptr", Value: "6"}, {Field: "instance", Value: "1"}},
+			{{Field: "@ptr", Value: "7"}, {Field: "instance", Value: "1"}},
+			{{Field: "@ptr", Value: "8"}, {Field: "instance", Value: "1"}},
+		},
+		postprocess: func(r []Result) {
+			sort.SliceStable(r, func(i, j int) bool {
+				pi, pj := r[i].get("@ptr"), r[j].get("@ptr")
+				return pi < pj
+			})
+		},
+		stats: Stats{2, 2, 2},
+	},
 }
 
 type queryScenario struct {
