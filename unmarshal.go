@@ -123,9 +123,8 @@ func Unmarshal(data []Result, v interface{}) error {
 				a.Index(i).Set(z)
 			}
 			return nil
-		} else {
-			return array(data[:n], rv, a)
 		}
+		return array(data[:n], rv, a)
 	case reflect.Interface: // v is a pointer to an interface
 		b := reflect.MakeSlice(reflect.TypeOf([]map[string]string{}), m, m)
 		a.Set(reflect.ValueOf(b.Interface()))
@@ -590,9 +589,8 @@ func (e *InvalidUnmarshalError) Error() string {
 	case reflect.Map:
 		if e.RowType.Key().Kind() != reflect.String {
 			return "incite: Unmarshal(map key type not string: " + e.Type.String() + ")"
-		} else {
-			return "incite: Unmarshal(map value type unsupported: " + e.Type.String() + ")"
 		}
+		return "incite: Unmarshal(map value type unsupported: " + e.Type.String() + ")"
 	case reflect.Slice:
 		return "incite: Unmarshal(slice type is not " + resultType.String() + ": " + e.Type.String() + ")"
 	}
