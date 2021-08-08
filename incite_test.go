@@ -531,6 +531,8 @@ func TestQueryManager_Close(t *testing.T) {
 	//       array is in priority order, and time order within the same query.
 	//       When done, look within the *mgr and assert that pq and chunks are
 	//       both empty.
+	// TODO: Errors. Assert that all fatal errors returned from stream.Read are
+	//       one of the three error tyeps defined in errors.go.
 }
 
 func TestQueryManager_GetStats(t *testing.T) {
@@ -950,6 +952,121 @@ func TestQueryManager_Query(t *testing.T) {
 		assert.NoError(t, err1)
 		assert.NoError(t, err2)
 		assert.NoError(t, err3)
+	})
+
+	t.Run("Query Starts But GetQueryResults Output Corrupt", func(t *testing.T) {
+		// This set of test cases verifies that the query manager
+		// recovers gracefully in very unlikely edge cases where the
+		// CloudWatch Logs service client populates the GetQueryResults
+		// output object with certain invalid values, such as a nil
+		// pointer for the status field.
+
+		testCases := []struct {
+			name      string
+			cause     error
+			gqrOutput *cloudwatchlogs.GetQueryResultsOutput
+			gqrErr    error
+		}{
+			{
+				name:      "Service Call Error",
+				cause:     errors.New("call to CWL failed"),
+				gqrOutput: nil,
+				gqrErr:    errors.New("call to CWL failed"),
+			},
+			{
+				name:  "Nil Status",
+				cause: errNilStatus(),
+				gqrOutput: &cloudwatchlogs.GetQueryResultsOutput{
+					Statistics: &cloudwatchlogs.QueryStatistics{},
+				},
+			},
+			{
+				name:  "Nil Result Field",
+				cause: errNilResultField(1),
+				gqrOutput: &cloudwatchlogs.GetQueryResultsOutput{
+					Status: sp(cloudwatchlogs.QueryStatusComplete),
+					Results: [][]*cloudwatchlogs.ResultField{
+						{{Field: sp("Foo"), Value: sp("10")}, nil, {Field: sp("@ptr"), Value: sp("ptr-val")}},
+					},
+				},
+			},
+			{
+				name:  "No Key",
+				cause: errNoKey(),
+				gqrOutput: &cloudwatchlogs.GetQueryResultsOutput{
+					Status: sp(cloudwatchlogs.QueryStatusComplete),
+					Results: [][]*cloudwatchlogs.ResultField{
+						{{Value: sp("orphan value")}},
+					},
+				},
+			},
+			{
+				name:  "No Value",
+				cause: errNoValue("orphan key"),
+				gqrOutput: &cloudwatchlogs.GetQueryResultsOutput{
+					Status: sp(cloudwatchlogs.QueryStatusComplete),
+					Results: [][]*cloudwatchlogs.ResultField{
+						{{Field: sp("orphan key")}},
+					},
+				},
+			},
+		}
+
+		for _, testCase := range testCases {
+			t.Run(testCase.name, func(t *testing.T) {
+				for _, preview := range []string{"No Preview", "Preview"} {
+					t.Run(preview, func(t *testing.T) {
+						// ARRANGE.
+						queryID := "bar"
+						text := "query text that secretly triggers bad service behavior"
+						actions := newMockActions(t)
+						actions.
+							On("StartQueryWithContext", anyContext, anyStartQueryInput).
+							Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp(queryID)}, nil).
+							Once()
+						actions.
+							On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{
+								QueryId: sp(queryID),
+							}).
+							Return(testCase.gqrOutput, testCase.gqrErr).
+							Once()
+						actions.
+							On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{
+								QueryId: sp(queryID),
+							}).
+							Return(&cloudwatchlogs.StopQueryOutput{}, nil).
+							Maybe()
+						m := NewQueryManager(Config{
+							Actions: actions,
+						})
+						require.NotNil(t, m)
+						s, err := m.Query(QuerySpec{
+							Text:    text,
+							Start:   defaultStart,
+							End:     defaultEnd,
+							Groups:  []string{"baz"},
+							Preview: preview == "Preview",
+						})
+						require.NotNil(t, s)
+						require.NoError(t, err)
+
+						// ACT.
+						p := make([]Result, 1)
+						n, err := s.Read(p)
+
+						// ASSERT.
+						assert.Equal(t, 0, n)
+						assert.Error(t, err)
+						assert.Equal(t, &UnexpectedQueryError{
+							QueryID: queryID,
+							Text:    text,
+							Cause:   testCase.cause,
+						}, err)
+						actions.AssertExpectations(t)
+					})
+				}
+			})
+		}
 	})
 }
 

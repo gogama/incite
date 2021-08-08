@@ -797,7 +797,7 @@ func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, stats *cl
 	if c.ptr != nil {
 		block, err = translateResultsPreview(c, results)
 	} else {
-		block, err = translateResultsNoPreview(c.id, results)
+		block, err = translateResultsNoPreview(c, results)
 	}
 
 	if !eof && len(block) == 0 && err == nil {
@@ -837,13 +837,16 @@ func translateStats(stats *cloudwatchlogs.QueryStatistics) (result Stats) {
 	return
 }
 
-func translateResultsNoPreview(id string, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
+func translateResultsNoPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
 	var err error
 	block := make([]Result, len(results))
 	for i, r := range results {
-		block[i], err = translateResult(id, r)
+		block[i], err = translateResult(c, r)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return block, err
+	return block, nil
 }
 
 func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
@@ -858,8 +861,12 @@ func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) 
 	// Collect all the results actually returned from CloudWatch Logs.
 	for _, r := range results {
 		var ptr *string
-		for f := range r {
-			k, v := r[f].Field, r[f].Value
+		for i := range r {
+			f := r[i]
+			if f == nil {
+				continue
+			}
+			k, v := f.Field, f.Value
 			if k != nil && *k == "@ptr" {
 				ptr = v
 				break
@@ -871,9 +878,9 @@ func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) 
 				continue // We've already put this @ptr into the stream.
 			}
 		}
-		rr, err := translateResult(c.id, r)
+		rr, err := translateResult(c, r)
 		if err != nil {
-			return nil, &UnexpectedQueryError{c.id, c.stream.Text, err}
+			return nil, err
 		}
 		block = append(block, rr)
 	}
@@ -899,15 +906,18 @@ func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) 
 	return block, nil
 }
 
-func translateResult(id string, r []*cloudwatchlogs.ResultField) (Result, error) {
+func translateResult(c *chunk, r []*cloudwatchlogs.ResultField) (Result, error) {
 	rr := make(Result, len(r))
 	for i, f := range r {
+		if f == nil {
+			return Result{}, &UnexpectedQueryError{QueryID: c.id, Text: c.stream.Text, Cause: errNilResultField(i)}
+		}
 		k, v := f.Field, f.Value
 		if k == nil {
-			return Result{}, errNoKey(id)
+			return Result{}, &UnexpectedQueryError{QueryID: c.id, Text: c.stream.Text, Cause: errNoKey()}
 		}
 		if v == nil {
-			return Result{}, errNoValue(id, *k)
+			return Result{}, &UnexpectedQueryError{QueryID: c.id, Text: c.stream.Text, Cause: errNoValue(*k)}
 		}
 		rr[i] = ResultField{
 			Field: *k,

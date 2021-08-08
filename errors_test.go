@@ -71,3 +71,27 @@ func TestUnexpectedQueryError_Unwrap(t *testing.T) {
 
 	assert.Same(t, cause, err.Unwrap())
 }
+
+func TestErrNilStatus(t *testing.T) {
+	err := errNilStatus()
+
+	assert.EqualError(t, err, outputMissingStatusMsg)
+}
+
+func TestErrNilResultField(t *testing.T) {
+	err := errNilResultField(13)
+
+	assert.EqualError(t, err, `incite: result field [13] is nil`)
+}
+
+func TestErrNoKey(t *testing.T) {
+	err := errNoKey()
+
+	assert.EqualError(t, err, fieldMissingKeyMsg)
+}
+
+func TestErrNoValue(t *testing.T) {
+	err := errNoValue("foo")
+
+	assert.EqualError(t, err, `incite: result field missing value for key "foo"`)
+}

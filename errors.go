@@ -95,16 +95,20 @@ func (err *UnexpectedQueryError) Unwrap() error {
 	return err.Cause
 }
 
-func errNoKey(id string) error {
-	return fmt.Errorf("incite: query ID %q: result field missing key", id)
-}
-
-func errNoValue(id, key string) error {
-	return fmt.Errorf("incite: query ID %q: no value for key %q", id, key)
-}
-
 func errNilStatus() error {
-	return errors.New("incite: nil status in GetQueryResults output from CloudWatch Logs")
+	return errors.New(outputMissingStatusMsg)
+}
+
+func errNilResultField(i int) error {
+	return fmt.Errorf("incite: result field [%d] is nil", i)
+}
+
+func errNoKey() error {
+	return errors.New(fieldMissingKeyMsg)
+}
+
+func errNoValue(key string) error {
+	return fmt.Errorf("incite: result field missing value for key %q", key)
 }
 
 const (
@@ -117,4 +121,7 @@ const (
 	endNotBeforeStartMsg = "incite: end not before start"
 	noGroupsMsg          = "incite: no log groups"
 	exceededMaxLimitMsg  = "incite: exceeded MaxLimit"
+
+	outputMissingStatusMsg = "incite: nil status in GetQueryResults output from CloudWatch Logs"
+	fieldMissingKeyMsg     = "incite: result field missing key"
 )
