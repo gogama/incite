@@ -1,0 +1,18 @@
+language: go
+os:
+  - linux
+go:
+  - 1.13.x
+  - 1.14.x
+  - 1.15.x
+  - 1.16.x
+env:
+  - GO111MODULE=off
+  - GO111MODULE=on
+script:
+  - '[ "$TRAVIS_OS_NAME" == "windows" ] || [ -z "$(gofmt -l .)" ]'
+  - go test ./...
+jobs:
+  include:
+    - {os: osx, go: 1.x, env: GO111MODULE=on}
+    - {os: windows, go: 1.x, env: GO111MODULE=on}
