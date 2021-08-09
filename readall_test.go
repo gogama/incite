@@ -17,7 +17,7 @@ import (
 
 func TestReadAll(t *testing.T) {
 	t.Run("Panic", func(t *testing.T) {
-		assert.PanicsWithValue(t, nilStream, func() {
+		assert.PanicsWithValue(t, nilStreamMsg, func() {
 			_, _ = ReadAll(nil)
 		})
 	})

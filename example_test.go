@@ -5,6 +5,7 @@
 package incite_test
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -19,7 +20,7 @@ func ExampleQuery() {
 	s := session.Must(session.NewSession())
 	a := cloudwatchlogs.New(s)
 	end := time.Now()
-	data, err := incite.Query(a, incite.QuerySpec{
+	data, err := incite.Query(context.Background(), a, incite.QuerySpec{
 		Text:   "fields @timestamp, @message | filter @message =~ /foo/ | sort @timestamp desc",
 		Start:  end.Add(-15 * time.Minute),
 		End:    end,

@@ -14,7 +14,7 @@ import (
 // from Read as an error to be reported.
 func ReadAll(s Stream) ([]Result, error) {
 	if s == nil {
-		panic(nilStream)
+		panic(nilStreamMsg)
 	}
 
 	// For interests' sake, this implementation is borrowed almost

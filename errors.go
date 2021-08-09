@@ -113,7 +113,8 @@ func errNoValue(key string) error {
 
 const (
 	nilActionsMsg = "incite: nil actions"
-	nilStream     = "incite: nil stream"
+	nilStreamMsg  = "incite: nil stream"
+	nilContextMsg = "incite: nil context"
 
 	textBlankMsg         = "incite: blank query text"
 	startSubSecondMsg    = "incite: start has sub-second granularity"

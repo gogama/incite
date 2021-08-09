@@ -12,6 +12,7 @@ TODO list in order:
 2. Finish other TODO test cases in unmarshal_test.go.
 3. Finish any other lingering TODO or FIXME.
 4. Audit the logging code to ensure we log enough worthwhile status info.
+5. Write README.
 
 
 
