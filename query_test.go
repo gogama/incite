@@ -72,13 +72,13 @@ func TestQuery(t *testing.T) {
 		actions.
 			On("StartQueryWithContext", anyContext, anyStartQueryInput).
 			WaitUntil(timer.C).
-			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("eggs")}).
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("eggs")}, nil).
 			Maybe()
 		actions.
 			On("GetQueryResultsWithContext", anyContext, mock.Anything).
 			Return(&cloudwatchlogs.GetQueryResultsOutput{
 				Status: sp(cloudwatchlogs.QueryStatusComplete),
-			}).
+			}, nil).
 			Maybe()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
