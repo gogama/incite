@@ -700,14 +700,19 @@ func TestQueryManager_Query(t *testing.T) {
 		// error. These ones are meant to be simple. More complex
 		// testing is done in the scenario tests below.
 
+		causeErr := errors.New("super fatal error")
+
 		testCases := []struct {
 			name              string
 			before            QuerySpec
 			after             QuerySpec
+			startQueryOutput  *cloudwatchlogs.StartQueryOutput
+			startQueryErr     error
 			expectedN         int64
 			expectedChunkHint uint16
 			expectedGroups    []*string
 			expectedNext      time.Time
+			expectedCauseErr  error
 		}{
 			{
 				name: "Zero",
@@ -726,10 +731,12 @@ func TestQueryManager_Query(t *testing.T) {
 					Chunk:  5 * time.Minute,
 					Hint:   minHint,
 				},
+				startQueryErr:     causeErr,
 				expectedN:         1,
 				expectedChunkHint: minHint,
 				expectedGroups:    []*string{sp("bar"), sp("Baz")},
 				expectedNext:      defaultStart,
+				expectedCauseErr:  causeErr,
 			},
 			{
 				name: "ChunkExceedsRange",
@@ -749,10 +756,12 @@ func TestQueryManager_Query(t *testing.T) {
 					Chunk:  5 * time.Minute,
 					Hint:   minHint,
 				},
+				startQueryErr:     causeErr,
 				expectedN:         1,
 				expectedChunkHint: minHint,
 				expectedGroups:    []*string{sp("bar"), sp("Baz")},
 				expectedNext:      defaultStart,
+				expectedCauseErr:  causeErr,
 			},
 			{
 				name: "PartialChunk",
@@ -772,20 +781,45 @@ func TestQueryManager_Query(t *testing.T) {
 					Chunk:  4 * time.Minute,
 					Hint:   minHint,
 				},
+				startQueryErr:     causeErr,
 				expectedN:         2,
 				expectedChunkHint: minHint,
 				expectedGroups:    []*string{sp("bar"), sp("Baz")},
 				expectedNext:      defaultStart,
+				expectedCauseErr:  causeErr,
+			},
+			{
+				name: "MissingQueryID",
+				before: QuerySpec{
+					Text:   "ham",
+					Start:  defaultStart,
+					End:    defaultEnd,
+					Groups: []string{"eggs", "Spam"},
+				},
+				after: QuerySpec{
+					Text:   "ham",
+					Start:  defaultStart,
+					End:    defaultEnd,
+					Groups: []string{"eggs", "Spam"},
+					Limit:  DefaultLimit,
+					Chunk:  5 * time.Minute,
+					Hint:   minHint,
+				},
+				startQueryOutput:  &cloudwatchlogs.StartQueryOutput{},
+				expectedN:         1,
+				expectedChunkHint: minHint,
+				expectedGroups:    []*string{sp("eggs"), sp("Spam")},
+				expectedNext:      defaultStart,
+				expectedCauseErr:  errors.New(outputMissingQueryIDMsg),
 			},
 		}
 
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {
-				causeErr := errors.New("super fatal error")
 				actions := newMockActions(t)
 				actions.
 					On("StartQueryWithContext", anyContext, anyStartQueryInput).
-					Return(nil, causeErr).
+					Return(testCase.startQueryOutput, testCase.startQueryErr).
 					Once()
 				m := NewQueryManager(Config{
 					Actions: actions,
@@ -811,7 +845,7 @@ func TestQueryManager_Query(t *testing.T) {
 				assert.Equal(t, 0, n)
 				var sqe *StartQueryError
 				assert.ErrorAs(t, err, &sqe)
-				assert.Same(t, sqe.Cause, causeErr)
+				assert.Equal(t, sqe.Cause, testCase.expectedCauseErr)
 				assert.Equal(t, Stats{}, s.GetStats())
 
 				err = s.Close()

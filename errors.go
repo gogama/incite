@@ -123,6 +123,7 @@ const (
 	noGroupsMsg          = "incite: no log groups"
 	exceededMaxLimitMsg  = "incite: exceeded MaxLimit"
 
-	outputMissingStatusMsg = "incite: nil status in GetQueryResults output from CloudWatch Logs"
-	fieldMissingKeyMsg     = "incite: result field missing key"
+	outputMissingQueryIDMsg = "incite: nil query ID in StartQuery output from CloudWatch Logs"
+	outputMissingStatusMsg  = "incite: nil status in GetQueryResults output from CloudWatch Logs"
+	fieldMissingKeyMsg      = "incite: result field missing key"
 )

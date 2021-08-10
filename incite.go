@@ -602,7 +602,7 @@ func (m *mgr) startNextChunk() error {
 
 	queryID := output.QueryId
 	if queryID == nil {
-		err = &StartQueryError{s.Text, next, end, errors.New("incite: nil query ID")}
+		err = &StartQueryError{s.Text, next, end, errors.New(outputMissingQueryIDMsg)}
 		s.setErr(err, true, Stats{})
 		m.Logger.Printf("incite: QueryManager(%p) nil query ID from CloudWatch Logs for %q [%s..%s)", m, s.Text, next, end)
 		return err
