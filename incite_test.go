@@ -515,7 +515,47 @@ func TestQueryManager_Close(t *testing.T) {
 	})
 
 	t.Run("Close Cancels Queries", func(t *testing.T) {
-		// TODO: Simple test case with multiple in-flight queries that get cancelled.
+		// ARRANGE.
+		stopped := true
+		actions := newMockActions(t)
+		actions.
+			On("StartQueryWithContext", anyContext, anyStartQueryInput).
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("qid")}, nil)
+		actions.
+			On("GetQueryResultsWithContext", anyContext, mock.Anything).
+			Return(&cloudwatchlogs.GetQueryResultsOutput{
+				Status: sp(cloudwatchlogs.QueryStatusRunning),
+			}, nil)
+		actions.
+			On("StopQueryWithContext", anyContext, mock.Anything).
+			Return(&cloudwatchlogs.StopQueryOutput{Success: &stopped}, nil)
+		m := NewQueryManager(Config{
+			Actions: actions,
+		})
+		q := QuerySpec{
+			Text:   "qt",
+			Groups: []string{"qg"},
+			Start:  defaultStart,
+			End:    defaultEnd,
+		}
+		s1, err := m.Query(q)
+		require.NotNil(t, s1)
+		require.NoError(t, err)
+		s2, err := m.Query(q)
+		require.NotNil(t, s2)
+		require.NoError(t, err)
+
+		// ACT.
+		err = m.Close()
+
+		// ASSERT.
+		assert.NoError(t, err)
+		n1, err := s1.Read(make([]Result, 1))
+		assert.Equal(t, 0, n1)
+		assert.Same(t, ErrClosed, err)
+		n2, err := s2.Read(make([]Result, 1))
+		assert.Equal(t, 0, n2)
+		assert.Same(t, ErrClosed, err)
 	})
 
 	// TODO: Test multi-thread read case. Second reader should be blocking on

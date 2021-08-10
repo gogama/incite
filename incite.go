@@ -489,7 +489,7 @@ func (m *mgr) shutdown() {
 	// On a best effort basis, close all open chunks.
 	m.chunks.Do(func(i interface{}) {
 		if i != nil {
-			m.cancelChunk(i.(*chunk))
+			m.cancelChunk(i.(*chunk), ErrClosed)
 		}
 	})
 
@@ -652,7 +652,7 @@ func (m *mgr) pollNextChunk() int {
 		if !c.stream.alive() {
 			m.numChunks--
 			m.chunks.Unlink(1)
-			m.cancelChunk(c)
+			m.cancelChunk(c, nil)
 			continue
 		}
 
@@ -743,7 +743,11 @@ func (m *mgr) pollChunk(c *chunk) error {
 	}
 }
 
-func (m *mgr) cancelChunk(c *chunk) {
+func (m *mgr) cancelChunk(c *chunk, err error) {
+	if err != nil {
+		c.stream.setErr(err, true, Stats{})
+	}
+
 	if m.setTimerRPS(StopQuery) {
 		<-m.timer.C
 		m.ding = true
@@ -765,7 +769,7 @@ func (m *mgr) cancelChunkMaybe(c *chunk, err error) {
 			return
 		}
 	}
-	m.cancelChunk(c)
+	m.cancelChunk(c, err)
 }
 
 func (m *mgr) waitForWork() int {
