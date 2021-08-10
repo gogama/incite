@@ -558,8 +558,6 @@ func TestQueryManager_Close(t *testing.T) {
 		assert.Same(t, ErrClosed, err)
 	})
 
-	// TODO: Test multi-thread read case. Second reader should be blocking on
-	//       the stream lock and not get in, but why not test?
 	// TODO: PRIORITIZATION. Run a test where a master goroutine creates say
 	//       1000 queries with priorities 1..1000 and then read them from, again,
 	//       that single master goroutine. For each query i, the query text is just
