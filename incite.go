@@ -526,7 +526,11 @@ func (m *mgr) setTimer(d time.Duration) bool {
 func (m *mgr) setTimerRPS(action CloudWatchLogsAction) bool {
 	minDelay := m.minDelay[action]
 	delaySoFar := time.Now().Sub(m.lastReq[action])
-	return m.timer.Reset(minDelay - delaySoFar)
+	delayRem := minDelay - delaySoFar
+	if delayRem <= 0 {
+		return false
+	}
+	return m.setTimer(delayRem)
 }
 
 func (m *mgr) startNextChunks() int {
@@ -786,6 +790,7 @@ func (m *mgr) waitForWork() int {
 		heap.Push(&m.pq, s)
 		return 0
 	case <-m.timer.C:
+		m.ding = true
 		return 0
 	}
 }
