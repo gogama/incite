@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -557,20 +558,6 @@ func TestQueryManager_Close(t *testing.T) {
 		assert.Equal(t, 0, n2)
 		assert.Same(t, ErrClosed, err)
 	})
-
-	// TODO: PRIORITIZATION. Run a test where a master goroutine creates say
-	//       1000 queries with priorities 1..1000 and then read them from, again,
-	//       that single master goroutine. For each query i, the query text is just
-	//       the stringized number i. Hook the StartQueryWithContext calls and put
-	//       them into an array. Assert that it is in ascending order of
-	//       priority. Have each query be in two chunks and have GetQueryResults
-	//       return InProgress once and Completed on the second try. Hook the
-	//       GetQueryResults calls and record them into an array. Assert the
-	//       array is in priority order, and time order within the same query.
-	//       When done, look within the *mgr and assert that pq and chunks are
-	//       both empty.
-	// TODO: Errors. Assert that all fatal errors returned from stream.Read are
-	//       one of the three error tyeps defined in errors.go.
 }
 
 func TestQueryManager_GetStats(t *testing.T) {
@@ -1139,6 +1126,107 @@ func TestQueryManager_Query(t *testing.T) {
 				}
 			})
 		}
+	})
+
+	t.Run("Priority is Respected", func(t *testing.T) {
+		// The purpose of this test case is to ensure that query chunks
+		// are started and polled in priority order.
+		//
+		// This test case starts M queries each of which consists of two
+		// chunks. For query number i of M, the Priority is i; the query
+		// text is stringization of i; and the query IDs are a string
+		// consisting of the stringization of i, zero padded up to
+		// length 4, plus a dot, plus the chunk number (1 or 2). So
+		// query number 10, chunk 1 of 2, has Priority 10, text "10",
+		// and query ID "0010.1".
+		//
+		// Each chunk is polled twice. The first time, the poll comes
+		// back with status Scheduled; the second time, the poll comes
+		// back with status Complete.
+		//
+		// The starts slice receives the query ID of each started chunk
+		// as it occurs.
+
+		// ARRANGE.
+		M := 25 // Number of queries
+		N := 4  // Number of chunks per query
+		chunk := time.Duration(int64(defaultEnd.Sub(defaultStart)) / int64(N))
+		starts := make([]string, 0, M*N)
+		gets := make([]string, 0, M*N)
+		actions := newMockActions(t)
+		for i := 1; i <= M; i++ {
+			for j := 1; j <= N; j++ {
+				queryString := strconv.Itoa(i)
+				queryID := fmt.Sprintf("%04d.%d", i, j)
+				startTime := defaultStart.Add(time.Duration(j-1) * chunk)
+				actions.
+					On("StartQueryWithContext", anyContext, mock.MatchedBy(func(input *cloudwatchlogs.StartQueryInput) bool {
+						return *input.QueryString == queryString && *input.StartTime == *startTimeSeconds(startTime)
+					})).
+					Run(func(_ mock.Arguments) {
+						starts = append(starts, queryID)
+					}).
+					Return(&cloudwatchlogs.StartQueryOutput{
+						QueryId: sp(queryID),
+					}, nil).
+					Once()
+				actions.
+					On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{
+						QueryId: &queryID,
+					}).
+					Run(func(_ mock.Arguments) {
+						gets = append(gets, queryID)
+					}).
+					Return(&cloudwatchlogs.GetQueryResultsOutput{
+						Status: sp(cloudwatchlogs.QueryStatusComplete),
+					}, nil).
+					Once()
+			}
+		}
+		m := NewQueryManager(Config{
+			Actions:  actions,
+			Parallel: QueryConcurrencyQuotaLimit,
+			RPS:      lotsOfRPS,
+		})
+		t.Cleanup(func() {
+			err := m.Close()
+			assert.NoError(t, err)
+		})
+
+		// ACT.
+		var wg sync.WaitGroup
+		wg.Add(M)
+		for i := 1; i <= M; i++ {
+			s, err := m.Query(QuerySpec{
+				Text:     strconv.Itoa(i),
+				Groups:   []string{"group"},
+				Start:    defaultStart,
+				End:      defaultEnd,
+				Chunk:    chunk,
+				Priority: i,
+			})
+			require.NotNil(t, s, "i=%d", i)
+			require.NoError(t, err, "i=%d", i)
+			go func(i int) {
+				_, err := ReadAll(s)
+				wg.Done()
+				assert.NoError(t, err, "i=%d", i)
+			}(i)
+		}
+		wg.Wait()
+
+		// ASSERT.
+		actions.AssertExpectations(t)
+		require.Len(t, starts, M*N)
+		require.Len(t, gets, M*N)
+		starts2 := make([]string, len(starts))
+		copy(starts2, starts)
+		gets2 := make([]string, len(gets))
+		copy(gets2, gets)
+		sort.Strings(starts2)
+		sort.Strings(gets2)
+		assert.Equal(t, starts2, starts)
+		assert.Equal(t, gets2, gets)
 	})
 }
 
