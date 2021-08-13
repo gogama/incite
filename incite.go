@@ -860,9 +860,9 @@ func translateResultsNoPreview(c *chunk, results [][]*cloudwatchlogs.ResultField
 
 func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
 	// Create a slice to contain the block of results.
-	guess := int(c.stream.Hint) - len(c.ptr)
-	if guess <= len(results) {
-		guess = len(results)
+	guess := len(results) - len(c.ptr)
+	if guess < int(c.stream.chunkHint) {
+		guess = min(int(c.stream.chunkHint), len(results))
 	}
 	block := make([]Result, 0, guess)
 	// Create a map to track which @ptr are new with this batch of results.
@@ -1187,6 +1187,13 @@ func (s *stream) alive() bool {
 	defer s.lock.RUnlock()
 
 	return s.err == nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // A chunk represents a single active CloudWatch Logs Insights query
