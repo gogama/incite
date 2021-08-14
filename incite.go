@@ -1133,9 +1133,9 @@ func (s *stream) Read(r []Result) (int, error) {
 	defer s.lock.Unlock()
 
 	for {
-		n := s.read(r)
-		if n > 0 || s.err != nil || len(r) == 0 {
-			return n, s.err
+		n, err := s.read(r)
+		if n > 0 || err != nil || len(r) == 0 {
+			return n, err
 		}
 		s.more.Wait()
 	}
@@ -1148,13 +1148,13 @@ func (s *stream) GetStats() Stats {
 	return s.stats
 }
 
-func (s *stream) read(r []Result) int {
+func (s *stream) read(r []Result) (int, error) {
 	n := 0
 	for s.i < len(s.blocks) {
 		block := s.blocks[s.i]
 		for s.j < len(block) {
 			if n == len(r) {
-				return n
+				return n, nil
 			}
 			r[n] = block[s.j]
 			n++
@@ -1163,7 +1163,7 @@ func (s *stream) read(r []Result) int {
 		s.i++
 		s.j = 0
 	}
-	return n
+	return n, s.err
 }
 
 func (s *stream) setErr(err error, lock bool, stats Stats) bool {

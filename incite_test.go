@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"sync"
@@ -1230,6 +1231,72 @@ func TestQueryManager_Query(t *testing.T) {
 	})
 }
 
+func TestStream_Read(t *testing.T) {
+	t.Run("Buffer is Shorter than Available Results", func(t *testing.T) {
+		actions := newMockActions(t)
+		actions.
+			On("StartQueryWithContext", anyContext, anyStartQueryInput).
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("foo")}, nil).
+			Once()
+		actions.
+			On("GetQueryResultsWithContext", anyContext, anyGetQueryResultsInput).
+			Return(&cloudwatchlogs.GetQueryResultsOutput{
+				Status: sp(cloudwatchlogs.QueryStatusComplete),
+				Results: [][]*cloudwatchlogs.ResultField{
+					{{Field: sp("@ptr"), Value: sp("1")}},
+					{{Field: sp("@ptr"), Value: sp("2")}},
+				},
+			}, nil).
+			Once()
+		m := NewQueryManager(Config{
+			Actions: actions,
+		})
+		t.Cleanup(func() {
+			//err := m.Close()
+			//assert.NoError(t, err)
+		})
+		s, err := m.Query(QuerySpec{
+			Text:   "bar",
+			Groups: []string{"baz"},
+			Start:  defaultStart,
+			End:    defaultEnd,
+		})
+		require.NotNil(t, s)
+		require.NoError(t, err)
+
+		t.Run("Read into Length Zero Buffer Succeeds with Zero Results", func(t *testing.T) {
+			var p []Result
+			n, err := s.Read(p)
+			assert.Equal(t, 0, n)
+			assert.NoError(t, err)
+		})
+
+		t.Run("Read Into Length One Buffer Succeeds with First of Two Results", func(t *testing.T) {
+			p := make([]Result, 1)
+			n, err := s.Read(p)
+			assert.Equal(t, 1, n)
+			assert.NoError(t, err)
+			assert.Equal(t, []Result{{{"@ptr", "1"}}}, p)
+		})
+
+		t.Run("Read Into Length One Buffer Succeeds with Second of Two Results and EOF", func(t *testing.T) {
+			p := make([]Result, 1)
+			n, err := s.Read(p)
+			assert.Equal(t, 1, n)
+			assert.Same(t, io.EOF, err)
+			assert.Equal(t, []Result{{{"@ptr", "2"}}}, p)
+		})
+
+		t.Run("Read Into Length One Buffer Returns EOF", func(t *testing.T) {
+			p := make([]Result, 1)
+			n, err := s.Read(p)
+			assert.Equal(t, 0, n)
+			assert.Same(t, io.EOF, err)
+			assert.Equal(t, make([]Result, 1), p)
+		})
+	})
+}
+
 func TestScenariosSerial(t *testing.T) {
 	actions := newMockActions(t)
 	m := NewQueryManager(Config{
@@ -2435,5 +2502,6 @@ var (
 	anyContext = mock.MatchedBy(func(ctx context.Context) bool {
 		return ctx != nil
 	})
-	anyStartQueryInput = mock.AnythingOfType("*cloudwatchlogs.StartQueryInput")
+	anyStartQueryInput      = mock.AnythingOfType("*cloudwatchlogs.StartQueryInput")
+	anyGetQueryResultsInput = mock.AnythingOfType("*cloudwatchlogs.GetQueryResultsInput")
 )

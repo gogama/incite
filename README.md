@@ -8,8 +8,8 @@ Incite! - CloudWatch Insights queries made (very) easy
 
 TODO list in order:
 
-1. Finish other TODO test cases in incite.go.
-2. Finish other TODO test cases in unmarshal_test.go.
+1. Finish other TODO test cases in unmarshal_test.go.
+2. Remove hint support as it overcomplicates to little benefit.
 3. Finish any other lingering TODO or FIXME.
 4. Audit the logging code to ensure we log enough worthwhile status info.
 5. Write README.
