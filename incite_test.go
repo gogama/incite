@@ -1252,8 +1252,8 @@ func TestStream_Read(t *testing.T) {
 			Actions: actions,
 		})
 		t.Cleanup(func() {
-			//err := m.Close()
-			//assert.NoError(t, err)
+			err := m.Close()
+			assert.NoError(t, err)
 		})
 		s, err := m.Query(QuerySpec{
 			Text:   "bar",
