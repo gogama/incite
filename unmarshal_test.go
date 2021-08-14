@@ -1155,23 +1155,22 @@ type strongestTypedStruct struct {
 	Text1 indirectDummyTextUnmarshaler `incite:"TaggedText"`
 	Text2 indirectDummyTextUnmarshaler
 
-	Int       int
-	Int8      int8
-	Int16     int16
-	Int32     int32
-	Int64     int64
-	Uint      uint
-	Uint8     uint8
-	Uint16    uint16
-	Uint32    uint32
-	Uint64    uint64
-	Float32   float32
-	Float64   float64
-	Bool      bool
-	String1   string `incite:"TaggedString"`
-	String2   string
-	Strings   []string
-	ByteArray []byte // TODO: I'mt not sure what to do with this.
+	Int     int
+	Int8    int8
+	Int16   int16
+	Int32   int32
+	Int64   int64
+	Uint    uint
+	Uint8   uint8
+	Uint16  uint16
+	Uint32  uint32
+	Uint64  uint64
+	Float32 float32
+	Float64 float64
+	Bool    bool
+	String1 string `incite:"TaggedString"`
+	String2 string
+	Strings []string
 }
 
 func ip(i interface{}) *interface{} {
