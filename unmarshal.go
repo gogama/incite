@@ -114,7 +114,7 @@ func Unmarshal(data []Result, v interface{}) error {
 	case reflect.Array: // v is a pointer to an array
 		n := a.Len()
 		if n >= m {
-			err := array(data, a, rv)
+			err := array(data, rv, a)
 			if err != nil {
 				return err
 			}

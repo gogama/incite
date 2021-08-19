@@ -753,13 +753,105 @@ func TestUnmarshal(t *testing.T) {
 					},
 				},
 			},
+
+			{
+				name: "[0]map[string],data:nil",
+				v:    &[0]map[string]string{},
+				w:    &[0]map[string]string{},
+			},
+			{
+				name: "[0]map[string],data:single",
+				data: single,
+				v:    &[0]map[string]string{},
+				w:    &[0]map[string]string{},
+			},
+
+			{
+				name: "[1]map[string],data:nil",
+				data: nil,
+				v: &[1]map[string]string{
+					{
+						"The map containing this key": "will be zeroed out to nil"},
+				},
+				w: &[1]map[string]string{},
+			},
+			{
+				name: "[1]map[string],data:single",
+				data: single,
+				v: &[1]map[string]string{
+					{"This map will be": "replaced with an unmarshalled map"},
+				},
+				w: &[1]map[string]string{
+					{
+						"@ptr": "foo",
+					},
+				},
+			},
+			{
+				name: "[1]map[string],data:multiple",
+				data: []Result{
+					{{"@ptr", "1"}, {"DiscoveredField", "DiscoveredValue1"}},
+					{{"@ptr", "2"}, {"DiscoveredField", "DiscoveredValue2"}},
+				},
+				v: &[1]map[string]string{},
+				w: &[1]map[string]string{
+					{
+						"@ptr":            "1",
+						"DiscoveredField": "DiscoveredValue1",
+					},
+				},
+			},
+
+			{
+				name: "[2]map[string],data:single",
+				data: single,
+				v:    &[2]map[string]string{},
+				w: &[2]map[string]string{
+					{
+						"@ptr": "foo",
+					},
+				},
+			},
+			{
+				name: "[2]map[string],data:double",
+				data: []Result{
+					{{"@ptr", "1"}, {"DiscoveredField", "DiscoveredValue1"}},
+					{{"@ptr", "2"}, {"DiscoveredField", "DiscoveredValue2"}},
+				},
+				v: &[2]map[string]string{},
+				w: &[2]map[string]string{
+					{
+						"@ptr":            "1",
+						"DiscoveredField": "DiscoveredValue1",
+					},
+					{
+						"@ptr":            "2",
+						"DiscoveredField": "DiscoveredValue2",
+					},
+				},
+			},
+			{
+				name: "[2]map[string],data:triple",
+				data: []Result{
+					{{"@ptr", "1"}, {"DiscoveredField", "DiscoveredValue1"}},
+					{{"@ptr", "2"}, {"DiscoveredField", "DiscoveredValue2"}},
+					{{"@ptr", "3"}, {"DiscoveredField", "DiscoveredValue3"}},
+				},
+				v: &[2]map[string]string{},
+				w: &[2]map[string]string{
+					{
+						"@ptr":            "1",
+						"DiscoveredField": "DiscoveredValue1",
+					},
+					{
+						"@ptr":            "2",
+						"DiscoveredField": "DiscoveredValue2",
+					},
+				},
+			},
 		}
 
-		// TODO: Data longer than input slice case.
-		// TODO: Data shorter than input slice case.
-		// TODO: Array cases.
 		// TODO: Struct cases ensuring irrelevant/untagged fields are ignored even if wrong type.
-		// TODO: Keep the []byte case or not? And should it be base64 decoding or what?
 		// TODO: Handling for "-" and "-," tags.
 
 		for _, testCase := range testCases {
@@ -771,6 +863,7 @@ func TestUnmarshal(t *testing.T) {
 			})
 		}
 	})
+
 	t.Run("Error", func(t *testing.T) {
 		testCases := []struct {
 			name string
@@ -978,6 +1071,7 @@ func TestUnmarshal(t *testing.T) {
 			// notStruct[...various...]
 			// TODO: Can't target the same ResultField twice with two different struct fields???
 			// TODO: Numeric overflow cases?
+			// TODO: Error case that triggers decodeState.wrap
 		}
 
 		for _, testCase := range testCases {
@@ -988,6 +1082,54 @@ func TestUnmarshal(t *testing.T) {
 				assert.Equal(t, testCase.err, err)
 			})
 		}
+	})
+
+	t.Run("Special", func(t *testing.T) {
+		t.Run("ShortSlice", func(t *testing.T) {
+			data := []Result{
+				{{"@ptr", "1"}, {"foo", "baz"}},
+			}
+
+			t.Run("SufficientCapacity", func(t *testing.T) {
+				// ARRANGE.
+				v := []map[string]string{
+					{"foo": "bar"},
+					{"ham": "eggs"},
+				}[0:0]
+				require.Len(t, v, 0)
+				require.Equal(t, 2, cap(v))
+
+				// ACT.
+				err := Unmarshal(data, &v)
+
+				// ASSERT.
+				assert.NoError(t, err)
+				assert.Equal(t, []map[string]string{
+					{
+						"@ptr": "1",
+						"foo":  "baz",
+					},
+				}, v)
+				assert.Equal(t, []map[string]string{{"ham": "eggs"}}, v[1:2])
+			})
+			t.Run("InsufficientCapacity", func(t *testing.T) {
+				// ARRANGE.
+				var v []map[string]string
+
+				// ACT.
+				err := Unmarshal(data, &v)
+
+				// ASSERT.
+				assert.NoError(t, err)
+				assert.Equal(t, []map[string]string{
+					{
+						"@ptr": "1",
+						"foo":  "baz",
+					},
+				}, v)
+				assert.Equal(t, 1, cap(v))
+			})
+		})
 	})
 }
 
