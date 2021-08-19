@@ -47,8 +47,8 @@ import (
 // ResultField field named in the tag. Unmarshaling of the field value
 // is done according to additional rules discussed below. If the tag is
 // "-" the field is ignored. If the field type does not ultimately
-// target a struct field unmarshalable type, an InvalidUnmarshalError is
-// returned.
+// target a struct field unmarshallable type, an InvalidUnmarshalError
+// is returned.
 //
 // • A struct field with a "json" tag receives the the value of the
 // ResultField field named in the tag using the json.Unmarshal function
@@ -62,9 +62,9 @@ import (
 // • A struct field with no "incite" or "json" tag receives the value
 // of the ResultField field sharing the same case-sensitive name as the
 // struct field, but only if the field type ultimately targets a
-// struct field unmarshablable type. Otherwise the field is ignored.
+// struct field unmarshallable type. Otherwise the field is ignored.
 //
-// The following types are considered struct field unmarshalable types:
+// The following types are considered struct field unmarshallable types:
 //
 //  bool
 //  int, int8, int16, int32, int64
@@ -74,7 +74,7 @@ import (
 //  Any map, struct, slice, or array type
 //
 // A struct field targeting interface{} or any map, struct, slice, or
-// array type is assumed to contain valid JSON and unmarshaled using
+// array type is assumed to contain valid JSON and unmarshalled using
 // json.Unmarshal. Any other field is decoded from its string
 // representation using the intuitive approach. As a special case, if
 // a CloudWatch Logs timestamp field (@timestamp or @ingestionTime) is
@@ -450,7 +450,7 @@ func decodeColToInt(s *decodeState) error {
 	if err != nil {
 		return s.wrap(err)
 	} else if reflect.Zero(valueType).OverflowInt(n) {
-		return s.wrap(overflow(reflect.ValueOf(n), valueType))
+		return s.wrap(overflow(src, valueType))
 	}
 	s.dst.Set(reflect.ValueOf(n).Convert(valueType))
 	return nil
@@ -465,7 +465,7 @@ func decodeColToUint(s *decodeState) error {
 	if err != nil {
 		return s.wrap(err)
 	} else if reflect.Zero(valueType).OverflowUint(n) {
-		return s.wrap(overflow(reflect.ValueOf(n), valueType))
+		return s.wrap(overflow(src, valueType))
 	}
 	s.dst.Set(reflect.ValueOf(n).Convert(valueType))
 	return nil
@@ -478,7 +478,7 @@ func decodeColToFloat(s *decodeState) error {
 	if err != nil {
 		return s.wrap(err)
 	} else if reflect.Zero(valueType).OverflowFloat(n) {
-		return s.wrap(overflow(reflect.ValueOf(n), valueType))
+		return s.wrap(overflow(src, valueType))
 	}
 	s.dst.Set(reflect.ValueOf(n).Convert(valueType))
 	return nil
@@ -523,13 +523,15 @@ For:
 		switch c {
 		case '\t', '\n', '\r', ' ': // Might be JSON, keep skipping whitespace to find out.
 			break
-		case '{', '[', '"', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9': // Might be JSON, try to unpack it.
+		case '{', '[', '"', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'n', 't', 'f': // Might be JSON, try to unpack it.
 			var i interface{}
 			err := json.Unmarshal([]byte(src), &i)
 			if err != nil {
 				break For
 			}
-			s.dst.Set(reflect.ValueOf(i))
+			if i != nil {
+				s.dst.Set(reflect.ValueOf(i))
+			}
 			return nil
 		default: // Definitely not JSON.
 			break For
@@ -612,6 +614,6 @@ func (e *UnmarshalResultFieldValueError) Error() string {
 		e.ResultIndex, e.FieldIndex, e.Field, e.Value, e.Cause.Error())
 }
 
-func overflow(v reflect.Value, t reflect.Type) error {
-	return fmt.Errorf("%v overflows %s", v, t)
+func overflow(v string, t reflect.Type) error {
+	return fmt.Errorf("%s overflows %s", v, t)
 }

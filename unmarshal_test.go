@@ -5,9 +5,14 @@
 package incite
 
 import (
+	"encoding/json"
+	"errors"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/stretchr/testify/require"
 
@@ -67,14 +72,14 @@ func TestUnmarshal(t *testing.T) {
 				name: "[]Result,data:multiple",
 				data: []Result{
 					{},
-					r("thomas", "gray"),
-					r("elegy", "written", "in", "a", "country", "churchyard"),
+					{{"thomas", "gray"}},
+					{{"elegy", "written"}, {"in", "a"}, {"country", "churchyard"}},
 				},
 				v: &[]Result{},
 				w: &[]Result{
 					{},
-					r("thomas", "gray"),
-					r("elegy", "written", "in", "a", "country", "churchyard"),
+					{{"thomas", "gray"}},
+					{{"elegy", "written"}, {"in", "a"}, {"country", "churchyard"}},
 				},
 			},
 
@@ -87,7 +92,7 @@ func TestUnmarshal(t *testing.T) {
 				name: "[]*Result,data:empty",
 				data: []Result{},
 				v: &[]*Result{
-					rp(r("extra", "to", "be", "removed")),
+					rp(Result{{"extra", "to"}, {"be", "removed"}}),
 				},
 				w: &[]*Result{},
 			},
@@ -188,13 +193,20 @@ func TestUnmarshal(t *testing.T) {
 			{
 				name: "[]map[interface{}],data:multiple",
 				data: []Result{
-					r(
-						"@ptr", "bar", "@message", "bar message", "@timestamp", "",
-						"DiscoveredKey", "DiscoveredStringValue", "DiscoveredKey2", "-123"),
-					r(
-						"@ptr", "baz", "@timestamp", "2021-06-19 03:59:59.936",
-						"DiscoveredKey", `{"k":"string","k2":1,"k3":["another string",null,10]}`,
-						"@message", "baz message", "DiscoveredKey2", "1.5"),
+					{
+						{"@ptr", "bar"},
+						{"@message", "bar message"},
+						{"@timestamp", ""},
+						{"DiscoveredKey", "DiscoveredStringValue"},
+						{"DiscoveredKey2", "-123"},
+					},
+					{
+						{"@ptr", "baz"},
+						{"@timestamp", "2021-06-19 03:59:59.936"},
+						{"DiscoveredKey", `{"k":"string","k2":1,"k3":["another string",null,10]}`},
+						{"@message", "baz message"},
+						{"DiscoveredKey2", "1.5"},
+					},
 				},
 				v: &[]map[string]interface{}{},
 				w: &[]map[string]interface{}{
@@ -218,6 +230,39 @@ func TestUnmarshal(t *testing.T) {
 					},
 				},
 			},
+			{
+				name: "[]map[interface{}],data:fuzzyJSON",
+				data: []Result{
+					{
+						{"Whitespace", " \t\n\r"},
+						{"WhitespacePrefixingJSONNull", "  null"},
+						{"WhitespacePrefixingJSONFalse", "\nfalse"},
+						{"WhitespacePrefixingJSONTrue", "\ntrue"},
+						{"WhitespacePrefixingJSONNumber", "\r123"},
+						{"WhitespacePrefixingJSONString", `  "string"`},
+						{"WhitespacePrefixingJSONArray", "\t\t[1,1,1]"},
+						{"WhitespacePrefixingJSONObject", ` {"ham":1,"eggs":2}`},
+						{"WhitespacePrefixingGarbage", " non-literal garbage"},
+					},
+				},
+				v: &[]map[string]interface{}{},
+				w: &[]map[string]interface{}{
+					{
+						"Whitespace":                    " \t\n\r",
+						"WhitespacePrefixingJSONNull":   nil,
+						"WhitespacePrefixingJSONFalse":  false,
+						"WhitespacePrefixingJSONTrue":   true,
+						"WhitespacePrefixingJSONNumber": 123.0,
+						"WhitespacePrefixingJSONString": "string",
+						"WhitespacePrefixingJSONArray":  []interface{}{1.0, 1.0, 1.0},
+						"WhitespacePrefixingJSONObject": map[string]interface{}{
+							"ham":  1.0,
+							"eggs": 2.0,
+						},
+						"WhitespacePrefixingGarbage": " non-literal garbage",
+					},
+				},
+			},
 
 			{
 				name: "[]map[*interface{}],data:nil",
@@ -232,7 +277,7 @@ func TestUnmarshal(t *testing.T) {
 			},
 			{
 				name: "[]map[*interface{}],data:multiple",
-				data: []Result{r("@ptr", "bar", "Discovered1Key", "Discovered1Value")},
+				data: []Result{{{"@ptr", "bar"}, {"Discovered1Key", "Discovered1Value"}}},
 				v: &[]map[string]*interface{}{
 					{
 						"Discovered1Key": ip("baz"),
@@ -259,7 +304,7 @@ func TestUnmarshal(t *testing.T) {
 			},
 			{
 				name: "[]map[*interface{}],data:single",
-				data: []Result{r("@ptr", "bar", "Discovered1Key", "Discovered1Value")},
+				data: []Result{{{"@ptr", "bar"}, {"Discovered1Key", "Discovered1Value"}}},
 				v: &[]map[string]**interface{}{
 					{
 						"Discovered1Key": ipp("baz"),
@@ -304,7 +349,7 @@ func TestUnmarshal(t *testing.T) {
 			},
 			{
 				name: "[]map[string],data:multiple",
-				data: []Result{r("@message", `["world"]`, "@ptr", "hello", "DiscoveredKey", "10")},
+				data: []Result{{{"@message", `["world"]`}, {"@ptr", "hello"}, {"DiscoveredKey", "10"}}},
 				v:    &[]map[string]string{},
 				w: &[]map[string]string{
 					{
@@ -317,10 +362,18 @@ func TestUnmarshal(t *testing.T) {
 			{
 				name: "[]map[string],data:multiple",
 				data: []Result{
-					r("@message", `["world"]`, "@ptr", "hello", "DiscoveredKey", "10"),
-					r("@log", "111100001111:/some/log", "@logStream", "fizzle-fizzle",
-						"@ingestionTime", "2021-06-19 03:59:59.936", "DiscoveredKey", "null",
-						"@ptr", "Bonjour!"),
+					{
+						{"@message", `["world"]`},
+						{"@ptr", "hello"},
+						{"DiscoveredKey", "10"},
+					},
+					{
+						{"@log", "111100001111:/some/log"},
+						{"@logStream", "fizzle-fizzle"},
+						{"@ingestionTime", "2021-06-19 03:59:59.936"},
+						{"DiscoveredKey", "null"},
+						{"@ptr", "Bonjour!"},
+					},
 				},
 				v: &[]map[string]string{},
 				w: &[]map[string]string{
@@ -352,7 +405,7 @@ func TestUnmarshal(t *testing.T) {
 			},
 			{
 				name: "[]map[*string],data:multiple",
-				data: []Result{r("@message", `["world"]`, "@ptr", "hello", "DiscoveredKey", "10")},
+				data: []Result{{{"@message", `["world"]`}, {"@ptr", "hello"}, {"DiscoveredKey", "10"}}},
 				v: &[]map[string]*string{
 					{
 						"@message": nil,
@@ -380,7 +433,7 @@ func TestUnmarshal(t *testing.T) {
 			},
 			{
 				name: "[]map[**string],data:multiple",
-				data: []Result{r("@message", `["world"]`, "@ptr", "hello", "DiscoveredKey", "10")},
+				data: []Result{{{"@message", `["world"]`}, {"@ptr", "hello"}, {"DiscoveredKey", "10"}}},
 				v: &[]map[string]**string{
 					{
 						"@ptr":     nil,
@@ -583,11 +636,14 @@ func TestUnmarshal(t *testing.T) {
 						{"@timestamp", "2021-07-17 00:28:40.123"},
 						{"@ingestionTime", "2021-07-17 00:29:01.500"},
 						{"@deleted", "true"},
+						{"AnyOfJSON", `"string"`},
 						{"ObjectOfJSON", `{"key":"value"}`},
 						{"ArrayOfJSON", `["first","second"]`},
 						{"StringOfJSON", `"str"`},
 						{"NumberOfJSON", `-99.9`},
 						{"BoolOfJSON", `true`},
+						{"TaggedJSON", `null`},
+						{"JSON2", `{"foo":123,"bar":false}`},
 						{"TaggedText", "tagged text"},
 						{"Text2", "untagged text"},
 						{"Int", "-999"},
@@ -611,6 +667,7 @@ func TestUnmarshal(t *testing.T) {
 						{"@timestamp", "2021-07-17 00:39:00.000"},
 						{"@ptr", "second row"},
 						{"@deleted", "false"},
+						{"AnyOfJSON", "[false, true]"},
 						{"ObjectOfJSON", "{}"},
 						{"Uint64", "111"},
 						{"Strings", `["a","bb","CCC"]`},
@@ -623,11 +680,14 @@ func TestUnmarshal(t *testing.T) {
 						Timestamp:     time.Date(2021, 7, 17, 0, 28, 40, 123000000, time.UTC),
 						IngestionTime: tmp(time.Date(2021, 7, 17, 0, 29, 1, 500000000, time.UTC)),
 						Deleted:       true,
+						JSONAny:       "string",
 						JSONObject:    map[string]interface{}{"key": "value"},
 						JSONArray:     []interface{}{"first", "second"},
 						JSONString:    "str",
 						JSONNumber:    -99.9,
 						JSONBool:      true,
+						JSON1:         indirectDummyJSONUnmarshaler{"null"},
+						JSON2:         indirectDummyJSONUnmarshaler{`{"foo":123,"bar":false}`},
 						Text1:         indirectDummyTextUnmarshaler{"tagged text"},
 						Text2:         indirectDummyTextUnmarshaler{"untagged text"},
 						Int:           -999,
@@ -649,6 +709,7 @@ func TestUnmarshal(t *testing.T) {
 					{
 						Ptr:        "second row",
 						Timestamp:  time.Date(2021, 7, 17, 0, 39, 0, 0, time.UTC),
+						JSONAny:    []interface{}{false, true},
 						JSONObject: map[string]interface{}{},
 						Uint64:     111,
 						Strings:    []string{"a", "bb", "CCC"},
@@ -849,10 +910,55 @@ func TestUnmarshal(t *testing.T) {
 					},
 				},
 			},
-		}
 
-		// TODO: Struct cases ensuring irrelevant/untagged fields are ignored even if wrong type.
-		// TODO: Handling for "-" and "-," tags.
+			{
+				name: "[]ignorableFieldStruct",
+				data: []Result{
+					{},
+					{
+						{"@ptr", "ignored"},
+						{"Ignore1", "ignored"},
+						{"Ignore2", "ignored"},
+						{"Ignore3", "ignored"},
+						{"Ignore4", "ignored"},
+						{"Ignore5", "ignored"},
+						{"String", "string1"},
+					},
+					{
+						{"Ignore1", "ignored"},
+					},
+					{
+						{"String", "string2"},
+					},
+				},
+				v: &[]ignorableFieldStruct{},
+				w: &[]ignorableFieldStruct{
+					{},
+					{String: "string1"},
+					{},
+					{String: "string2"},
+				},
+			},
+
+			{
+				name: "[]dashTagFieldStruct",
+				data: []Result{
+					{
+						{"", `"Assigned to JSONNamedEmpty only"`},
+						{"-", `"Assigned to JSONNamedDash only"`},
+						{"foo", `"Assigned to JSONNamedFoo only"`},
+					},
+				},
+				v: &[]dashTagFieldStruct{},
+				w: &[]dashTagFieldStruct{
+					{
+						JSONNamedEmpty: "Assigned to JSONNamedEmpty only",
+						JSONNamedDash:  "Assigned to JSONNamedDash only",
+						JSONNamedFoo:   "Assigned to JSONNamedFoo only",
+					},
+				},
+			},
+		}
 
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {
@@ -897,10 +1003,18 @@ func TestUnmarshal(t *testing.T) {
 				},
 			},
 			{
-				name: "InvalidUnmarshalError(Bad Map Key, Depth 0)",
+				name: "InvalidUnmarshalError(Bad Map Key, Depth 0, Slice)",
 				v:    &[]map[int]string{},
 				err: &InvalidUnmarshalError{
 					Type:    reflect.PtrTo(reflect.TypeOf([]map[int]string{})),
+					RowType: reflect.TypeOf(map[int]string{}),
+				},
+			},
+			{
+				name: "InvalidUnmarshalError(Bad Map Key, Depth 0, Array)",
+				v:    &[1]map[int]string{},
+				err: &InvalidUnmarshalError{
+					Type:    reflect.PtrTo(reflect.TypeOf([1]map[int]string{})),
 					RowType: reflect.TypeOf(map[int]string{}),
 				},
 			},
@@ -977,7 +1091,7 @@ func TestUnmarshal(t *testing.T) {
 				},
 			},
 			{
-				name: "Bad Slice Value, Depth 0",
+				name: "InvalidUnmarshalError(Bad Slice Value, Depth 0)",
 				v:    &[][]int{},
 				err: &InvalidUnmarshalError{
 					Type:    reflect.PtrTo(reflect.TypeOf([][]int{})),
@@ -985,7 +1099,7 @@ func TestUnmarshal(t *testing.T) {
 				},
 			},
 			{
-				name: "Bad Slice Value, Depth 1",
+				name: "InvalidUnmarshalError(Bad Slice Value, Depth 1)",
 				v:    &[]*[]int{},
 				err: &InvalidUnmarshalError{
 					Type:    reflect.PtrTo(reflect.TypeOf([]*[]int{})),
@@ -993,7 +1107,7 @@ func TestUnmarshal(t *testing.T) {
 				},
 			},
 			{
-				name: "Bad Slice Value, Depth 2",
+				name: "InvalidUnmarshalError(Bad Slice Value, Depth 2)",
 				v:    &[]**[]int{},
 				err: &InvalidUnmarshalError{
 					Type:    reflect.PtrTo(reflect.TypeOf([]**[]int{})),
@@ -1001,7 +1115,7 @@ func TestUnmarshal(t *testing.T) {
 				},
 			},
 			{
-				name: "Bad Struct Field: @timestamp",
+				name: "InvalidUnmarshalError(Bad Struct Field: @timestamp)",
 				v:    &[]badStructTimestamp{},
 				err: &InvalidUnmarshalError{
 					Type:      reflect.PtrTo(reflect.TypeOf([]badStructTimestamp{})),
@@ -1012,7 +1126,7 @@ func TestUnmarshal(t *testing.T) {
 				},
 			},
 			{
-				name: "Bad Struct Field: @ingestionTime",
+				name: "InvalidUnmarshalError(Bad Struct Field: @ingestionTime)",
 				v:    &[]badStructIngestionTime{},
 				err: &InvalidUnmarshalError{
 					Type:      reflect.PtrTo(reflect.TypeOf([]badStructIngestionTime{})),
@@ -1023,7 +1137,7 @@ func TestUnmarshal(t *testing.T) {
 				},
 			},
 			{
-				name: "Bad Struct Field: @deleted",
+				name: "InvalidUnmarshalError(Bad Struct Field: @deleted)",
 				v:    &[]badStructDeleted{},
 				err: &InvalidUnmarshalError{
 					Type:      reflect.PtrTo(reflect.TypeOf([]badStructDeleted{})),
@@ -1034,7 +1148,7 @@ func TestUnmarshal(t *testing.T) {
 				},
 			},
 			{
-				name: "Bad Struct Field: chan, Tagged",
+				name: "InvalidUnmarshalError(Bad Struct Field: chan, Tagged)",
 				v:    &[]badStructChanTagged{},
 				err: &InvalidUnmarshalError{
 					Type:      reflect.PtrTo(reflect.TypeOf([]badStructChanTagged{})),
@@ -1045,7 +1159,7 @@ func TestUnmarshal(t *testing.T) {
 				},
 			},
 			{
-				name: "Bad Struct Field: func, Tagged",
+				name: "InvalidUnmarshalError(Bad Struct Field: func, Tagged)",
 				v:    &[]badStructFuncTagged{},
 				err: &InvalidUnmarshalError{
 					Type:      reflect.PtrTo(reflect.TypeOf([]badStructFuncTagged{})),
@@ -1056,7 +1170,7 @@ func TestUnmarshal(t *testing.T) {
 				},
 			},
 			{
-				name: "Bad Struct Field: complex64, Tagged",
+				name: "InvalidUnmarshalError(Bad Struct Field: complex64, Tagged)",
 				v:    &[]badStructComplex64Tagged{},
 				err: &InvalidUnmarshalError{
 					Type:      reflect.PtrTo(reflect.TypeOf([]badStructComplex64Tagged{})),
@@ -1066,12 +1180,179 @@ func TestUnmarshal(t *testing.T) {
 					Message:   "unsupported struct field type",
 				},
 			},
-			// notPointer[...various...]
-			// notSlice[...various...]
-			// notStruct[...various...]
-			// TODO: Can't target the same ResultField twice with two different struct fields???
-			// TODO: Numeric overflow cases?
-			// TODO: Error case that triggers decodeState.wrap
+
+			{
+				name: "UnmarshalResultFieldValueError(Overflow Int8)",
+				data: []Result{
+					{{"Int8", "999"}},
+				},
+				v: &[]strongestTypedStruct{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"Int8", "999"},
+					Cause:       overflow("999", reflect.TypeOf(int8(0))),
+				},
+			},
+			{
+				name: "UnmarshalResultFieldValueError(Overflow Int16)",
+				data: []Result{
+					{{"Int16", "99999"}},
+				},
+				v: &[]strongestTypedStruct{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"Int16", "99999"},
+					Cause:       overflow("99999", reflect.TypeOf(int16(0))),
+				},
+			},
+			{
+				name: "UnmarshalResultFieldValueError(Overflow Int32)",
+				data: []Result{
+					{{"Int32", "9999999999"}},
+				},
+				v: &[]strongestTypedStruct{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"Int32", "9999999999"},
+					Cause:       overflow("9999999999", reflect.TypeOf(int32(0))),
+				},
+			},
+			{
+				name: "UnmarshalResultFieldValueError(Overflow Uint8)",
+				data: []Result{
+					{{"Uint8", "999"}},
+				},
+				v: &[]strongestTypedStruct{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"Uint8", "999"},
+					Cause:       overflow("999", reflect.TypeOf(uint8(0))),
+				},
+			},
+			{
+				name: "UnmarshalResultFieldValueError(Overflow Uint16)",
+				data: []Result{
+					{{"Uint16", "99999"}},
+				},
+				v: &[]strongestTypedStruct{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"Uint16", "99999"},
+					Cause:       overflow("99999", reflect.TypeOf(uint16(0))),
+				},
+			},
+			{
+				name: "UnmarshalResultFieldValueError(Overflow Uint32)",
+				data: []Result{
+					{{"Uint32", "9999999999"}},
+				},
+				v: &[]strongestTypedStruct{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"Uint32", "9999999999"},
+					Cause:       overflow("9999999999", reflect.TypeOf(uint32(0))),
+				},
+			},
+			{
+				name: "UnmarshalResultFieldValueError(Overflow Float32)",
+				data: []Result{
+					{{"Float32", "999999999999999999999999999999999999999"}},
+				},
+				v: &[]strongestTypedStruct{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"Float32", "999999999999999999999999999999999999999"},
+					Cause:       overflow("999999999999999999999999999999999999999", reflect.TypeOf(float32(0))),
+				},
+			},
+			{
+				name: "UnmarshalResultFieldValueError(Parse Error Int64)",
+				data: []Result{
+					{{"Int64", "1"}},
+					{{"String1", "1"}, {"String2", "2"}, {"Int64", "foo"}},
+				},
+				v: &[]strongestTypedStruct{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"Int64", "foo"},
+					Cause:       intParseError("foo"),
+					ResultIndex: 1,
+					FieldIndex:  2,
+				},
+			},
+			{
+				name: "UnmarshalResultFieldValueError(Parse Error Uint64)",
+				data: []Result{
+					{{"Uint64", "bar"}, {"String1", "1"}},
+					{{"String2", "2"}, {"Uint64", "123"}},
+				},
+				v: &[]strongestTypedStruct{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"Uint64", "bar"},
+					Cause:       uintParseError("bar"),
+				},
+			},
+			{
+				name: "UnmarshalResultFieldValueError(Parse Error Float64)",
+				data: []Result{
+					{{"Uint64", "88"}, {"String1", "1"}},
+					{{"String2", "2"}, {"Float64", "baz"}, {"Float64", "10"}},
+				},
+				v: &[]strongestTypedStruct{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"Float64", "baz"},
+					Cause:       floatParseError("baz"),
+					ResultIndex: 1,
+					FieldIndex:  1,
+				},
+			},
+			{
+				name: "UnmarshalResultFieldValueError(Parse Error Bool)",
+				data: []Result{
+					{{"Bool", "Supercalifragilisticexpialidocious"}},
+				},
+				v: &[]strongestTypedStruct{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"Bool", "Supercalifragilisticexpialidocious"},
+					Cause:       boolParseError("Supercalifragilisticexpialidocious"),
+				},
+			},
+			{
+				name: "UnmarshalResultFieldValueError(Parse Error TextUnmarshaler)",
+				data: []Result{
+					{{"TaggedText", "error:testing error path"}},
+				},
+				v: &[]strongestTypedStruct{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"TaggedText", "error:testing error path"},
+					Cause:       errors.New("testing error path"),
+				},
+			},
+			{
+				name: "UnmarshalResultFieldValueError(Parse Error JSON)",
+				data: []Result{
+					{{"AnyOfJSON", "horrible attempt at JSON"}},
+				},
+				v: &[]strongestTypedStruct{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"AnyOfJSON", "horrible attempt at JSON"},
+					Cause:       jsonParseError("horrible attempt at JSON"),
+				},
+			},
+			{
+				name: "UnmarshalResultFieldValueError(Parse Error Insights Time)",
+				data: []Result{
+					{{"@timestamp", "horrible attempt at Insights Timestamp"}},
+				},
+				v: &[]strongestTypedStruct{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"@timestamp", "horrible attempt at Insights Timestamp"},
+					Cause:       timeParseError("horrible attempt at Insights Timestamp"),
+				},
+			},
+			{
+				name: "UnmarshalResultFieldValueError(TextUnmarshaler Error)",
+				data: []Result{
+					{{"foo", "error:bar"}},
+				},
+				v: &[]map[string]indirectDummyTextUnmarshaler{},
+				err: &UnmarshalResultFieldValueError{
+					ResultField: ResultField{"foo", "error:bar"},
+					Cause:       errors.New("bar"),
+				},
+			},
 		}
 
 		for _, testCase := range testCases {
@@ -1258,6 +1539,19 @@ func TestInvalidUnmarshalError_Error(t *testing.T) {
 	}
 }
 
+func TestUnmarshalResultFieldValueError_Error(t *testing.T) {
+	err := &UnmarshalResultFieldValueError{
+		ResultField: ResultField{"badFieldName", "badValue"},
+		Cause:       errors.New("some underlying problem"),
+		ResultIndex: 8,
+		FieldIndex:  13,
+	}
+
+	s := err.Error()
+
+	assert.Equal(t, `incite: can't unmarshal field data[8][13] (name badFieldName) value "badValue": some underlying problem`, s)
+}
+
 type badStructTimestamp struct {
 	TS int `incite:"@timestamp"`
 }
@@ -1288,11 +1582,15 @@ type strongestTypedStruct struct {
 	IngestionTime *time.Time `incite:"@ingestionTime"`
 	Deleted       bool       `incite:"@deleted"`
 
+	JSONAny    interface{}            `json:"AnyOfJSON"`
 	JSONObject map[string]interface{} `json:"ObjectOfJSON"`
 	JSONArray  []interface{}          `json:"ArrayOfJSON"`
 	JSONString string                 `json:"StringOfJSON"`
 	JSONNumber float64                `json:"NumberOfJSON"`
 	JSONBool   bool                   `json:"BoolOfJSON"`
+
+	JSON1 indirectDummyJSONUnmarshaler `json:"TaggedJSON"`
+	JSON2 indirectDummyJSONUnmarshaler
 
 	Text1 indirectDummyTextUnmarshaler `incite:"TaggedText"`
 	Text2 indirectDummyTextUnmarshaler
@@ -1313,6 +1611,23 @@ type strongestTypedStruct struct {
 	String1 string `incite:"TaggedString"`
 	String2 string
 	Strings []string
+}
+
+type ignorableFieldStruct struct {
+	Ignore1 complex64
+	Ignore2 complex128
+	Ignore3 chan struct{}
+	Ignore4 func()
+	Ignore5 unsafe.Pointer
+	String  string
+}
+
+type dashTagFieldStruct struct {
+	Ignore1        string `incite:"-"`
+	Ignore2        string `json:"-"`
+	JSONNamedEmpty string `json:","`
+	JSONNamedDash  string `json:"-,"`
+	JSONNamedFoo   string `json:"foo,bar"`
 }
 
 func ip(i interface{}) *interface{} {
@@ -1351,23 +1666,24 @@ type indirectDummyTextUnmarshaler struct {
 }
 
 func (dummy *indirectDummyTextUnmarshaler) UnmarshalText(t []byte) error {
+	s := string(t)
+	if strings.HasPrefix(s, "error:") {
+		return errors.New(s[6:])
+	}
+	dummy.s = s
+	return nil
+}
+
+type indirectDummyJSONUnmarshaler struct {
+	s string
+}
+
+func (dummy *indirectDummyJSONUnmarshaler) UnmarshalJSON(t []byte) error {
 	dummy.s = string(t)
 	return nil
 }
 
-var single = []Result{r("@ptr", "foo")}
-
-func r(pairs ...string) (result Result) {
-	for i := 1; i < len(pairs); i += 2 {
-		field := pairs[i-1]
-		value := pairs[i]
-		result = append(result, ResultField{
-			Field: field,
-			Value: value,
-		})
-	}
-	return
-}
+var single = []Result{{{"@ptr", "foo"}}}
 
 func rp(r Result) *Result {
 	return &r
@@ -1376,4 +1692,35 @@ func rp(r Result) *Result {
 func rpp(r Result) **Result {
 	p := rp(r)
 	return &p
+}
+
+func intParseError(s string) (err error) {
+	_, err = strconv.ParseInt(s, 10, 64)
+	return
+}
+
+func uintParseError(s string) (err error) {
+	_, err = strconv.ParseUint(s, 10, 64)
+	return
+}
+
+func floatParseError(s string) (err error) {
+	_, err = strconv.ParseFloat(s, 64)
+	return
+}
+
+func boolParseError(s string) (err error) {
+	_, err = strconv.ParseBool(s)
+	return
+}
+
+func jsonParseError(s string) (err error) {
+	var i interface{}
+	err = json.Unmarshal([]byte(s), &i)
+	return
+}
+
+func timeParseError(s string) (err error) {
+	_, err = time.Parse(TimeLayout, s)
+	return
 }

@@ -64,7 +64,7 @@ func TestReadAll(t *testing.T) {
 
 			m.AssertExpectations(t)
 			assert.NoError(t, err)
-			assert.Equal(t, []Result{r("@ptr", "0")}, rs)
+			assert.Equal(t, []Result{{{"@ptr", "0"}}}, rs)
 		})
 
 		t.Run("NothingHappened", func(t *testing.T) {
@@ -99,7 +99,7 @@ func TestReadAll(t *testing.T) {
 			assert.NoError(t, err)
 			assert.NotEmpty(t, rs)
 			for i := range rs {
-				assert.Equal(t, r("@ptr", strconv.Itoa(i)), rs[i], "mismatch at index %d", i)
+				assert.Equal(t, Result{{"@ptr", strconv.Itoa(i)}}, rs[i], "mismatch at index %d", i)
 			}
 		})
 
@@ -117,7 +117,7 @@ func TestReadAll(t *testing.T) {
 			assert.NoError(t, err)
 			assert.NotEmpty(t, rs)
 			for i := range rs {
-				assert.Equal(t, r("@ptr", strconv.Itoa(i)), rs[i], "mismatch at index %d", i)
+				assert.Equal(t, Result{{"@ptr", strconv.Itoa(i)}}, rs[i], "mismatch at index %d", i)
 			}
 		})
 
@@ -140,9 +140,9 @@ func TestReadAll(t *testing.T) {
 			assert.NotEmpty(t, rs)
 			assert.Len(t, rs, len(expectedData1)+1)
 			for i := range expectedData1 {
-				assert.Equal(t, r("@ptr", strconv.Itoa(i)), rs[i], "mismatch at index %d", i)
+				assert.Equal(t, Result{{"@ptr", strconv.Itoa(i)}}, rs[i], "mismatch at index %d", i)
 			}
-			assert.Equal(t, r("@ptr", "0"), rs[len(expectedData1)], "mismatch at index %d", len(expectedData1))
+			assert.Equal(t, Result{{"@ptr", "0"}}, rs[len(expectedData1)], "mismatch at index %d", len(expectedData1))
 		})
 	})
 }
@@ -184,7 +184,7 @@ func fillResultSlice(expected *[]Result, lenFunc lenFunc) func(args mock.Argumen
 		buffer := args[0].([]Result)
 		*expected = make([]Result, lenFunc(len(buffer)))
 		for i := range *expected {
-			ri := r("@ptr", strconv.Itoa(i))
+			ri := Result{{"@ptr", strconv.Itoa(i)}}
 			buffer[i] = ri
 			(*expected)[i] = ri
 		}
