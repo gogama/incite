@@ -1,7 +1,7 @@
 Incite! - CloudWatch Insights queries made (very) easy
 ======================================================
 
-[![Build Status](https://travis-ci.com/gogama/incite.svg)](https://travis-ci.com/gogama/incite) [![Go Report Card](https://goreportcard.com/badge/github.com/gogama/incite)](https://goreportcard.com/report/github.com/gogama/incite) [![PkgGoDev](https://pkg.go.dev/badge/github.com/gogama/incite)](https://pkg.go.dev/github.com/gogama/incite)
+[![Build Status](https://travis-ci.org/gogama/incite.svg)](https://travis-ci.com/gogama/incite) [![Go Report Card](https://goreportcard.com/badge/github.com/gogama/incite)](https://goreportcard.com/report/github.com/gogama/incite) [![PkgGoDev](https://pkg.go.dev/badge/github.com/gogama/incite)](https://pkg.go.dev/github.com/gogama/incite)
 
 
 
