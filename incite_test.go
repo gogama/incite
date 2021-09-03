@@ -691,16 +691,15 @@ func TestQueryManager_Query(t *testing.T) {
 		causeErr := errors.New("super fatal error")
 
 		testCases := []struct {
-			name              string
-			before            QuerySpec
-			after             QuerySpec
-			startQueryOutput  *cloudwatchlogs.StartQueryOutput
-			startQueryErr     error
-			expectedN         int64
-			expectedChunkHint uint16
-			expectedGroups    []*string
-			expectedNext      time.Time
-			expectedCauseErr  error
+			name             string
+			before           QuerySpec
+			after            QuerySpec
+			startQueryOutput *cloudwatchlogs.StartQueryOutput
+			startQueryErr    error
+			expectedN        int64
+			expectedGroups   []*string
+			expectedNext     time.Time
+			expectedCauseErr error
 		}{
 			{
 				name: "Zero",
@@ -717,14 +716,12 @@ func TestQueryManager_Query(t *testing.T) {
 					Groups: []string{"bar", "Baz"},
 					Limit:  DefaultLimit,
 					Chunk:  5 * time.Minute,
-					Hint:   minHint,
 				},
-				startQueryErr:     causeErr,
-				expectedN:         1,
-				expectedChunkHint: minHint,
-				expectedGroups:    []*string{sp("bar"), sp("Baz")},
-				expectedNext:      defaultStart,
-				expectedCauseErr:  causeErr,
+				startQueryErr:    causeErr,
+				expectedN:        1,
+				expectedGroups:   []*string{sp("bar"), sp("Baz")},
+				expectedNext:     defaultStart,
+				expectedCauseErr: causeErr,
 			},
 			{
 				name: "ChunkExceedsRange",
@@ -742,14 +739,12 @@ func TestQueryManager_Query(t *testing.T) {
 					Groups: []string{"bar", "Baz"},
 					Limit:  DefaultLimit,
 					Chunk:  5 * time.Minute,
-					Hint:   minHint,
 				},
-				startQueryErr:     causeErr,
-				expectedN:         1,
-				expectedChunkHint: minHint,
-				expectedGroups:    []*string{sp("bar"), sp("Baz")},
-				expectedNext:      defaultStart,
-				expectedCauseErr:  causeErr,
+				startQueryErr:    causeErr,
+				expectedN:        1,
+				expectedGroups:   []*string{sp("bar"), sp("Baz")},
+				expectedNext:     defaultStart,
+				expectedCauseErr: causeErr,
 			},
 			{
 				name: "PartialChunk",
@@ -767,14 +762,12 @@ func TestQueryManager_Query(t *testing.T) {
 					Groups: []string{"bar", "Baz"},
 					Limit:  DefaultLimit,
 					Chunk:  4 * time.Minute,
-					Hint:   minHint,
 				},
-				startQueryErr:     causeErr,
-				expectedN:         2,
-				expectedChunkHint: minHint,
-				expectedGroups:    []*string{sp("bar"), sp("Baz")},
-				expectedNext:      defaultStart,
-				expectedCauseErr:  causeErr,
+				startQueryErr:    causeErr,
+				expectedN:        2,
+				expectedGroups:   []*string{sp("bar"), sp("Baz")},
+				expectedNext:     defaultStart,
+				expectedCauseErr: causeErr,
 			},
 			{
 				name: "MissingQueryID",
@@ -791,14 +784,12 @@ func TestQueryManager_Query(t *testing.T) {
 					Groups: []string{"eggs", "Spam"},
 					Limit:  DefaultLimit,
 					Chunk:  5 * time.Minute,
-					Hint:   minHint,
 				},
-				startQueryOutput:  &cloudwatchlogs.StartQueryOutput{},
-				expectedN:         1,
-				expectedChunkHint: minHint,
-				expectedGroups:    []*string{sp("eggs"), sp("Spam")},
-				expectedNext:      defaultStart,
-				expectedCauseErr:  errors.New(outputMissingQueryIDMsg),
+				startQueryOutput: &cloudwatchlogs.StartQueryOutput{},
+				expectedN:        1,
+				expectedGroups:   []*string{sp("eggs"), sp("Spam")},
+				expectedNext:     defaultStart,
+				expectedCauseErr: errors.New(outputMissingQueryIDMsg),
 			},
 		}
 
@@ -825,7 +816,6 @@ func TestQueryManager_Query(t *testing.T) {
 				s2 := s.(*stream)
 				assert.Equal(t, testCase.after, s2.QuerySpec)
 				assert.Equal(t, testCase.expectedN, s2.n)
-				assert.Equal(t, testCase.expectedChunkHint, s2.chunkHint)
 				assert.Equal(t, testCase.expectedGroups, s2.groups)
 				assert.Equal(t, testCase.expectedNext, s2.next)
 				r := make([]Result, 1)
@@ -1403,7 +1393,6 @@ var scenarios = []queryScenario{
 			Start:  defaultStart,
 			End:    defaultEnd,
 			Groups: []string{"/my/empty/group"},
-			Hint:   ^uint16(0),
 		},
 		chunks: []chunkPlan{
 			{
@@ -1700,7 +1689,6 @@ var scenarios = []queryScenario{
 			Groups:  []string{"/normal/log/group"},
 			Limit:   MaxLimit,
 			Preview: true,
-			Hint:    5,
 		},
 		chunks: []chunkPlan{
 			{
@@ -1788,7 +1776,6 @@ var scenarios = []queryScenario{
 			End:     defaultEnd.Add(time.Hour),
 			Groups:  []string{"/trove/of/data"},
 			Preview: true,
-			Hint:    1,
 		},
 		chunks: []chunkPlan{
 			{

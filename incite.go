@@ -155,13 +155,6 @@ type QuerySpec struct {
 	// query capacity in preference to a query whose Priority number is
 	// higher, but only within the same QueryManager.
 	Priority int
-
-	// Hint optionally indicates the rough expected size of the result
-	// set, which can help the QueryManager do a better job allocating
-	// memory needed to manage and hold query results. Leave it zero
-	// if you don't know the expected result size or aren't worried
-	// about optimizing memory consumption.
-	Hint uint16
 }
 
 // Stats contains metadata returned by CloudWatch Logs about the amount
@@ -622,7 +615,7 @@ func (m *mgr) startNextChunk() error {
 		status: cloudwatchlogs.QueryStatusScheduled,
 	}
 	if s.Preview {
-		c.ptr = make(map[string]bool, s.chunkHint)
+		c.ptr = make(map[string]bool)
 	}
 
 	r := ring.New(1)
@@ -860,11 +853,7 @@ func translateResultsNoPreview(c *chunk, results [][]*cloudwatchlogs.ResultField
 
 func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
 	// Create a slice to contain the block of results.
-	guess := len(results) - len(c.ptr)
-	if guess < int(c.stream.chunkHint) {
-		guess = min(int(c.stream.chunkHint), len(results))
-	}
-	block := make([]Result, 0, guess)
+	block := make([]Result, 0, len(results))
 	// Create a map to track which @ptr are new with this batch of results.
 	newPtr := make(map[string]bool, len(results))
 	// Collect all the results actually returned from CloudWatch Logs.
@@ -960,10 +949,6 @@ func (m *mgr) Close() (err error) {
 	return
 }
 
-const (
-	minHint = 100
-)
-
 func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 	// Validation that does not require lock.
 	q.Text = strings.TrimSpace(q.Text)
@@ -1009,25 +994,15 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 		return nil, errors.New(exceededMaxLimitMsg)
 	}
 
-	if q.Hint < minHint {
-		q.Hint = minHint
-	}
-
-	chunkHint := int64(q.Hint) / n
-	if chunkHint < minHint {
-		chunkHint = minHint
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	ss := &stream{
 		QuerySpec: q,
 
-		ctx:       ctx,
-		cancel:    cancel,
-		n:         n,
-		chunkHint: uint16(chunkHint),
-		groups:    groups,
+		ctx:    ctx,
+		cancel: cancel,
+		n:      n,
+		groups: groups,
 
 		next: q.Start,
 	}
@@ -1097,11 +1072,10 @@ type stream struct {
 	QuerySpec
 
 	// Immutable fields.
-	ctx       context.Context    // Stream context used to parent chunk contexts
-	cancel    context.CancelFunc // Cancels ctx when the stream is closed
-	n         int64              // Number of total chunks
-	chunkHint uint16             // Hint divided by number of chunks
-	groups    []*string          // Preprocessed slice for StartQuery
+	ctx    context.Context    // Stream context used to parent chunk contexts
+	cancel context.CancelFunc // Cancels ctx when the stream is closed
+	n      int64              // Number of total chunks
+	groups []*string          // Preprocessed slice for StartQuery
 
 	// Mutable fields controlled by mgr using mgr's lock.
 	next time.Time // Next chunk start time
@@ -1187,13 +1161,6 @@ func (s *stream) alive() bool {
 	defer s.lock.RUnlock()
 
 	return s.err == nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // A chunk represents a single active CloudWatch Logs Insights query
