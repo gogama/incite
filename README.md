@@ -8,9 +8,8 @@ Incite! - CloudWatch Insights queries made (very) easy
 
 TODO list in order:
 
-1. Audit the logging code to ensure we log enough worthwhile status info.
-2. To behave like encoding/json, make Unmarshal keep trying after encountering error. 
-3. Write README.
+1. To behave like encoding/json, make Unmarshal keep trying after encountering error. 
+2. Write README.
 
 
 

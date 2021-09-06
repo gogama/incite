@@ -470,8 +470,9 @@ func TestNewQueryManager(t *testing.T) {
 
 		t.Run("Custom Logger", func(t *testing.T) {
 			logger := newMockLogger(t)
-			logger.ExpectPrintf("incite: QueryManager (%p) start").Maybe()
-			logger.ExpectPrintf("incite: QueryManager (%p) stop").Maybe()
+			logger.ExpectPrintf("incite: QueryManager(%p) started").Maybe()
+			logger.ExpectPrintf("incite: QueryManager(%p) stopping...").Maybe()
+			logger.ExpectPrintf("incite: QueryManager(%p) stopped").Maybe()
 			m := NewQueryManager(Config{
 				Actions: actions,
 				Logger:  logger,
@@ -531,6 +532,48 @@ func TestQueryManager_Close(t *testing.T) {
 		actions.
 			On("StopQueryWithContext", anyContext, mock.Anything).
 			Return(&cloudwatchlogs.StopQueryOutput{Success: &stopped}, nil)
+		m := NewQueryManager(Config{
+			Actions: actions,
+		})
+		q := QuerySpec{
+			Text:   "qt",
+			Groups: []string{"qg"},
+			Start:  defaultStart,
+			End:    defaultEnd,
+		}
+		s1, err := m.Query(q)
+		require.NotNil(t, s1)
+		require.NoError(t, err)
+		s2, err := m.Query(q)
+		require.NotNil(t, s2)
+		require.NoError(t, err)
+
+		// ACT.
+		err = m.Close()
+
+		// ASSERT.
+		assert.NoError(t, err)
+		n1, err := s1.Read(make([]Result, 1))
+		assert.Equal(t, 0, n1)
+		assert.Same(t, ErrClosed, err)
+		n2, err := s2.Read(make([]Result, 1))
+		assert.Equal(t, 0, n2)
+		assert.Same(t, ErrClosed, err)
+	})
+
+	t.Run("Close Resilient to Failure to Cancel Query", func(t *testing.T) {
+		actions := newMockActions(t)
+		actions.
+			On("StartQueryWithContext", anyContext, anyStartQueryInput).
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("qid")}, nil)
+		actions.
+			On("GetQueryResultsWithContext", anyContext, mock.Anything).
+			Return(&cloudwatchlogs.GetQueryResultsOutput{
+				Status: sp(cloudwatchlogs.QueryStatusRunning),
+			}, nil)
+		actions.
+			On("StopQueryWithContext", anyContext, mock.Anything).
+			Return(nil, errors.New("bad error makes you fail"))
 		m := NewQueryManager(Config{
 			Actions: actions,
 		})

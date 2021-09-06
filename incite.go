@@ -447,7 +447,7 @@ func NewQueryManager(cfg Config) QueryManager {
 func (m *mgr) loop() {
 	defer m.shutdown()
 
-	m.Logger.Printf("incite: QueryManager (%p) start", m)
+	m.Logger.Printf("incite: QueryManager(%p) started", m)
 
 	for {
 		// Start as many next chunks as we have capacity for. We
@@ -479,6 +479,9 @@ func (m *mgr) loop() {
 }
 
 func (m *mgr) shutdown() {
+	// Log start of shutdown process.
+	m.Logger.Printf("incite: QueryManager(%p) stopping...", m)
+
 	// On a best effort basis, close all open chunks.
 	m.chunks.Do(func(i interface{}) {
 		if i != nil {
@@ -497,7 +500,7 @@ func (m *mgr) shutdown() {
 	close(m.query)
 
 	// Log a final stop event.
-	m.Logger.Printf("incite: QueryManager (%p) stop", m)
+	m.Logger.Printf("incite: QueryManager(%p) stopped", m)
 }
 
 func (m *mgr) setTimer(d time.Duration) bool {
@@ -582,13 +585,11 @@ func (m *mgr) startNextChunk() error {
 	if err != nil {
 		if isTemporary(err) {
 			heap.Push(&m.pq, s)
-			m.Logger.Printf("incite: QueryManager(%p) temporary failure to start chunk %q [%s..%s): %s",
-				m, s.Text, next, end, err.Error())
+			m.logChunk("temporary failure to start", err.Error(), s.Text, next, end)
 		} else {
 			err = &StartQueryError{s.Text, next, end, err}
 			s.setErr(err, true, Stats{})
-			m.Logger.Printf("incite: QueryManager(%p) permanent failure to start %q [%s..%s) due to fatal error from CloudWatch Logs: %s",
-				m, s.Text, next, end, err.Error())
+			m.logChunk("permanent failure to start", "fatal error from CloudWatch Logs: "+err.Error(), s.Text, next, end)
 		}
 		return err
 	}
@@ -597,7 +598,7 @@ func (m *mgr) startNextChunk() error {
 	if queryID == nil {
 		err = &StartQueryError{s.Text, next, end, errors.New(outputMissingQueryIDMsg)}
 		s.setErr(err, true, Stats{})
-		m.Logger.Printf("incite: QueryManager(%p) nil query ID from CloudWatch Logs for %q [%s..%s)", m, s.Text, next, end)
+		m.logChunk("nil query ID from CloudWatch Logs for", "", s.Text, next, end)
 		return err
 	}
 
@@ -613,6 +614,8 @@ func (m *mgr) startNextChunk() error {
 		ctx:    context.WithValue(s.ctx, queryIDKey, output.QueryId),
 		id:     *queryID,
 		status: cloudwatchlogs.QueryStatusScheduled,
+		start:  next,
+		end:    end,
 	}
 	if s.Preview {
 		c.ptr = make(map[string]bool)
@@ -622,6 +625,7 @@ func (m *mgr) startNextChunk() error {
 	r.Value = c
 	m.chunks.Prev().Link(r)
 	m.numChunks++
+	m.logChunk("started", "", s.Text, next, end)
 
 	return nil
 }
@@ -750,19 +754,28 @@ func (m *mgr) cancelChunk(c *chunk, err error) {
 		m.ding = true
 	}
 
-	_, _ = m.Actions.StopQueryWithContext(context.Background(), &cloudwatchlogs.StopQueryInput{
+	output, err := m.Actions.StopQueryWithContext(context.Background(), &cloudwatchlogs.StopQueryInput{
 		QueryId: &c.id,
 	})
 	m.lastReq[StopQuery] = time.Now()
+	if err != nil {
+		m.logChunk("failed to cancel", "error from CloudWatch Logs: "+err.Error(), c.stream.Text, c.start, c.end)
+	} else if output.Success == nil || !*output.Success {
+		m.logChunk("failed to cancel", "CloudWatch Logs did not indicate success", c.stream.Text, c.start, c.end)
+	} else {
+		m.logChunk("cancelled", "", c.stream.Text, c.start, c.end)
+	}
 }
 
 func (m *mgr) cancelChunkMaybe(c *chunk, err error) {
 	if err == io.EOF {
+		m.logChunk("finished", "", c.stream.Text, c.start, c.end)
 		return
 	}
 	if terminalErr, ok := err.(*TerminalQueryStatusError); ok {
 		switch terminalErr.Status {
 		case cloudwatchlogs.QueryStatusFailed, cloudwatchlogs.QueryStatusCancelled, "Timeout":
+			m.logChunk("unexpected terminal status", terminalErr.Status, c.stream.Text, c.start, c.end)
 			return
 		}
 	}
@@ -785,6 +798,14 @@ func (m *mgr) waitForWork() int {
 	case <-m.timer.C:
 		m.ding = true
 		return 0
+	}
+}
+
+func (m *mgr) logChunk(msg, detail, text string, start, end time.Time) {
+	if detail == "" {
+		m.Logger.Printf("incite: QueryManager(%p) %s chunk %q [%s..%s)", m, msg, text, start, end)
+	} else {
+		m.Logger.Printf("incite: QueryManager(%p) %s chunk %q [%s..%s): %s", m, msg, text, start, end, detail)
 	}
 }
 
@@ -1175,6 +1196,8 @@ type chunk struct {
 	id     string          // Insights query ID
 	status string          // Insights query status
 	ptr    map[string]bool // Set of already viewed @ptr, nil if QuerySpec not previewable
+	start  time.Time       // Start of the chunk's time range (inclusive)
+	end    time.Time       // End of the chunk's time range (exclusive)
 }
 
 var (
