@@ -85,8 +85,12 @@ import (
 // target a bool or string field.
 //
 // If a target type rule is violated, Unmarshal returns
-// InvalidUnmarshalError. If a result field value cannot be decoded,
-// Unmarshal stops unmarshaling and returns UnmarshalResultFieldValueError.
+// InvalidUnmarshalError.
+//
+// If a result field value cannot be decoded, Unmarshal continues
+// decoding the remaining input data on a best effort basis, and after
+// processing all the data, returns an UnmarshalResultFieldValueError
+// describing the first such decoding problem encountered.
 //
 // The value pointed to by v may have changed even if Unmarshal returns
 // an error.
@@ -148,12 +152,9 @@ func array(data []Result, rv, a reflect.Value) error {
 		s.i = i
 		s.j = -1
 		s.dst = fill(a.Index(i), depth)
-		err = f(&s)
-		if err != nil {
-			return err
-		}
+		_ = f(&s)
 	}
-	return nil
+	return s.err
 }
 
 // dig finds and returns the ultimate non-pointer value type at the end
@@ -201,6 +202,7 @@ type decodeState struct {
 	data []Result      // Source slice of results
 	i, j int           // Row and column currently being decoded
 	dst  reflect.Value // Current destination value
+	err  error         // First result field decode error
 }
 
 func (s *decodeState) col() *ResultField {
@@ -208,12 +210,16 @@ func (s *decodeState) col() *ResultField {
 }
 
 func (s *decodeState) wrap(cause error) error {
-	return &UnmarshalResultFieldValueError{
+	err := &UnmarshalResultFieldValueError{
 		ResultField: *s.col(),
 		Cause:       cause,
 		ResultIndex: s.i,
 		FieldIndex:  s.j,
 	}
+	if s.err == nil {
+		s.err = err
+	}
+	return err
 }
 
 type selectFunc func(reflect.Type) (decodeFunc, error)
@@ -272,10 +278,9 @@ func (s *decodeState) selMapRowDecodeFunc(mapRowType reflect.Type) (decodeFunc, 
 			x := reflect.New(immediateType).Elem()
 			s.dst = fill(x, depth)
 			err := f(s)
-			if err != nil {
-				return err
+			if err == nil {
+				m.SetMapIndex(reflect.ValueOf(s.col().Field), x)
 			}
-			m.SetMapIndex(reflect.ValueOf(s.col().Field), x)
 		}
 		dst.Set(m)
 		s.dst = dst
@@ -313,10 +318,7 @@ func (s *decodeState) selStructRowDecodeFunc(structRowType reflect.Type) (decode
 			col := s.col()
 			if df, ok := dfs[col.Field]; ok {
 				s.dst = fill(dst.Field(df.fieldIndex), df.depth)
-				err := df.decodeFunc(s)
-				if err != nil {
-					return err
-				}
+				_ = df.decodeFunc(s)
 			}
 		}
 		return nil

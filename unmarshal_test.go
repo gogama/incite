@@ -1361,6 +1361,11 @@ func TestUnmarshal(t *testing.T) {
 
 				assert.Error(t, err)
 				assert.Equal(t, testCase.err, err)
+
+				if _, ok := testCase.err.(*UnmarshalResultFieldValueError); ok {
+					v := reflect.ValueOf(testCase.v).Elem()
+					assert.Equal(t, len(testCase.data), v.Len())
+				}
 			})
 		}
 	})
@@ -1393,6 +1398,7 @@ func TestUnmarshal(t *testing.T) {
 				}, v)
 				assert.Equal(t, []map[string]string{{"ham": "eggs"}}, v[1:2])
 			})
+
 			t.Run("InsufficientCapacity", func(t *testing.T) {
 				// ARRANGE.
 				var v []map[string]string
@@ -1409,6 +1415,51 @@ func TestUnmarshal(t *testing.T) {
 					},
 				}, v)
 				assert.Equal(t, 1, cap(v))
+			})
+		})
+
+		t.Run("BestEffort", func(t *testing.T) {
+			data := []Result{
+				{{"@deleted", "foo"}, {"String2", "value"}, {"TaggedText", "error:boom"}},
+				{{"@deleted", "true"}},
+			}
+
+			t.Run("Map", func(t *testing.T) {
+				// ARRANGE.
+				var v []map[string]indirectDummyTextUnmarshaler
+
+				// ACT.
+				err := Unmarshal(data, &v)
+
+				// ASSERT.
+				assert.Equal(t, &UnmarshalResultFieldValueError{
+					ResultField: data[0][2],
+					Cause:       errors.New("boom"),
+					ResultIndex: 0,
+					FieldIndex:  2,
+				}, err)
+				assert.Equal(t, []map[string]indirectDummyTextUnmarshaler{
+					{"@deleted": indirectDummyTextUnmarshaler{"foo"}, "String2": indirectDummyTextUnmarshaler{"value"}},
+					{"@deleted": indirectDummyTextUnmarshaler{"true"}},
+				}, v)
+			})
+
+			t.Run("Struct", func(t *testing.T) {
+				// ARRANGE.
+				var v []strongestTypedStruct
+
+				// ACT.
+				err := Unmarshal(data, &v)
+
+				// ASSERT.
+				assert.Equal(t, &UnmarshalResultFieldValueError{
+					ResultField: data[0][0],
+					Cause:       boolParseError("foo"),
+				}, err)
+				assert.Equal(t, []strongestTypedStruct{
+					{String2: "value"},
+					{Deleted: true},
+				}, v)
 			})
 		})
 	})
