@@ -816,6 +816,37 @@ func TestUnmarshal(t *testing.T) {
 			},
 
 			{
+				name: "[]*specialFieldStringStruct,data:nil",
+				v:    &[]*specialFieldStringStruct{},
+				w:    &[]*specialFieldStringStruct{},
+			},
+			{
+				name: "[]*specialFieldStringStruct{},data:empty",
+				data: []Result{},
+				v:    &[]*specialFieldStringStruct{},
+				w:    &[]*specialFieldStringStruct{},
+			},
+			{
+				name: "[]*specialFieldStringStruct{},data:single",
+				data: single,
+				v:    &[]*specialFieldStringStruct{},
+				w:    &[]*specialFieldStringStruct{{}},
+			},
+			{
+				name: "[]*specialFieldStringStruct{},data:multiple",
+				data: []Result{
+					{{"@deleted", "false"}, {"@timestamp", "foo"}},
+					{{"@deleted", "true"}, {"@ingestionTime", "bar"}},
+					{{"@deleted", "wacky"}, {"@ingestionTime", "2006-01-02 15:04:05.000"}},
+				},
+				v: &[]*specialFieldStringStruct{},
+				w: &[]*specialFieldStringStruct{
+					{Deleted: "false", Timestamp: "foo"},
+					{Deleted: "true", IngestionTime: sp("bar")},
+					{Deleted: "wacky", IngestionTime: sp("2006-01-02 15:04:05.000")},
+				},
+			},
+			{
 				name: "[0]map[string],data:nil",
 				v:    &[0]map[string]string{},
 				w:    &[0]map[string]string{},
@@ -1679,6 +1710,12 @@ type dashTagFieldStruct struct {
 	JSONNamedEmpty string `json:","`
 	JSONNamedDash  string `json:"-,"`
 	JSONNamedFoo   string `json:"foo,bar"`
+}
+
+type specialFieldStringStruct struct {
+	Deleted       string  `incite:"@deleted"`
+	Timestamp     string  `incite:"@timestamp"`
+	IngestionTime *string `incite:"@ingestionTime"`
 }
 
 func ip(i interface{}) *interface{} {
