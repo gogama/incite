@@ -24,7 +24,7 @@ import (
 type QuerySpec struct {
 	// Text contains the actual text of the CloudWatch Insights query.
 	//
-	// Text may not contain an empty or blank string. Beyond checking
+	// Text must not contain an empty or blank string. Beyond checking
 	// for blank text, Incite does not attempt to parse Text and simply
 	// forwards it to the CloudWatch Logs service. Care must be taken to
 	// specify query text compatible with the Chunk and Preview fields
@@ -103,7 +103,8 @@ type QuerySpec struct {
 	// • If Text contains a stats command, the statistical aggregation
 	// will be applied to each chunk in a chunked query, meaning up to n
 	// versions of each aggregate data point may be returned, one per
-	// chunk, necessitating further aggregation on the client side.
+	// chunk, necessitating further aggregation in your application
+	// logic.
 	//
 	// • In general if you use chunking with query text which implies
 	// any kind of server-side aggregation, you may need to perform
@@ -143,9 +144,10 @@ type QuerySpec struct {
 
 	// Priority optionally allows a query operation to be given a higher
 	// or lower priority with regard to other query operations managed
-	// by the same QueryManager. This can help the QueryManager manage
-	// finite resources to stay within CloudWatch Logs service quota
-	// limits.
+	// by the same QueryManager. This allows your application to ensure
+	// its higher priority work runs before lower priority work,
+	// making the most efficient work of finite CloudWatch Logs service
+	// resources.
 	//
 	// A lower number indicates a higher priority. The default zero
 	// value is appropriate for many cases.
@@ -194,7 +196,7 @@ type StatsGetter interface {
 //
 // QueryManager's job is to hide the complexity of the CloudWatch Logs
 // Insights API, taking care of mundane details such as starting and
-// polling jobs in the CloudWatch Logs Insights service, breaking
+// polling Insights query jobs in the CloudWatch Logs service, breaking
 // queries into smaller time chunks (if desired), de-duplicating and
 // providing preview results (if desired), retrying transient request
 // failures, and managing resources to try to stay within the
@@ -202,7 +204,7 @@ type StatsGetter interface {
 //
 // Use NewQueryManager to create a QueryManager, and be sure to close it
 // when you no longer need its services, since every QueryManager
-// consumes some compute resources just by existing.
+// consumes a tiny amount of system resources just by existing.
 //
 // Calling the Query method will return a result Stream from which the
 // query results can be read as they become available. Use the
@@ -210,11 +212,12 @@ type StatsGetter interface {
 // structured types.
 //
 // Calling the Close method will immediately cancel all running queries
-// started with the Query, as if the query's Stream had been explicitly
-// closed.
+// started with the QueryManager, as if each query's Stream had been
+// explicitly closed.
 //
-// Calling GetStats will return the running sum of all statistics for
-// all queries run within the QueryManager since it was created.
+// Calling the GetStats method will return the running sum of all
+// statistics for all queries run within the QueryManager since it was
+// created.
 type QueryManager interface {
 	io.Closer
 	StatsGetter
@@ -258,8 +261,8 @@ type Stream interface {
 	// Read reads up to len(p) CloudWatch Logs Insights results into p.
 	// It returns the number of results read (0 <= n <= len(p)) and any
 	// error encountered. Even if Read returns n < len(p), it may use
-	// all of p as scratch space during the call. If some data are
-	// available but fewer than len(p) results, Read conventionally
+	// all of p as scratch space during the call. If some, but fewer
+	// than len(p), results are available, Read conventionally
 	// returns what is available instead of waiting for more.
 	//
 	// When Read encounters an error or end-of-file condition after

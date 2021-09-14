@@ -19,7 +19,7 @@ import (
 func ExampleQuery() {
 	s := session.Must(session.NewSession())
 	a := cloudwatchlogs.New(s)
-	end := time.Now()
+	end := time.Now().Truncate(time.Second)
 	data, err := incite.Query(context.Background(), a, incite.QuerySpec{
 		Text:   "fields @timestamp, @message | filter @message =~ /foo/ | sort @timestamp desc",
 		Start:  end.Add(-15 * time.Minute),
@@ -30,6 +30,34 @@ func ExampleQuery() {
 	if err != nil {
 		fmt.Println("ERROR", err)
 		return
+	}
+	fmt.Println("RESULTS", data)
+}
+
+func ExampleQueryManager() {
+	s := session.Must(session.NewSession())
+	a := cloudwatchlogs.New(s)
+	m := incite.NewQueryManager(incite.Config{
+		Actions: a,
+	})
+	defer func() {
+		_ = m.Close()
+	}()
+	end := time.Now().Truncate(time.Second)
+	str, err := m.Query(incite.QuerySpec{
+		Text:   "fields @timestamp, @message | filter @message =~ /foo/ | sort @timestamp desc",
+		Start:  end.Add(-15 * time.Minute),
+		End:    end,
+		Groups: []string{"/my/log/group"},
+		Limit:  100,
+	})
+	if err != nil {
+		fmt.Println("ERROR", err)
+		return
+	}
+	data, err := incite.ReadAll(str)
+	if err != nil {
+		fmt.Println("ERROR", err)
 	}
 	fmt.Println("RESULTS", data)
 }

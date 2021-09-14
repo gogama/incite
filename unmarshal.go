@@ -26,19 +26,19 @@ import (
 // The element type of the array or slice must target a map type, struct
 // type, or one of two special cases. The two special cases allow array
 // or slice elements of type interface{} and Result. If the element type
-// targets a map, the maps keys must be strings and its value type must
+// targets a map, the map's keys must be strings and its value type must
 // target a string type, interface{}, or any type that implements
 // encoding.TextUnmarshaler.
 //
 // To unmarshal data into an array or slice of maps, Unmarshal uses
 // the ResultField name as the map key and the ResultField value as its
 // value. If the map value targets an encoding.TextUnmarshaler, the
-// value's UnmarshalText method is used to unmarshal the value. If the
-// map value targets a string type, the ResultField's value is directly
-// inserted as the field value in the map. As a special case, if the
-// map value targets interface{}, Unmarshal first tries to unmarshal
-// the field value as JSON using json.Unmarshal, and falls back to the
-// plain string value if JSON unmarshaling fails.
+// value's UnmarshalText method is used to unmarshal the ResultField
+// value. If the map value targets a string type, the ResultField's
+// value is directly inserted as the field value in the map. As a
+// special case, if the map value targets interface{}, Unmarshal first
+// tries to unmarshal the ResultField value as JSON using json.Unmarshal,
+// and falls back to the plain string value if JSON unmarshaling fails.
 //
 // To unmarshal data into a struct type, Unmarshal uses the following
 // top-level rules:
@@ -52,9 +52,9 @@ import (
 //
 // • A struct field with a "json" tag receives the the value of the
 // ResultField field named in the tag using the json.Unmarshal function
-// with the ResultField value as the input JSON and the struct field
-// address as the target. If the tag is "-" the field is ignored. The
-// field type is not checked for validity.
+// from the encoding/json package with the ResultField value as the
+// input JSON and the struct field address as the target. If the tag is
+// "-" the field is ignored. The field type is not checked for validity.
 //
 // • An "incite" tag takes precedence over a "json" tag so there is no
 // point using both tags on the same struct field.

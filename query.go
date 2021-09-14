@@ -13,7 +13,9 @@ import "context"
 // query results (or the error if the query failed).
 //
 // The context ctx controls the lifetime of the query. If ctx expires or
-// is cancelled, the query is cancelled and an error is returned.
+// is cancelled, the query is cancelled and an error is returned. If
+// you don't need the ability to set a timeout or cancel the request,
+// use context.Background().
 //
 // Unlike NewQueryManager, which defaults to DefaultParallel, Query uses
 // a parallelism factor of 1. This means that if q represents a chunked
