@@ -9,7 +9,8 @@ package incite
 //
 // Logger is compatible with *log.Logger. Therefore you may, for
 // example, set log.DefaultLogger(), or any other *log.Logger, as the
-// logger field when constructing
+// logger field when constructing a new QueryManager using the
+// NewQueryManager function.
 type Logger interface {
 	// Printf sends a line of output to the logger. Arguments are
 	// handled in the manner of fmt.Printf. If the formatted string
