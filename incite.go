@@ -19,8 +19,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 )
 
-// QuerySpec specifies the parameter for a query operation either using
-// the global Query function or a QueryManager.
+// QuerySpec specifies the parameters for a query operation either
+// using the global Query function or a QueryManager's Query method.
 type QuerySpec struct {
 	// Text contains the actual text of the CloudWatch Insights query.
 	//

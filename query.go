@@ -17,9 +17,10 @@ import "context"
 // you don't need the ability to set a timeout or cancel the request,
 // use context.Background().
 //
-// Unlike NewQueryManager, which defaults to DefaultParallel, Query uses
-// a parallelism factor of 1. This means that if q represents a chunked
-// query, then the chunks will be run serially.
+// Unlike NewQueryManager, supports a configurable level of parallel
+// query execution, Query uses a parallelism factor of 1. This means
+// that if q represents a chunked query, then the chunks will be run
+// serially, in ascending order of time.
 //
 // This function is intended for quick prototyping and simple scripting
 // and command-line interface use cases. More complex applications,
