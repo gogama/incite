@@ -7,7 +7,6 @@ go:
   - 1.16.x
   - 1.17.x
 env:
-  - GO111MODULE=off
   - GO111MODULE=on
 script:
   - '[ "$TRAVIS_OS_NAME" == "windows" ] || [ -z "$(gofmt -l .)" ]'
