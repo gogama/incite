@@ -16,13 +16,10 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
-
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
-	"github.com/stretchr/testify/mock"
-
-	"github.com/stretchr/testify/require"
-
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewQueryManager(t *testing.T) {
@@ -446,6 +443,20 @@ func TestNewQueryManager(t *testing.T) {
 					},
 					minDelay: minDelay,
 				},
+				{
+					name: "Name",
+					before: Config{
+						Actions: actions,
+						Name:    "foo",
+					},
+					after: Config{
+						Actions:  actions,
+						Parallel: DefaultParallel,
+						Logger:   NopLogger,
+						Name:     "foo",
+					},
+					minDelay: minDelay,
+				},
 			}
 
 			for _, testCase := range testCases {
@@ -459,6 +470,10 @@ func TestNewQueryManager(t *testing.T) {
 
 					require.IsType(t, &mgr{}, m)
 					m2 := m.(*mgr)
+					if testCase.before.Name == "" {
+						assert.Equal(t, fmt.Sprintf("%p", m2), m2.Name)
+						testCase.after.Name = m2.Name
+					}
 					assert.Equal(t, testCase.after, m2.Config)
 					assert.Equal(t, testCase.minDelay, m2.minDelay)
 					assert.NotNil(t, m2.timer)
@@ -470,9 +485,9 @@ func TestNewQueryManager(t *testing.T) {
 
 		t.Run("Custom Logger", func(t *testing.T) {
 			logger := newMockLogger(t)
-			logger.ExpectPrintf("incite: QueryManager(%p) started").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%p) stopping...").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%p) stopped").Maybe()
+			logger.ExpectPrintf("incite: QueryManager(%s) started").Maybe()
+			logger.ExpectPrintf("incite: QueryManager(%s) stopping...").Maybe()
+			logger.ExpectPrintf("incite: QueryManager(%s) stopped").Maybe()
 			m := NewQueryManager(Config{
 				Actions: actions,
 				Logger:  logger,

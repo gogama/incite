@@ -9,6 +9,7 @@ import (
 	"container/ring"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -406,6 +407,14 @@ type Config struct {
 	// QueryManager can send log messages about queries it is managing.
 	// This value may be left nil to skip logging altogether.
 	Logger Logger
+
+	// Name optionally gives the new QueryManager a friendly name, which
+	// will be included in log messages which the QueryManager emits to
+	// the Logger.
+	//
+	// Other than being used in logging, this field has no effect on the
+	// QueryManager's behavior.
+	Name string
 }
 
 // NewQueryManager returns a new query manager with the given
@@ -442,6 +451,10 @@ func NewQueryManager(cfg Config) QueryManager {
 		query: make(chan *stream),
 	}
 
+	if m.Name == "" {
+		m.Name = fmt.Sprintf("%p", m)
+	}
+
 	go m.loop()
 
 	return m
@@ -450,7 +463,7 @@ func NewQueryManager(cfg Config) QueryManager {
 func (m *mgr) loop() {
 	defer m.shutdown()
 
-	m.Logger.Printf("incite: QueryManager(%p) started", m)
+	m.Logger.Printf("incite: QueryManager(%s) started", m.Name)
 
 	for {
 		// Start as many next chunks as we have capacity for. We
@@ -483,7 +496,7 @@ func (m *mgr) loop() {
 
 func (m *mgr) shutdown() {
 	// Log start of shutdown process.
-	m.Logger.Printf("incite: QueryManager(%p) stopping...", m)
+	m.Logger.Printf("incite: QueryManager(%s) stopping...", m.Name)
 
 	// On a best effort basis, close all open chunks.
 	m.chunks.Do(func(i interface{}) {
@@ -503,7 +516,7 @@ func (m *mgr) shutdown() {
 	close(m.query)
 
 	// Log a final stop event.
-	m.Logger.Printf("incite: QueryManager(%p) stopped", m)
+	m.Logger.Printf("incite: QueryManager(%s) stopped", m.Name)
 }
 
 func (m *mgr) setTimer(d time.Duration) bool {
@@ -806,9 +819,9 @@ func (m *mgr) waitForWork() int {
 
 func (m *mgr) logChunk(msg, detail, text string, start, end time.Time) {
 	if detail == "" {
-		m.Logger.Printf("incite: QueryManager(%p) %s chunk %q [%s..%s)", m, msg, text, start, end)
+		m.Logger.Printf("incite: QueryManager(%s) %s chunk %q [%s..%s)", m.Name, msg, text, start, end)
 	} else {
-		m.Logger.Printf("incite: QueryManager(%p) %s chunk %q [%s..%s): %s", m, msg, text, start, end, detail)
+		m.Logger.Printf("incite: QueryManager(%s) %s chunk %q [%s..%s): %s", m.Name, msg, text, start, end, detail)
 	}
 }
 
