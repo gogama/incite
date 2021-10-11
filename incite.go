@@ -1114,7 +1114,7 @@ type stream struct {
 	n      int64              // Number of total chunks
 	groups []*string          // Preprocessed slice for StartQuery
 
-	// Mutable fields controlled by mgr using mgr's lock.
+	// Mutable fields only read/written by mgr loop goroutine.
 	next time.Time // Next chunk start time
 
 	// Lock controlling access to the below mutable fields.
