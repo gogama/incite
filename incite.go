@@ -601,11 +601,11 @@ func (m *mgr) startNextChunk() error {
 	if err != nil {
 		if isTemporary(err) {
 			heap.Push(&m.pq, s)
-			m.logChunk("temporary failure to start", err.Error(), s.Text, next, end)
+			m.logChunk("", "temporary failure to start", err.Error(), s.Text, next, end)
 		} else {
 			err = &StartQueryError{s.Text, next, end, err}
 			s.setErr(err, true, Stats{})
-			m.logChunk("permanent failure to start", "fatal error from CloudWatch Logs: "+err.Error(), s.Text, next, end)
+			m.logChunk("", "permanent failure to start", "fatal error from CloudWatch Logs: "+err.Error(), s.Text, next, end)
 		}
 		return err
 	}
@@ -614,7 +614,7 @@ func (m *mgr) startNextChunk() error {
 	if queryID == nil {
 		err = &StartQueryError{s.Text, next, end, errors.New(outputMissingQueryIDMsg)}
 		s.setErr(err, true, Stats{})
-		m.logChunk("nil query ID from CloudWatch Logs for", "", s.Text, next, end)
+		m.logChunk("", "nil query ID from CloudWatch Logs for", "", s.Text, next, end)
 		return err
 	}
 
@@ -641,7 +641,7 @@ func (m *mgr) startNextChunk() error {
 	r.Value = c
 	m.chunks.Prev().Link(r)
 	m.numChunks++
-	m.logChunk("started", "", s.Text, next, end)
+	m.logChunk(*output.QueryId, "started", "", s.Text, next, end)
 
 	return nil
 }
@@ -775,23 +775,23 @@ func (m *mgr) cancelChunk(c *chunk, err error) {
 	})
 	m.lastReq[StopQuery] = time.Now()
 	if err != nil {
-		m.logChunk("failed to cancel", "error from CloudWatch Logs: "+err.Error(), c.stream.Text, c.start, c.end)
+		m.logChunk(c.id, "failed to cancel", "error from CloudWatch Logs: "+err.Error(), c.stream.Text, c.start, c.end)
 	} else if output.Success == nil || !*output.Success {
-		m.logChunk("failed to cancel", "CloudWatch Logs did not indicate success", c.stream.Text, c.start, c.end)
+		m.logChunk(c.id, "failed to cancel", "CloudWatch Logs did not indicate success", c.stream.Text, c.start, c.end)
 	} else {
-		m.logChunk("cancelled", "", c.stream.Text, c.start, c.end)
+		m.logChunk(c.id, "cancelled", "", c.stream.Text, c.start, c.end)
 	}
 }
 
 func (m *mgr) cancelChunkMaybe(c *chunk, err error) {
 	if err == io.EOF {
-		m.logChunk("finished", "", c.stream.Text, c.start, c.end)
+		m.logChunk(c.id, "finished", "", c.stream.Text, c.start, c.end)
 		return
 	}
 	if terminalErr, ok := err.(*TerminalQueryStatusError); ok {
 		switch terminalErr.Status {
 		case cloudwatchlogs.QueryStatusFailed, cloudwatchlogs.QueryStatusCancelled, "Timeout":
-			m.logChunk("unexpected terminal status", terminalErr.Status, c.stream.Text, c.start, c.end)
+			m.logChunk(c.id, "unexpected terminal status", terminalErr.Status, c.stream.Text, c.start, c.end)
 			return
 		}
 	}
@@ -817,11 +817,14 @@ func (m *mgr) waitForWork() int {
 	}
 }
 
-func (m *mgr) logChunk(msg, detail, text string, start, end time.Time) {
+func (m *mgr) logChunk(id, msg, detail, text string, start, end time.Time) {
+	if id != "" {
+		id = "(" + id + ")"
+	}
 	if detail == "" {
-		m.Logger.Printf("incite: QueryManager(%s) %s chunk %q [%s..%s)", m.Name, msg, text, start, end)
+		m.Logger.Printf("incite: QueryManager(%s) %s chunk%s %q [%s..%s)", m.Name, msg, id, text, start, end)
 	} else {
-		m.Logger.Printf("incite: QueryManager(%s) %s chunk %q [%s..%s): %s", m.Name, msg, text, start, end, detail)
+		m.Logger.Printf("incite: QueryManager(%s) %s chunk%s %q [%s..%s): %s", m.Name, msg, id, text, start, end, detail)
 	}
 }
 
