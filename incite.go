@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -308,7 +309,9 @@ type mgr struct {
 	minDelay  map[CloudWatchLogsAction]time.Duration // Used to stay under TPS limit
 	lastReq   map[CloudWatchLogsAction]time.Time     // Used to stay under TPS limit
 	pq        streamHeap                             // Written by Query, written by mgr loop goroutine
+	ready     ring.Ring                              // Circular list of chunks, first item is a sentry
 	chunks    ring.Ring                              // Circular list of chunks, first item is a sentry
+	numReady  int
 	numChunks int
 	close     chan struct{} // Receives notification on Close()
 	query     chan *stream  // Receives notification of new Query()
@@ -547,7 +550,7 @@ func (m *mgr) setTimerRPS(action CloudWatchLogsAction) bool {
 
 func (m *mgr) startNextChunks() int {
 	var numStarted int
-	for len(m.pq) > 0 && m.chunks.Len() <= m.Parallel {
+	for len(m.pq)+m.numReady > 0 && m.chunks.Len() <= m.Parallel {
 		err := m.startNextChunk()
 		if err == errClosing {
 			return -1
@@ -559,90 +562,80 @@ func (m *mgr) startNextChunks() int {
 	return numStarted
 }
 
-type queryIDKeyType int
+type chunkIDKeyType int
 
-var queryIDKey = queryIDKeyType(0)
+var chunkIDKey = chunkIDKeyType(0)
 
 func (m *mgr) startNextChunk() error {
-	s := heap.Pop(&m.pq).(*stream)
+	// Get the next chunk from the ready list, leaving it there for now.
+	r := m.getReadyChunk()
+	if r == nil {
+		return nil
+	}
+	c := r.Value.(*chunk)
 
+	// Pause until we have available capacity to start the chunk.
 	if m.setTimerRPS(StartQuery) {
 		select {
 		case <-m.close:
 			return errClosing
-		case ss := <-m.query:
+		case s := <-m.query:
 			heap.Push(&m.pq, s)
-			heap.Push(&m.pq, ss)
 			return errInterrupted
 		case <-m.timer.C:
 			m.ding = true
-		case <-s.ctx.Done():
-			return s.ctx.Err()
+		case <-c.ctx.Done():
+			return c.ctx.Err()
 		}
 	}
 
-	next := s.next // Only manager loop goroutine modifies next, and we are the manager loop.
-	end := next.Add(s.Chunk)
-	if end.After(s.End) {
-		end = s.End
-	}
-	starts := next.Unix()
-	ends := end.Add(-time.Second).Unix() // CWL uses inclusive time ranges at 1 second granularity, we use exclusive ranges.
+	// Unlink the next chunk from the ready list.
+	m.ready.Unlink(1)
+	m.numReady--
 
+	// Get the chunk time range in Insights' format.
+	starts := c.start.Unix()
+	ends := c.end.Add(-time.Second).Unix() // CWL uses inclusive time ranges at 1 second granularity, we use exclusive ranges.
+
+	// Start the chunk.
 	input := cloudwatchlogs.StartQueryInput{
-		QueryString:   &s.Text,
+		QueryString:   &c.stream.Text,
 		StartTime:     &starts,
 		EndTime:       &ends,
-		LogGroupNames: s.groups,
-		Limit:         &s.Limit,
+		LogGroupNames: c.stream.groups,
+		Limit:         &c.stream.Limit,
 	}
-	output, err := m.Actions.StartQueryWithContext(s.ctx, &input)
+	output, err := m.Actions.StartQueryWithContext(c.ctx, &input)
 	m.lastReq[StartQuery] = time.Now()
 	if err != nil {
 		if isTemporary(err) {
-			heap.Push(&m.pq, s)
-			m.logChunk("", "temporary failure to start", err.Error(), s.Text, next, end)
+			m.ready.Prev().Link(r)
+			m.numReady++
+			m.logChunk(c, "temporary failure to start", err.Error())
 		} else {
-			err = &StartQueryError{s.Text, next, end, err}
-			s.setErr(err, true, Stats{})
-			m.logChunk("", "permanent failure to start", "fatal error from CloudWatch Logs: "+err.Error(), s.Text, next, end)
+			err = &StartQueryError{c.stream.Text, c.start, c.end, err}
+			c.stream.setErr(err, true, Stats{})
+			m.logChunk(c, "permanent failure to start", "fatal error from CloudWatch Logs: "+err.Error())
 		}
 		return err
 	}
 
+	// Save the current query ID into the chunk.
 	queryID := output.QueryId
 	if queryID == nil {
-		err = &StartQueryError{s.Text, next, end, errors.New(outputMissingQueryIDMsg)}
-		s.setErr(err, true, Stats{})
-		m.logChunk("", "nil query ID from CloudWatch Logs for", "", s.Text, next, end)
+		err = &StartQueryError{c.stream.Text, c.start, c.end, errors.New(outputMissingQueryIDMsg)}
+		c.stream.setErr(err, true, Stats{})
+		m.logChunk(c, "nil query ID from CloudWatch Logs for", "")
 		return err
 	}
+	c.queryID = *queryID
 
-	if end.Before(s.End) {
-		s.next = end // At least one chunk remains.
-		heap.Push(&m.pq, s)
-	} else {
-		s.next = time.Time{} // All chunks are in-flight or finished.
-	}
-
-	c := &chunk{
-		stream: s,
-		ctx:    context.WithValue(s.ctx, queryIDKey, output.QueryId),
-		id:     *queryID,
-		status: cloudwatchlogs.QueryStatusScheduled,
-		start:  next,
-		end:    end,
-	}
-	if s.Preview {
-		c.ptr = make(map[string]bool)
-	}
-
-	r := ring.New(1)
-	r.Value = c
+	// Put the chunk at the end of the running chunks list.
 	m.chunks.Prev().Link(r)
 	m.numChunks++
-	m.logChunk(*output.QueryId, "started", "", s.Text, next, end)
 
+	// Chunk is started successfully.
+	m.logChunk(c, "started", "")
 	return nil
 }
 
@@ -660,9 +653,47 @@ func isTemporary(err error) bool {
 	return false
 }
 
+func (m *mgr) getReadyChunk() *ring.Ring {
+	if m.numReady == 0 {
+		s := heap.Pop(&m.pq).(*stream)
+		if !s.alive() {
+			return nil
+		}
+
+		start := s.Start.Add(time.Duration(s.next) * s.Chunk)
+		end := start.Add(s.Chunk)
+		if end.Before(s.End) {
+			heap.Push(&m.pq, s)
+		} else {
+			end = s.End
+		}
+		chunkID := strconv.Itoa(int(s.next))
+		s.next++ // Only manager loop goroutine modifies next, and we are the manager loop.
+
+		c := &chunk{
+			stream:  s,
+			ctx:     context.WithValue(s.ctx, chunkIDKey, chunkID),
+			chunkID: chunkID,
+			start:   start,
+			end:     end,
+		}
+		if s.Preview {
+			c.ptr = make(map[string]bool)
+		}
+
+		r := ring.New(1)
+		r.Value = c
+		m.ready.Prev().Link(r)
+		m.numReady++
+	}
+
+	return m.ready.Next()
+}
+
 func (m *mgr) pollNextChunk() int {
 	for m.numChunks > 0 {
-		c := m.chunks.Next().Value.(*chunk)
+		r := m.chunks.Next()
+		c := r.Value.(*chunk)
 
 		// If the chunk's stream is dead, cancel the chunk and remove it
 		// from the ring.
@@ -681,6 +712,14 @@ func (m *mgr) pollNextChunk() int {
 			return -1
 		} else if err == errInterrupted {
 			return 0
+		} else if err == errChunkFailed {
+			c.chunkID += "R"
+			c.queryID = ""
+			m.numChunks--
+			m.chunks.Unlink(1)
+			m.numReady++
+			m.ready.Prev().Link(r)
+			return 1
 		} else if err != nil && err != errEndOfChunk {
 			m.numChunks--
 			m.chunks.Unlink(1)
@@ -695,7 +734,7 @@ func (m *mgr) pollNextChunk() int {
 		// If we successfully polled a chunk, either rotate the ring if
 		// the chunk isn't done, or remove the chunk from the ring if it
 		// is done.
-		r := m.chunks.Unlink(1)
+		m.chunks.Unlink(1)
 		if err == errEndOfChunk {
 			m.numChunks--
 			m.statsLock.Lock()
@@ -707,9 +746,12 @@ func (m *mgr) pollNextChunk() int {
 		} else {
 			m.chunks.Prev().Link(r)
 		}
+
+		// One chunk successfully polled.
 		return 1
 	}
 
+	// Zero chunks successfully polled.
 	return 0
 }
 
@@ -729,19 +771,19 @@ func (m *mgr) pollChunk(c *chunk) error {
 	}
 
 	input := cloudwatchlogs.GetQueryResultsInput{
-		QueryId: &c.id,
+		QueryId: &c.queryID,
 	}
 	output, err := m.Actions.GetQueryResultsWithContext(c.ctx, &input)
 	m.lastReq[GetQueryResults] = time.Now()
 	if err != nil && isTemporary(err) {
 		return nil
 	} else if err != nil {
-		return &UnexpectedQueryError{c.id, c.stream.Text, err}
+		return &UnexpectedQueryError{c.queryID, c.stream.Text, err}
 	}
 
 	status := output.Status
 	if status == nil {
-		return &UnexpectedQueryError{c.id, c.stream.Text, errNilStatus()}
+		return &UnexpectedQueryError{c.queryID, c.stream.Text, errNilStatus()}
 	}
 
 	c.status = *status
@@ -752,11 +794,19 @@ func (m *mgr) pollChunk(c *chunk) error {
 		if c.ptr == nil {
 			return nil // Ignore non-previewable results.
 		}
-		return sendChunkBlock(c, output.Results, output.Statistics, false)
+		return sendChunkBlock(c, output.Results, false)
 	case cloudwatchlogs.QueryStatusComplete:
-		return sendChunkBlock(c, output.Results, output.Statistics, true)
+		translateStats(output.Statistics, &c.Stats)
+		return sendChunkBlock(c, output.Results, true)
+	case cloudwatchlogs.QueryStatusFailed:
+		if c.ptr == nil {
+			translateStats(output.Statistics, &c.Stats)
+			return errChunkFailed // Retry transient failures if stream isn't previewable.
+		}
+		fallthrough
 	default:
-		return &TerminalQueryStatusError{c.id, c.status, c.stream.Text}
+		translateStats(output.Statistics, &c.Stats)
+		return &TerminalQueryStatusError{c.queryID, c.status, c.stream.Text}
 	}
 }
 
@@ -771,27 +821,27 @@ func (m *mgr) cancelChunk(c *chunk, err error) {
 	}
 
 	output, err := m.Actions.StopQueryWithContext(context.Background(), &cloudwatchlogs.StopQueryInput{
-		QueryId: &c.id,
+		QueryId: &c.queryID,
 	})
 	m.lastReq[StopQuery] = time.Now()
 	if err != nil {
-		m.logChunk(c.id, "failed to cancel", "error from CloudWatch Logs: "+err.Error(), c.stream.Text, c.start, c.end)
+		m.logChunk(c, "failed to cancel", "error from CloudWatch Logs: "+err.Error())
 	} else if output.Success == nil || !*output.Success {
-		m.logChunk(c.id, "failed to cancel", "CloudWatch Logs did not indicate success", c.stream.Text, c.start, c.end)
+		m.logChunk(c, "failed to cancel", "CloudWatch Logs did not indicate success")
 	} else {
-		m.logChunk(c.id, "cancelled", "", c.stream.Text, c.start, c.end)
+		m.logChunk(c, "cancelled", "")
 	}
 }
 
 func (m *mgr) cancelChunkMaybe(c *chunk, err error) {
 	if err == io.EOF {
-		m.logChunk(c.id, "finished", "", c.stream.Text, c.start, c.end)
+		m.logChunk(c, "finished", "")
 		return
 	}
 	if terminalErr, ok := err.(*TerminalQueryStatusError); ok {
 		switch terminalErr.Status {
 		case cloudwatchlogs.QueryStatusFailed, cloudwatchlogs.QueryStatusCancelled, "Timeout":
-			m.logChunk(c.id, "unexpected terminal status", terminalErr.Status, c.stream.Text, c.start, c.end)
+			m.logChunk(c, "unexpected terminal status", terminalErr.Status)
 			return
 		}
 	}
@@ -817,24 +867,21 @@ func (m *mgr) waitForWork() int {
 	}
 }
 
-func (m *mgr) logChunk(id, msg, detail, text string, start, end time.Time) {
-	if id != "" {
-		id = "(" + id + ")"
+func (m *mgr) logChunk(c *chunk, msg, detail string) {
+	id := c.chunkID
+	if c.queryID != "" {
+		id += "(" + c.queryID + ")"
 	}
 	if detail == "" {
-		m.Logger.Printf("incite: QueryManager(%s) %s chunk%s %q [%s..%s)", m.Name, msg, id, text, start, end)
+		m.Logger.Printf("incite: QueryManager(%s) %s chunk%s %q [%s..%s)", m.Name, msg, id, c.stream.Text, c.start, c.end)
 	} else {
-		m.Logger.Printf("incite: QueryManager(%s) %s chunk%s %q [%s..%s): %s", m.Name, msg, id, text, start, end, detail)
+		m.Logger.Printf("incite: QueryManager(%s) %s chunk%s %q [%s..%s): %s", m.Name, msg, id, c.stream.Text, c.start, c.end, detail)
 	}
 }
 
-func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, stats *cloudwatchlogs.QueryStatistics, eof bool) error {
+func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, eof bool) error {
 	var block []Result
 	var err error
-
-	if stats != nil {
-		c.Stats = translateStats(stats)
-	}
 
 	if c.ptr != nil {
 		block, err = translateResultsPreview(c, results)
@@ -866,17 +913,19 @@ func sendChunkBlock(c *chunk, results [][]*cloudwatchlogs.ResultField, stats *cl
 	return err
 }
 
-func translateStats(stats *cloudwatchlogs.QueryStatistics) (result Stats) {
-	if stats.BytesScanned != nil {
-		result.BytesScanned = *stats.BytesScanned
+func translateStats(in *cloudwatchlogs.QueryStatistics, out *Stats) {
+	if in == nil {
+		return
 	}
-	if stats.RecordsMatched != nil {
-		result.RecordsMatched = *stats.RecordsMatched
+	if in.BytesScanned != nil {
+		out.BytesScanned += *in.BytesScanned
 	}
-	if stats.RecordsScanned != nil {
-		result.RecordsScanned = *stats.RecordsScanned
+	if in.RecordsMatched != nil {
+		out.RecordsMatched += *in.RecordsMatched
 	}
-	return
+	if in.RecordsScanned != nil {
+		out.RecordsScanned += *in.RecordsScanned
+	}
 }
 
 func translateResultsNoPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) ([]Result, error) {
@@ -948,14 +997,14 @@ func translateResult(c *chunk, r []*cloudwatchlogs.ResultField) (Result, error) 
 	rr := make(Result, len(r))
 	for i, f := range r {
 		if f == nil {
-			return Result{}, &UnexpectedQueryError{QueryID: c.id, Text: c.stream.Text, Cause: errNilResultField(i)}
+			return Result{}, &UnexpectedQueryError{QueryID: c.queryID, Text: c.stream.Text, Cause: errNilResultField(i)}
 		}
 		k, v := f.Field, f.Value
 		if k == nil {
-			return Result{}, &UnexpectedQueryError{QueryID: c.id, Text: c.stream.Text, Cause: errNoKey()}
+			return Result{}, &UnexpectedQueryError{QueryID: c.queryID, Text: c.stream.Text, Cause: errNoKey()}
 		}
 		if v == nil {
-			return Result{}, &UnexpectedQueryError{QueryID: c.id, Text: c.stream.Text, Cause: errNoValue(*k)}
+			return Result{}, &UnexpectedQueryError{QueryID: c.queryID, Text: c.stream.Text, Cause: errNoValue(*k)}
 		}
 		rr[i] = ResultField{
 			Field: *k,
@@ -1043,8 +1092,6 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 		cancel: cancel,
 		n:      n,
 		groups: groups,
-
-		next: q.Start,
 	}
 	ss.more = sync.NewCond(&ss.lock)
 
@@ -1088,9 +1135,7 @@ func (h streamHeap) Less(i, j int) bool {
 	} else if h[j].Priority < h[i].Priority {
 		return false
 	} else {
-		di := h[i].next.Sub(h[i].Start)
-		dj := h[j].next.Sub(h[j].Start)
-		return di < dj
+		return h[i].next < h[j].next
 	}
 }
 
@@ -1118,7 +1163,7 @@ type stream struct {
 	groups []*string          // Preprocessed slice for StartQuery
 
 	// Mutable fields only read/written by mgr loop goroutine.
-	next time.Time // Next chunk start time
+	next int64 // Next chunk to create
 
 	// Lock controlling access to the below mutable fields.
 	lock sync.RWMutex
@@ -1210,17 +1255,19 @@ func (s *stream) alive() bool {
 // accessible outside the package.
 type chunk struct {
 	Stats
-	stream *stream         // Owning stream which receives results of the chunk
-	ctx    context.Context // Child of the stream's context owned by this chunk
-	id     string          // Insights query ID
-	status string          // Insights query status
-	ptr    map[string]bool // Set of already viewed @ptr, nil if QuerySpec not previewable
-	start  time.Time       // Start of the chunk's time range (inclusive)
-	end    time.Time       // End of the chunk's time range (exclusive)
+	stream  *stream         // Owning stream which receives results of the chunk
+	ctx     context.Context // Child of the stream's context owned by this chunk
+	chunkID string          // Incite chunk ID
+	queryID string          // Insights query ID
+	status  string          // Insights query status
+	ptr     map[string]bool // Set of already viewed @ptr, nil if QuerySpec not previewable
+	start   time.Time       // Start of the chunk's time range (inclusive)
+	end     time.Time       // End of the chunk's time range (exclusive)
 }
 
 var (
 	errClosing     = errors.New("incite: closed")
 	errEndOfChunk  = errors.New("incite: end of chunk")
 	errInterrupted = errors.New("incite: timer wait interrupted")
+	errChunkFailed = errors.New("incite: transient chunk failure")
 )

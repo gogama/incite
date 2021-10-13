@@ -743,8 +743,8 @@ func TestQueryManager_Query(t *testing.T) {
 		// The purpose of these test cases is just to verify that the
 		// QueryManage accepts valid input, successfully starts a query,
 		// and fails it fast when StartQuery throws back an unexpected
-		// error. These ones are meant to be simple. More complex
-		// testing is done in the scenario tests below.
+		// error. These are meant to be simple. More complex testing is
+		// done in the scenario tests below.
 
 		causeErr := errors.New("super fatal error")
 
@@ -756,7 +756,7 @@ func TestQueryManager_Query(t *testing.T) {
 			startQueryErr    error
 			expectedN        int64
 			expectedGroups   []*string
-			expectedNext     time.Time
+			expectedNext     int64
 			expectedCauseErr error
 		}{
 			{
@@ -778,7 +778,7 @@ func TestQueryManager_Query(t *testing.T) {
 				startQueryErr:    causeErr,
 				expectedN:        1,
 				expectedGroups:   []*string{sp("bar"), sp("Baz")},
-				expectedNext:     defaultStart,
+				expectedNext:     1,
 				expectedCauseErr: causeErr,
 			},
 			{
@@ -801,7 +801,7 @@ func TestQueryManager_Query(t *testing.T) {
 				startQueryErr:    causeErr,
 				expectedN:        1,
 				expectedGroups:   []*string{sp("bar"), sp("Baz")},
-				expectedNext:     defaultStart,
+				expectedNext:     1,
 				expectedCauseErr: causeErr,
 			},
 			{
@@ -824,7 +824,7 @@ func TestQueryManager_Query(t *testing.T) {
 				startQueryErr:    causeErr,
 				expectedN:        2,
 				expectedGroups:   []*string{sp("bar"), sp("Baz")},
-				expectedNext:     defaultStart,
+				expectedNext:     1,
 				expectedCauseErr: causeErr,
 			},
 			{
@@ -846,17 +846,20 @@ func TestQueryManager_Query(t *testing.T) {
 				startQueryOutput: &cloudwatchlogs.StartQueryOutput{},
 				expectedN:        1,
 				expectedGroups:   []*string{sp("eggs"), sp("Spam")},
-				expectedNext:     defaultStart,
+				expectedNext:     1,
 				expectedCauseErr: errors.New(outputMissingQueryIDMsg),
 			},
 		}
 
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {
+				var wg sync.WaitGroup
+				wg.Add(1)
 				actions := newMockActions(t)
 				actions.
 					On("StartQueryWithContext", anyContext, anyStartQueryInput).
 					Return(testCase.startQueryOutput, testCase.startQueryErr).
+					Run(func(_ mock.Arguments) { wg.Done() }).
 					Once()
 				m := NewQueryManager(Config{
 					Actions: actions,
@@ -875,9 +878,10 @@ func TestQueryManager_Query(t *testing.T) {
 				assert.Equal(t, testCase.after, s2.QuerySpec)
 				assert.Equal(t, testCase.expectedN, s2.n)
 				assert.Equal(t, testCase.expectedGroups, s2.groups)
-				assert.Equal(t, testCase.expectedNext, s2.next)
 				r := make([]Result, 1)
 				n, err := s.Read(r)
+				wg.Wait()
+				assert.Equal(t, testCase.expectedNext, s2.next)
 				assert.Equal(t, 0, n)
 				var sqe *StartQueryError
 				assert.ErrorAs(t, err, &sqe)
@@ -1177,6 +1181,103 @@ func TestQueryManager_Query(t *testing.T) {
 		}
 	})
 
+	t.Run("Query Starts But Failed Chunk Needs Restarting", func(t *testing.T) {
+		// The purpose of this test case is to verify that when a query
+		// which is not in preview mode suffers a failed chunk, the
+		// chunk is restarted as many times as it takes to get to a
+		// non-failure outcome.
+		//
+		// The test runs 10 times and each of the 10 iterations creates
+		// `n` chunks, where `n` is the iteration number.
+
+		text := "query text for which some chunks will fail"
+		stats := cloudwatchlogs.QueryStatistics{
+			BytesScanned:   float64p(1.0),
+			RecordsMatched: float64p(1.0),
+			RecordsScanned: float64p(1.0),
+		}
+
+		for n := 1; n <= 10; n++ {
+			t.Run(fmt.Sprintf("n=%d", n), func(t *testing.T) {
+				// ARRANGE.
+
+				// Setup mock actions for each chunk.
+				actions := newMockActions(t)
+				for c := 1; c <= n; c++ {
+					// The chunk `c` will fail `c` times before succeeding.
+					for i := 1; i <= c; i++ {
+						queryID := fmt.Sprintf("n=%d|c=%d|i=%d", n, c, i)
+						actions.
+							On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
+								StartTime:     startTimeSeconds(defaultStart.Add(time.Duration(c-1) * time.Minute)),
+								EndTime:       endTimeSeconds(defaultStart.Add(time.Duration(c) * time.Minute)),
+								Limit:         defaultLimit,
+								LogGroupNames: []*string{sp("foo")},
+								QueryString:   &text,
+							}).
+							Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryID}, nil).
+							Once()
+						getCall := actions.
+							On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID})
+						if i < c {
+							getCall.Return(&cloudwatchlogs.GetQueryResultsOutput{
+								Statistics: &stats,
+								Status:     sp(cloudwatchlogs.QueryStatusFailed),
+							}, nil)
+						} else {
+							getCall.Return(&cloudwatchlogs.GetQueryResultsOutput{
+								Results: [][]*cloudwatchlogs.ResultField{
+									{
+										&cloudwatchlogs.ResultField{Field: sp("n"), Value: sp(strconv.Itoa(n))},
+										&cloudwatchlogs.ResultField{Field: sp("c"), Value: sp(strconv.Itoa(c))},
+									},
+								},
+								Statistics: &stats,
+								Status:     sp(cloudwatchlogs.QueryStatusComplete),
+							}, nil)
+						}
+						getCall.Once()
+					}
+				}
+				// Create the query manager.
+				m := NewQueryManager(Config{
+					Actions:  actions,
+					Parallel: QueryConcurrencyQuotaLimit,
+					RPS:      lotsOfRPS,
+				})
+				require.NotNil(t, m)
+				t.Cleanup(func() {
+					_ = m.Close()
+				})
+
+				// ACT.
+				// Run a query with 'n' chunks and collect the results.
+				s, err := m.Query(QuerySpec{
+					Text:   text,
+					Groups: []string{"foo"},
+					Start:  defaultStart,
+					End:    defaultStart.Add(time.Duration(n) * time.Minute),
+					Chunk:  time.Minute,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, s)
+				r, err := ReadAll(s)
+
+				// ASSERT.
+				assert.NoError(t, err)
+				assert.Len(t, r, n)
+				sort.Slice(r, func(i, j int) bool {
+					return r[i][0].Field < r[j][0].Field
+				})
+				expected := make([]Result, n)
+				for c := 1; c <= n; c++ {
+					expected[c-1] = Result{{"n", strconv.Itoa(n)}, {"c", strconv.Itoa(c)}}
+				}
+				assert.Equal(t, expected, r)
+			})
+		}
+	})
+
 	t.Run("Priority is Respected", func(t *testing.T) {
 		// The purpose of this test case is to ensure that query chunks
 		// are started and polled in priority order.
@@ -1352,10 +1453,9 @@ func TestScenariosSerial(t *testing.T) {
 		RPS:     lotsOfRPS,
 	})
 	require.NotNil(t, m)
-	defer func() {
-		err := m.Close()
-		assert.NoError(t, err)
-	}()
+	t.Cleanup(func() {
+		_ = m.Close()
+	})
 
 	var allStats Stats
 	for i, s := range scenarios {
@@ -1363,6 +1463,8 @@ func TestScenariosSerial(t *testing.T) {
 		allStats.add(s.stats)
 	}
 
+	err := m.Close()
+	assert.NoError(t, err)
 	assert.Equal(t, allStats, m.GetStats())
 	actions.AssertExpectations(t)
 }
@@ -1497,44 +1599,15 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: &TerminalQueryStatusError{"scenario:3|chunk:0|OneChunk.OnePoll.Status.Cancelled", "Cancelled", "destined for cancellation"},
-	},
-	{
-		note: "OneChunk.OnePoll.Status.Failed",
-		QuerySpec: QuerySpec{
-			Text:    "fated for failure",
-			Start:   defaultStart,
-			End:     defaultEnd,
-			Groups:  []string{"/any/group"},
-			Preview: true,
-		},
-		chunks: []chunkPlan{
-			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("fated for failure"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/any/group")},
-				},
-				startQuerySuccess: true,
-				pollOutputs: []chunkPollOutput{
-					{
-						status: cloudwatchlogs.QueryStatusFailed,
-					},
-				},
-			},
-		},
-		err: &TerminalQueryStatusError{"scenario:4|chunk:0|OneChunk.OnePoll.Status.Failed", "Failed", "fated for failure"},
+		err: &TerminalQueryStatusError{"scenario:3|chunk:0|OneChunk.OnePoll.Status.Cancelled", cloudwatchlogs.QueryStatusCancelled, "destined for cancellation"},
 	},
 	{
 		note: "OneChunk.OnePoll.Status.Timeout",
 		QuerySpec: QuerySpec{
-			Text:    "tempting a timeout",
-			Start:   defaultStart,
-			End:     defaultEnd,
-			Groups:  []string{"/any/group"},
-			Preview: true,
+			Text:   "tempting a timeout",
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: []string{"/any/group"},
 		},
 		chunks: []chunkPlan{
 			{
@@ -1553,16 +1626,15 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: &TerminalQueryStatusError{"scenario:5|chunk:0|OneChunk.OnePoll.Status.Timeout", "Timeout", "tempting a timeout"},
+		err: &TerminalQueryStatusError{"scenario:4|chunk:0|OneChunk.OnePoll.Status.Timeout", "Timeout", "tempting a timeout"},
 	},
 	{
 		note: "OneChunk.OnePoll.Status.Unexpected",
 		QuerySpec: QuerySpec{
-			Text:    "expecting the unexpected...status",
-			Start:   defaultStart,
-			End:     defaultEnd,
-			Groups:  []string{"/any/group"},
-			Preview: true,
+			Text:   "expecting the unexpected...status",
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: []string{"/any/group"},
 		},
 		chunks: []chunkPlan{
 			{
@@ -1582,7 +1654,7 @@ var scenarios = []queryScenario{
 			},
 		},
 		expectStop: true,
-		err:        &TerminalQueryStatusError{"scenario:6|chunk:0|OneChunk.OnePoll.Status.Unexpected", "Did you see this coming?", "expecting the unexpected...status"},
+		err:        &TerminalQueryStatusError{"scenario:5|chunk:0|OneChunk.OnePoll.Status.Unexpected", "Did you see this coming?", "expecting the unexpected...status"},
 	},
 	{
 		note: "OneChunk.OnePoll.Error.Unexpected",
@@ -1610,7 +1682,7 @@ var scenarios = []queryScenario{
 			},
 		},
 		expectStop: true,
-		err:        &UnexpectedQueryError{"scenario:7|chunk:0|OneChunk.OnePoll.Error.Unexpected", "expecting the unexpected...error", errors.New("very bad news")},
+		err:        &UnexpectedQueryError{"scenario:6|chunk:0|OneChunk.OnePoll.Error.Unexpected", "expecting the unexpected...error", errors.New("very bad news")},
 	},
 	{
 		note: "OneChunk.OnePoll.WithResults",
@@ -1661,6 +1733,7 @@ var scenarios = []queryScenario{
 		},
 		stats: Stats{1, 2, 3},
 	},
+
 	{
 		note: "OneChunk.MultiPoll",
 		QuerySpec: QuerySpec{
@@ -1736,6 +1809,120 @@ var scenarios = []queryScenario{
 			},
 		},
 		stats: Stats{100, 99, 98},
+	},
+
+	{
+		note: "OneChunk.Preview.Status.Failed",
+		QuerySpec: QuerySpec{
+			Text:    "fated for failure",
+			Start:   defaultStart,
+			End:     defaultEnd,
+			Groups:  []string{"/any/group"},
+			Preview: true,
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("fated for failure"),
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultEnd),
+					Limit:         defaultLimit,
+					LogGroupNames: []*string{sp("/any/group")},
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusFailed,
+					},
+				},
+			},
+		},
+		err: &TerminalQueryStatusError{"scenario:9|chunk:0|OneChunk.Preview.Status.Failed", cloudwatchlogs.QueryStatusFailed, "fated for failure"},
+	},
+	{
+		note: "OneChunk.Preview.Status.Cancelled",
+		QuerySpec: QuerySpec{
+			Text:    "preview of coming cancellations",
+			Start:   defaultStart,
+			End:     defaultEnd,
+			Groups:  []string{"/some/group", "/other/group"},
+			Preview: true,
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("preview of coming cancellations"),
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultEnd),
+					Limit:         defaultLimit,
+					LogGroupNames: []*string{sp("/some/group"), sp("/other/group")},
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusCancelled,
+					},
+				},
+			},
+		},
+		err: &TerminalQueryStatusError{"scenario:10|chunk:0|OneChunk.Preview.Status.Cancelled", cloudwatchlogs.QueryStatusCancelled, "preview of coming cancellations"},
+	},
+	{
+		note: "OneChunk.Preview.Status.Timeout",
+		QuerySpec: QuerySpec{
+			Text:    "preview of coming timeouts",
+			Start:   defaultStart,
+			End:     defaultEnd,
+			Groups:  []string{"/any/group"},
+			Preview: true,
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("preview of coming timeouts"),
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultEnd),
+					Limit:         defaultLimit,
+					LogGroupNames: []*string{sp("/any/group")},
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: "Timeout",
+					},
+				},
+			},
+		},
+		err: &TerminalQueryStatusError{"scenario:11|chunk:0|OneChunk.Preview.Status.Timeout", "Timeout", "preview of coming timeouts"},
+	},
+	{
+		note: "OneChunk.Preview.Status.Unexpected",
+		QuerySpec: QuerySpec{
+			Text:    "preview of coming surprises...",
+			Start:   defaultStart,
+			End:     defaultEnd,
+			Groups:  []string{"/any/group"},
+			Preview: true,
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("preview of coming surprises..."),
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultEnd),
+					Limit:         defaultLimit,
+					LogGroupNames: []*string{sp("/any/group")},
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: "I did NOT see this coming!",
+					},
+				},
+			},
+		},
+		expectStop: true,
+		err:        &TerminalQueryStatusError{"scenario:12|chunk:0|OneChunk.Preview.Status.Unexpected", "I did NOT see this coming!", "preview of coming surprises..."},
 	},
 
 	{
@@ -2511,6 +2698,10 @@ func (s *Stats) backOut() *cloudwatchlogs.QueryStatistics {
 
 func int64p(i int64) *int64 {
 	return &i
+}
+
+func float64p(f float64) *float64 {
+	return &f
 }
 
 func startTimeSeconds(t time.Time) *int64 {
