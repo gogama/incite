@@ -743,6 +743,7 @@ func (m *mgr) pollNextChunk() int {
 			c.stream.stats.add(c.Stats)
 			m.statsLock.Unlock()
 			c.stream.lock.Unlock()
+			m.logChunk(c, "finished", "")
 		} else {
 			m.chunks.Prev().Link(r)
 		}
@@ -835,7 +836,7 @@ func (m *mgr) cancelChunk(c *chunk, err error) {
 
 func (m *mgr) cancelChunkMaybe(c *chunk, err error) {
 	if err == io.EOF {
-		m.logChunk(c, "finished", "")
+		m.logChunk(c, "finished", "end of stream")
 		return
 	}
 	if terminalErr, ok := err.(*TerminalQueryStatusError); ok {
@@ -873,9 +874,9 @@ func (m *mgr) logChunk(c *chunk, msg, detail string) {
 		id += "(" + c.queryID + ")"
 	}
 	if detail == "" {
-		m.Logger.Printf("incite: QueryManager(%s) %s chunk%s %q [%s..%s)", m.Name, msg, id, c.stream.Text, c.start, c.end)
+		m.Logger.Printf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", m.Name, msg, id, c.stream.Text, c.start, c.end)
 	} else {
-		m.Logger.Printf("incite: QueryManager(%s) %s chunk%s %q [%s..%s): %s", m.Name, msg, id, c.stream.Text, c.start, c.end, detail)
+		m.Logger.Printf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", m.Name, msg, id, c.stream.Text, c.start, c.end, detail)
 	}
 }
 

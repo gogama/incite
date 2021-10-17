@@ -39,9 +39,22 @@ func (m *mockLogger) Printf(format string, v ...interface{}) {
 	m.Called(format, v)
 }
 
-func (m *mockLogger) ExpectPrintf(format string) *mock.Call {
+func (m *mockLogger) ExpectPrintf(format string, v ...interface{}) *mock.Call {
 	nPct := strings.Count(format, "%")
-	return m.On("Printf", format, mock.MatchedBy(func(v []interface{}) bool {
-		return len(v) == nPct
+	if len(v) > nPct {
+		panic("more arguments given than percent signs in the format string!")
+	}
+	w := make([]interface{}, len(v))
+	copy(w, v)
+	return m.On("Printf", format, mock.MatchedBy(func(x []interface{}) bool {
+		if len(x) != nPct {
+			return false
+		}
+		for i := range w {
+			if x[i] != w[i] && w[i] != mock.Anything {
+				return false
+			}
+		}
+		return true
 	})).Return()
 }

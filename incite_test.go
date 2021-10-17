@@ -1438,6 +1438,143 @@ func TestQueryManager_Query(t *testing.T) {
 		assert.Equal(t, starts2, starts)
 		assert.Equal(t, gets2, gets)
 	})
+
+	t.Run("Logger Receives Expected Messages", func(t *testing.T) {
+		t.Run("Successful Query", func(t *testing.T) {
+			// This test case creates a two-chunk query which runs into
+			// a few problems:
+			// - The first chunk encounters an error starting.
+			// - The second chunk fails the first time.
+
+			// ARRANGE.
+			logger := newMockLogger(t)
+			logger.
+				ExpectPrintf("incite: QueryManager(%s) started", t.Name()).
+				Once()
+			logger.
+				ExpectPrintf("incite: QueryManager(%s) stopping...", t.Name()).
+				Maybe()
+			logger.
+				ExpectPrintf("incite: QueryManager(%s) stopped", t.Name()).
+				Maybe()
+			actions := newMockActions(t)
+			text := "a query in two chunks which generates logs"
+			// CHUNK 1.
+			queryIDChunk1 := "foo"
+			actions.
+				On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultStart.Add(time.Second)),
+					Limit:         defaultLimit,
+					LogGroupNames: []*string{sp("grp")},
+					QueryString:   &text,
+				}).
+				Return(nil, cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "foo")).
+				Once()
+			logger.
+				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "temporary failure to start", "0", text, defaultStart, defaultStart.Add(time.Second), "ServiceUnavailableException: foo").
+				Once()
+			actions.
+				On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultStart.Add(time.Second)),
+					Limit:         defaultLimit,
+					LogGroupNames: []*string{sp("grp")},
+					QueryString:   &text,
+				}).
+				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryIDChunk1}, nil).
+				Once()
+			logger.
+				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", "0(foo)").
+				Once()
+			actions.
+				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk1}).
+				Return(&cloudwatchlogs.GetQueryResultsOutput{
+					Results: [][]*cloudwatchlogs.ResultField{},
+					Status:  sp(cloudwatchlogs.QueryStatusComplete),
+				}, nil).
+				Once()
+			logger.
+				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "finished", "0(foo)").
+				Once()
+			// CHUNK 2.
+			queryIDChunk2 := []string{"bar.try1", "bar.try2"}
+			actions.
+				On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
+					StartTime:     startTimeSeconds(defaultStart.Add(time.Second)),
+					EndTime:       endTimeSeconds(defaultStart.Add(2 * time.Second)),
+					Limit:         defaultLimit,
+					LogGroupNames: []*string{sp("grp")},
+					QueryString:   &text,
+				}).
+				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryIDChunk2[0]}, nil).
+				Once()
+			logger.
+				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", "1(bar.try1)").
+				Once()
+			actions.
+				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk2[0]}).
+				Return(&cloudwatchlogs.GetQueryResultsOutput{
+					Results: [][]*cloudwatchlogs.ResultField{},
+					Status:  sp(cloudwatchlogs.QueryStatusFailed),
+				}, nil).
+				Once()
+			actions.
+				On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
+					StartTime:     startTimeSeconds(defaultStart.Add(time.Second)),
+					EndTime:       endTimeSeconds(defaultStart.Add(2 * time.Second)),
+					Limit:         defaultLimit,
+					LogGroupNames: []*string{sp("grp")},
+					QueryString:   &text,
+				}).
+				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryIDChunk2[1]}, nil).
+				Once()
+			logger.
+				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", "1R(bar.try2)").
+				Once()
+			actions.
+				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk2[1]}).
+				Return(&cloudwatchlogs.GetQueryResultsOutput{
+					Results: [][]*cloudwatchlogs.ResultField{},
+					Status:  sp(cloudwatchlogs.QueryStatusComplete),
+				}, nil).
+				Once()
+			logger.
+				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "finished", "1R(bar.try2)", text, mock.Anything, mock.Anything, "end of stream").
+				Once()
+			// START QUERY.
+			m := NewQueryManager(Config{
+				Actions: actions,
+				RPS:     lotsOfRPS,
+				Logger:  logger,
+				Name:    t.Name(),
+			})
+			require.NotNil(t, m)
+			t.Cleanup(func() {
+				_ = m.Close()
+			})
+			s, err := m.Query(QuerySpec{
+				Text:   text,
+				Groups: []string{"grp"},
+				Start:  defaultStart,
+				End:    defaultStart.Add(2 * time.Second),
+				Chunk:  time.Second,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, s)
+
+			// ACT.
+			r, err1 := ReadAll(s)
+			err2 := m.Close()
+
+			// ASSERT.
+			assert.NoError(t, err1)
+			assert.Empty(t, r)
+			assert.NoError(t, err2)
+			actions.AssertExpectations(t)
+			logger.AssertExpectations(t)
+		})
+	})
 }
 
 func TestStream_Read(t *testing.T) {
