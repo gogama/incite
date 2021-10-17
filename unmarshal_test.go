@@ -196,7 +196,7 @@ func TestUnmarshal(t *testing.T) {
 					{
 						{"@ptr", "bar"},
 						{"@message", "bar message"},
-						{"@timestamp", ""},
+						{"@timestamp", "hello"},
 						{"DiscoveredKey", "DiscoveredStringValue"},
 						{"DiscoveredKey2", "-123"},
 					},
@@ -207,26 +207,34 @@ func TestUnmarshal(t *testing.T) {
 						{"@message", "baz message"},
 						{"DiscoveredKey2", "1.5"},
 					},
+					{
+						{"@timestamp", ""},
+						{"@ingestionTime", "2021-10-17 14:20:00.000"},
+					},
 				},
 				v: &[]map[string]interface{}{},
 				w: &[]map[string]interface{}{
 					{
 						"@ptr":           "bar",
 						"@message":       "bar message",
-						"@timestamp":     "",
+						"@timestamp":     "hello",
 						"DiscoveredKey":  "DiscoveredStringValue",
 						"DiscoveredKey2": -123.0,
 					},
 					{
 						"@ptr":       "baz",
 						"@message":   "baz message",
-						"@timestamp": "2021-06-19 03:59:59.936",
+						"@timestamp": time.Date(2021, 6, 19, 3, 59, 59, int(936*time.Millisecond), time.UTC),
 						"DiscoveredKey": map[string]interface{}{
 							"k":  "string",
 							"k2": 1.0,
 							"k3": []interface{}{"another string", nil, 10.0},
 						},
 						"DiscoveredKey2": 1.5,
+					},
+					{
+						"@timestamp":     "",
+						"@ingestionTime": time.Date(2021, 10, 17, 14, 20, 0, 0, time.UTC),
 					},
 				},
 			},

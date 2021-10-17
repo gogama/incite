@@ -519,7 +519,15 @@ func decodeColAsJSON(s *decodeState) error {
 }
 
 func decodeColAsJSONFuzzy(s *decodeState) error {
-	src := s.col().Value
+	col := s.col()
+	src := col.Value
+	if col.Field == "@timestamp" || col.Field == "@ingestionTime" {
+		t, err := time.Parse(TimeLayout, src)
+		if err == nil {
+			s.dst.Set(reflect.ValueOf(t))
+			return nil
+		}
+	}
 For:
 	for _, c := range src {
 		switch c {
