@@ -532,21 +532,24 @@ func TestQueryManager_Close(t *testing.T) {
 		}
 	})
 
-	t.Run("Close Cancels Queries", func(t *testing.T) {
+	t.Run("Close Cancels One Chunk", func(t *testing.T) {
 		// ARRANGE.
 		stopped := true
 		actions := newMockActions(t)
 		actions.
 			On("StartQueryWithContext", anyContext, anyStartQueryInput).
-			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("qid")}, nil)
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("qid")}, nil).
+			Once()
 		actions.
 			On("GetQueryResultsWithContext", anyContext, mock.Anything).
 			Return(&cloudwatchlogs.GetQueryResultsOutput{
 				Status: sp(cloudwatchlogs.QueryStatusRunning),
-			}, nil)
+			}, nil).
+			Maybe()
 		actions.
 			On("StopQueryWithContext", anyContext, mock.Anything).
-			Return(&cloudwatchlogs.StopQueryOutput{Success: &stopped}, nil)
+			Return(&cloudwatchlogs.StopQueryOutput{Success: &stopped}, nil).
+			Maybe()
 		m := NewQueryManager(Config{
 			Actions: actions,
 		})
@@ -574,6 +577,63 @@ func TestQueryManager_Close(t *testing.T) {
 		n2, err := s2.Read(make([]Result, 1))
 		assert.Equal(t, 0, n2)
 		assert.Same(t, ErrClosed, err)
+		actions.AssertExpectations(t)
+	})
+
+	t.Run("Close Cancels Many Chunks", func(t *testing.T) {
+		// ARRANGE.
+		actions := newMockActions(t)
+		text := "I will run forever until the QueryManager gets closed!"
+		var wg sync.WaitGroup
+		for i := 0; i < QueryConcurrencyQuotaLimit; i++ {
+			queryID := fmt.Sprintf("%s[%d]", t.Name(), i)
+			wg.Add(1)
+			actions.
+				On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
+					StartTime:     startTimeSeconds(defaultStart.Add(time.Duration(i) * time.Minute)),
+					EndTime:       endTimeSeconds(defaultStart.Add(time.Duration(i+1) * time.Minute)),
+					Limit:         defaultLimit,
+					LogGroupNames: []*string{sp("bar")},
+					QueryString:   &text,
+				}).
+				Run(func(_ mock.Arguments) { wg.Done() }).
+				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryID}, nil).
+				Once()
+			actions.
+				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
+				Return(&cloudwatchlogs.GetQueryResultsOutput{Status: sp(cloudwatchlogs.QueryStatusRunning)}, nil).
+				Maybe()
+			actions.
+				On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
+				Return(&cloudwatchlogs.StopQueryOutput{}, nil).
+				Maybe()
+		}
+		m := NewQueryManager(Config{
+			Actions:  actions,
+			Parallel: QueryConcurrencyQuotaLimit,
+			RPS:      lotsOfRPS,
+		})
+		require.NotNil(t, m)
+		s, err := m.Query(QuerySpec{
+			Text:   text,
+			Groups: []string{"bar"},
+			Start:  defaultStart,
+			End:    defaultStart.Add(QueryConcurrencyQuotaLimit * time.Minute),
+			Chunk:  time.Minute,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, s)
+		wg.Wait()
+
+		// ACT.
+		err = m.Close()
+
+		// ASSERT.
+		assert.NoError(t, err)
+		n1, err := s.Read(make([]Result, 1))
+		assert.Equal(t, 0, n1)
+		assert.Same(t, ErrClosed, err)
+		actions.AssertExpectations(t)
 	})
 
 	t.Run("Close Resilient to Failure to Cancel Query", func(t *testing.T) {
@@ -1269,11 +1329,11 @@ func TestQueryManager_Query(t *testing.T) {
 				sort.Slice(r, func(i, j int) bool {
 					return r[i][0].Field < r[j][0].Field
 				})
-				expected := make([]Result, n)
+				expectedResults := make([]Result, n)
 				for c := 1; c <= n; c++ {
-					expected[c-1] = Result{{"n", strconv.Itoa(n)}, {"c", strconv.Itoa(c)}}
+					expectedResults[c-1] = Result{{"n", strconv.Itoa(n)}, {"c", strconv.Itoa(c)}}
 				}
-				assert.Equal(t, expected, r)
+				assert.Equal(t, expectedResults, r)
 			})
 		}
 	})
@@ -1444,6 +1504,110 @@ func TestStream_Read(t *testing.T) {
 			assert.Equal(t, make([]Result, 1), p)
 		})
 	})
+}
+
+func TestStream_Close(t *testing.T) {
+	// The test cases below work by setting up one or more queries that
+	// "spin" within the QueryManager because their chunks stay
+	// stuck in a Running state. Then we close the stream attached to
+	// the query and assert that it all stops cleanly.
+
+	testCases := []struct {
+		streams int
+		chunks  int
+	}{
+		{
+			streams: 1,
+			chunks:  1,
+		},
+		{
+			streams: QueryConcurrencyQuotaLimit,
+			chunks:  1,
+		},
+		{
+			streams: 1,
+			chunks:  QueryConcurrencyQuotaLimit,
+		},
+	}
+
+	for _, testCase := range testCases {
+		name := fmt.Sprintf("%s[streams=%d][chunks=%d]", t.Name(), testCase.streams, testCase.chunks)
+		t.Run(name, func(t *testing.T) {
+			// ARRANGE.
+			actions := newMockActions(t)
+			var wg sync.WaitGroup
+			text := make([]string, testCase.streams)
+			for si := 0; si < testCase.streams; si++ {
+				text[si] = fmt.Sprintf("%s[si=%d]", name, si)
+				for ci := 0; ci < testCase.chunks; ci++ {
+					queryID := fmt.Sprintf("%s[ci=%d]", name, ci)
+					startCall := actions.
+						On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
+							StartTime:     startTimeSeconds(defaultStart.Add(time.Duration(ci) * time.Hour)),
+							EndTime:       endTimeSeconds(defaultStart.Add(time.Duration(ci+1) * time.Hour)),
+							Limit:         defaultLimit,
+							LogGroupNames: []*string{sp("baz")},
+							QueryString:   &text[si],
+						})
+					if si*testCase.streams+testCase.chunks < QueryConcurrencyQuotaLimit {
+						wg.Add(1)
+						startCall.
+							Run(func(_ mock.Arguments) { wg.Done() }).
+							Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryID}, nil).
+							Once()
+					} else {
+						startCall.
+							Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryID}, nil).
+							Maybe()
+					}
+					actions.
+						On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
+						Return(&cloudwatchlogs.GetQueryResultsOutput{Status: sp(cloudwatchlogs.QueryStatusRunning)}, nil).
+						Maybe()
+					actions.
+						On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
+						Return(&cloudwatchlogs.StopQueryOutput{}, nil).
+						Maybe()
+				}
+			}
+			m := NewQueryManager(Config{
+				Actions:  actions,
+				Parallel: QueryConcurrencyQuotaLimit,
+				RPS:      lotsOfRPS,
+			})
+			t.Cleanup(func() {
+				_ = m.Close()
+			})
+			streams := make([]Stream, testCase.streams)
+			var err error
+			for si := 0; si < testCase.streams; si++ {
+				streams[si], err = m.Query(QuerySpec{
+					Text:     text[si],
+					Groups:   []string{"baz"},
+					Start:    defaultStart,
+					End:      defaultStart.Add(time.Duration(testCase.chunks) * time.Hour),
+					Chunk:    time.Hour,
+					Priority: si,
+				})
+				require.NoError(t, err, "failed to start stream %d", si)
+				require.NotNil(t, streams[si], "stream %d is nil", si)
+			}
+			wg.Wait()
+
+			// ACT.
+			for si := 0; si < testCase.streams; si++ {
+				err = streams[si].Close()
+				assert.NoError(t, err, "error closing stream %d", si)
+				err = streams[si].Close()
+				assert.Same(t, ErrClosed, err, "stream %d failed to indicate already closed on second Close() call", si)
+			}
+
+			// ASSERT.
+			actions.AssertExpectations(t)
+			err = m.Close()
+			assert.NoError(t, err)
+		})
+	}
 }
 
 func TestScenariosSerial(t *testing.T) {
