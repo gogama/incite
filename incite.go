@@ -1164,6 +1164,7 @@ type stream struct {
 
 	// Mutable fields only read/written by mgr loop goroutine.
 	next int64 // Next chunk to create
+	m    int64 // Number of chunks completed
 
 	// Lock controlling access to the below mutable fields.
 	lock sync.RWMutex
@@ -1171,7 +1172,6 @@ type stream struct {
 	// Mutable fields controlled by stream using lock.
 	stats  Stats
 	blocks [][]Result
-	m      int64      // Number of chunks completed
 	i, j   int        // Block index and position within block
 	more   *sync.Cond // Used to block a Read pending more blocks
 	err    error      // Error to return, if any
