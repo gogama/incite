@@ -389,7 +389,7 @@ type Config struct {
 
 	// RPS optionally specifies the maximum number of requests to the
 	// CloudWatch Logs web service which the QueryManager may make in
-	// each one second period for each CloudWatch Logs action. The
+	// each one-second period for each CloudWatch Logs action. The
 	// purpose of RPS is to prevent the QueryManager or other humans or
 	// systems using CloudWatch Logs in the same AWS account and region
 	// from being throttled by the web service.
