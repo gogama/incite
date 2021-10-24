@@ -412,8 +412,8 @@ type Config struct {
 	Logger Logger
 
 	// Name optionally gives the new QueryManager a friendly name, which
-	// will be included in log messages which the QueryManager emits to
-	// the Logger.
+	// will be included in log messages the QueryManager emits to the
+	// Logger.
 	//
 	// Other than being used in logging, this field has no effect on the
 	// QueryManager's behavior.
