@@ -22,6 +22,108 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestStats(t *testing.T) {
+	t.Run("add", func(t *testing.T) {
+		testCases := []struct {
+			name    string
+			s, t, u Stats
+		}{
+			{
+				name: "Zero.Plus.Zero",
+			},
+			{
+				name: "Zero.Plus.One",
+				t: Stats{
+					BytesScanned:   1.0,
+					RecordsMatched: 1.0,
+					RecordsScanned: 1.0,
+
+					RangeRequested: 1,
+					RangeStarted:   1,
+					RangeDone:      1,
+					RangeFailed:    1,
+				},
+				u: Stats{
+					BytesScanned:   1.0,
+					RecordsMatched: 1.0,
+					RecordsScanned: 1.0,
+
+					RangeRequested: 1,
+					RangeStarted:   1,
+					RangeDone:      1,
+					RangeFailed:    1,
+				},
+			},
+			{
+				name: "One.Plus.Zero",
+				s: Stats{
+					BytesScanned:   1.0,
+					RecordsMatched: 1.0,
+					RecordsScanned: 1.0,
+
+					RangeRequested: 1,
+					RangeStarted:   1,
+					RangeDone:      1,
+					RangeFailed:    1,
+				},
+				u: Stats{
+					BytesScanned:   1.0,
+					RecordsMatched: 1.0,
+					RecordsScanned: 1.0,
+
+					RangeRequested: 1,
+					RangeStarted:   1,
+					RangeDone:      1,
+					RangeFailed:    1,
+				},
+			},
+			{
+				name: "Mish.Mash",
+				s: Stats{
+					BytesScanned:   1.0,
+					RecordsMatched: 2.0,
+					RecordsScanned: 3.0,
+
+					RangeRequested: 4,
+					RangeStarted:   5,
+					RangeDone:      6,
+					RangeFailed:    7,
+				},
+				t: Stats{
+					BytesScanned:   11.0,
+					RecordsMatched: 12.0,
+					RecordsScanned: 13.0,
+
+					RangeRequested: 14,
+					RangeStarted:   15,
+					RangeDone:      16,
+					RangeFailed:    17,
+				},
+				u: Stats{
+					BytesScanned:   12.0,
+					RecordsMatched: 14.0,
+					RecordsScanned: 16.0,
+
+					RangeRequested: 18,
+					RangeStarted:   20,
+					RangeDone:      22,
+					RangeFailed:    24,
+				},
+			},
+		}
+
+		for _, testCase := range testCases {
+			t.Run(testCase.name, func(t *testing.T) {
+				v := testCase.s
+
+				v.add(&testCase.t)
+
+				assert.Equal(t, testCase.u, v)
+			})
+		}
+	})
+}
+
 func TestNewQueryManager(t *testing.T) {
 	t.Run("Invalid Input", func(t *testing.T) {
 		t.Run("Nil Actions", func(t *testing.T) {
@@ -778,6 +880,81 @@ func TestQueryManager_Query(t *testing.T) {
 				},
 				err: exceededMaxLimitMsg,
 			},
+			{
+				name: "Split.With.Preview",
+				QuerySpec: QuerySpec{
+					Text:    "Whose woods are these?\nI think I know",
+					Start:   defaultStart,
+					End:     defaultEnd,
+					Groups:  []string{"His house is in the village", "Though"},
+					Limit:   MaxLimit,
+					Preview: true,
+					Split:   1,
+				},
+				err: splitWithPreviewMsg,
+			},
+			{
+				name: "Split.Without.MaxLimit",
+				QuerySpec: QuerySpec{
+					Text:   "He will not see my stopping here",
+					Start:  defaultStart,
+					End:    defaultEnd,
+					Groups: []string{"To watch his woods", "fill up with snow"},
+					Limit:  MaxLimit - 1,
+					Split:  1,
+				},
+				err: splitWithoutMaxLimitMsg,
+			},
+			{
+				name: "ReSplit.Without.Split",
+				QuerySpec: QuerySpec{
+					Text:    "My little horse must think it queer",
+					Start:   defaultStart,
+					End:     defaultEnd,
+					Groups:  []string{"To stop without", "a farmhouse near"},
+					Limit:   MaxLimit,
+					ReSplit: 1,
+				},
+				err: reSplitWithoutSplitMsg,
+			},
+			{
+				name: "MaxSplit.Exceeded.Split",
+				QuerySpec: QuerySpec{
+					Text:   "Between the woods",
+					Start:  defaultStart,
+					End:    defaultEnd,
+					Groups: []string{"and frozen lake", "the darkest evening", "of the year"},
+					Limit:  MaxLimit,
+					Split:  MaxSplit + 1,
+				},
+				err: exceededMaxSplitMsg,
+			},
+			{
+				name: "MaxSplit.Exceeded.ReSplit",
+				QuerySpec: QuerySpec{
+					Text:    "He gives his harness bells a shake",
+					Start:   defaultStart,
+					End:     defaultEnd,
+					Groups:  []string{"To ask if there is some mistake"},
+					Limit:   MaxLimit,
+					Split:   1,
+					ReSplit: MaxSplit + 1,
+				},
+				err: exceededMaxSplitMsg,
+			},
+			{
+				name: "MaxSplit.Exceeded.Both",
+				QuerySpec: QuerySpec{
+					Text:    "The only other sound's the sweep",
+					Start:   defaultStart,
+					End:     defaultEnd,
+					Groups:  []string{"Of easy wind", "and downy flake"},
+					Limit:   MaxLimit,
+					Split:   (MaxSplit + 2) / 2,
+					ReSplit: (MaxSplit + 2) / 2,
+				},
+				err: exceededMaxSplitMsg,
+			},
 		}
 
 		for _, testCase := range testCases {
@@ -890,10 +1067,12 @@ func TestQueryManager_Query(t *testing.T) {
 			{
 				name: "MissingQueryID",
 				before: QuerySpec{
-					Text:   "ham",
-					Start:  defaultStart,
-					End:    defaultEnd,
-					Groups: []string{"eggs", "Spam"},
+					Text:    "ham",
+					Start:   defaultStart,
+					End:     defaultEnd,
+					Groups:  []string{"eggs", "Spam"},
+					Split:   -1,
+					ReSplit: -1,
 				},
 				after: QuerySpec{
 					Text:   "ham",
@@ -1761,7 +1940,7 @@ func TestScenariosSerial(t *testing.T) {
 	var allStats Stats
 	for i, s := range scenarios {
 		s.test(t, i, m, actions, false)
-		allStats.add(s.stats)
+		allStats.add(&s.stats)
 	}
 
 	err := m.Close()
@@ -2017,7 +2196,7 @@ var scenarios = []queryScenario{
 								{"@MyField", "goodbye"},
 							},
 						},
-						stats: &Stats{1, 2, 3},
+						stats: &Stats{1, 2, 3, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2032,7 +2211,7 @@ var scenarios = []queryScenario{
 				{"@MyField", "goodbye"},
 			},
 		},
-		stats: Stats{1, 2, 3},
+		stats: Stats{1, 2, 3, 0, 0, 0, 0},
 	},
 
 	{
@@ -2064,7 +2243,7 @@ var scenarios = []queryScenario{
 					},
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
-						stats:  &Stats{3, 0, 1},
+						stats:  &Stats{3, 0, 1, 0, 0, 0, 0},
 					},
 					{
 						err: cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "a blip in service"),
@@ -2077,7 +2256,7 @@ var scenarios = []queryScenario{
 								{"MyField", "world"},
 							},
 						},
-						stats: &Stats{99, 98, 97},
+						stats: &Stats{99, 98, 97, 0, 0, 0, 0},
 					},
 					{
 						err: cwlErr("throttling has occurred", "and you were the recipient of the throttling"),
@@ -2094,7 +2273,7 @@ var scenarios = []queryScenario{
 								{"MyField", "world"},
 							},
 						},
-						stats: &Stats{100, 99, 98},
+						stats: &Stats{100, 99, 98, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2109,7 +2288,7 @@ var scenarios = []queryScenario{
 				{"MyField", "world"},
 			},
 		},
-		stats: Stats{100, 99, 98},
+		stats: Stats{100, 99, 98, 0, 0, 0, 0},
 	},
 
 	{
@@ -2255,7 +2434,7 @@ var scenarios = []queryScenario{
 						results: []Result{
 							{{"Foo", "Foo.0.0"}, {"Bar", "Bar.0.0"}, {"@ptr", "0"}},
 						},
-						stats: &Stats{1, 2, 3},
+						stats: &Stats{1, 2, 3, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
@@ -2263,14 +2442,14 @@ var scenarios = []queryScenario{
 							{{"Foo", "Foo.0.0"}, {"Bar", "Bar.0.0"}, {"@ptr", "0"}},
 							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
 						},
-						stats: &Stats{2, 4, 6},
+						stats: &Stats{2, 4, 6, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
 						results: []Result{
 							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
 						},
-						stats: &Stats{3, 6, 9},
+						stats: &Stats{3, 6, 9, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
@@ -2278,7 +2457,7 @@ var scenarios = []queryScenario{
 							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
 							{{"Foo", "Foo.2.0"}, {"Bar", "Bar.2.0"}, {"@ptr", "2"}},
 						},
-						stats: &Stats{4, 8, 12},
+						stats: &Stats{4, 8, 12, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
@@ -2287,7 +2466,7 @@ var scenarios = []queryScenario{
 							{{"Foo", "Foo.2.0"}, {"Bar", "Bar.2.0"}, {"@ptr", "2"}},
 							{{"Foo", "Foo.3.0"}, {"Bar", "Bar.3.0"}, {"@ptr", "3"}},
 						},
-						stats: &Stats{5, 10, 15},
+						stats: &Stats{5, 10, 15, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusComplete,
@@ -2297,7 +2476,7 @@ var scenarios = []queryScenario{
 							{{"Foo", "Foo.3.0"}, {"Bar", "Bar.3.0"}, {"@ptr", "3"}},
 							{{"Foo", "Foo.4.0"}, {"Bar", "Bar.4.0"}, {"@ptr", "4"}},
 						},
-						stats: &Stats{6, 12, 18},
+						stats: &Stats{6, 12, 18, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2312,7 +2491,7 @@ var scenarios = []queryScenario{
 			{{"Foo", "Foo.4.0"}, {"Bar", "Bar.4.0"}, {"@ptr", "4"}},
 			{{"@ptr", "2"}, {"@deleted", "true"}},
 		},
-		stats: Stats{6, 12, 18},
+		stats: Stats{6, 12, 18, 0, 0, 0, 0},
 	},
 	{
 		note: "OneChunk.Preview.SimulateStatsCommand.NoPtr",
@@ -2341,7 +2520,7 @@ var scenarios = []queryScenario{
 						results: []Result{
 							{{"count_distinct(Foo)", "100"}, {"bar", "ham"}},
 						},
-						stats: &Stats{1, 2, 3},
+						stats: &Stats{1, 2, 3, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
@@ -2349,7 +2528,7 @@ var scenarios = []queryScenario{
 							{{"count_distinct(Foo)", "37"}, {"bar", "eggs"}},
 							{{"count_distinct(Foo)", "100"}, {"bar", "ham"}},
 						},
-						stats: &Stats{2, 4, 6},
+						stats: &Stats{2, 4, 6, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusComplete,
@@ -2358,7 +2537,7 @@ var scenarios = []queryScenario{
 							{{"count_distinct(Foo)", "41"}, {"bar", "eggs"}},
 							{{"count_distinct(Foo)", "10"}, {"bar", "spam"}},
 						},
-						stats: &Stats{4, 5, 8},
+						stats: &Stats{4, 5, 8, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2371,7 +2550,7 @@ var scenarios = []queryScenario{
 			{{"count_distinct(Foo)", "41"}, {"bar", "eggs"}},
 			{{"count_distinct(Foo)", "10"}, {"bar", "spam"}},
 		},
-		stats: Stats{4, 5, 8},
+		stats: Stats{4, 5, 8, 0, 0, 0, 0},
 	},
 
 	{
@@ -2400,7 +2579,7 @@ var scenarios = []queryScenario{
 							{{"EggCount", "1"}, {"Spam", "true"}},
 							{{"EggCount", "2"}, {"Span", "false"}},
 						},
-						stats: &Stats{77, 777, 7},
+						stats: &Stats{77, 777, 7, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2409,7 +2588,7 @@ var scenarios = []queryScenario{
 			{{"EggCount", "1"}, {"Spam", "true"}},
 			{{"EggCount", "2"}, {"Span", "false"}},
 		},
-		stats: Stats{77, 777, 7},
+		stats: Stats{77, 777, 7, 0, 0, 0, 0},
 	},
 
 	{
@@ -2440,7 +2619,7 @@ var scenarios = []queryScenario{
 						results: []Result{
 							{{"ignore", "me"}},
 						},
-						stats: &Stats{-1, -2, -12},
+						stats: &Stats{-1, -2, -12, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusComplete,
@@ -2448,7 +2627,7 @@ var scenarios = []queryScenario{
 							{{"@ptr", "1111"}, {"Something", "wicked this way comes"}},
 							{{"@ptr", "2222"}, {"Something", "else"}},
 						},
-						stats: &Stats{13, 8, 3},
+						stats: &Stats{13, 8, 3, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2457,7 +2636,7 @@ var scenarios = []queryScenario{
 			{{"@ptr", "1111"}, {"Something", "wicked this way comes"}},
 			{{"@ptr", "2222"}, {"Something", "else"}},
 		},
-		stats: Stats{13, 8, 3},
+		stats: Stats{13, 8, 3, 0, 0, 0, 0},
 	},
 
 	{
@@ -2486,7 +2665,7 @@ var scenarios = []queryScenario{
 							{{"@ptr", "aaaa"}, {"@timestamp", "2021-08-05 15:26:000.123"}},
 							{{"@ptr", "bbbb"}, {"@timestamp", "2021-08-05 15:26:000.125"}},
 						},
-						stats: &Stats{1, 1, 1},
+						stats: &Stats{1, 1, 1, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2506,7 +2685,7 @@ var scenarios = []queryScenario{
 							{{"@ptr", "dddd"}, {"@timestamp", "2021-08-05 15:26:000.126"}},
 							{{"@ptr", "cccc"}, {"@timestamp", "2021-08-05 15:26:000.124"}},
 						},
-						stats: &Stats{2, 2, 1},
+						stats: &Stats{2, 2, 1, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2522,7 +2701,7 @@ var scenarios = []queryScenario{
 				return r[i].get("@timestamp") < r[j].get("@timestamp")
 			})
 		},
-		stats: Stats{3, 3, 2},
+		stats: Stats{3, 3, 2, 0, 0, 0, 0},
 	},
 
 	{
@@ -2557,7 +2736,7 @@ var scenarios = []queryScenario{
 							{{Field: "@ptr", Value: "1"}},
 							{{Field: "@ptr", Value: "2"}},
 						},
-						stats: &Stats{49, 23, 1},
+						stats: &Stats{49, 23, 1, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2573,7 +2752,7 @@ var scenarios = []queryScenario{
 				pollOutputs: []chunkPollOutput{
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
-						stats:  &Stats{3, 2, 3},
+						stats:  &Stats{3, 2, 3, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusComplete,
@@ -2581,7 +2760,7 @@ var scenarios = []queryScenario{
 							{{Field: "@ptr", Value: "3"}},
 							{{Field: "@ptr", Value: "4"}},
 						},
-						stats: &Stats{51, 77, 99},
+						stats: &Stats{51, 77, 99, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2597,7 +2776,7 @@ var scenarios = []queryScenario{
 				return r[i].get("@ptr") < r[j].get("@ptr")
 			})
 		},
-		stats: Stats{100, 100, 100},
+		stats: Stats{100, 100, 100, 0, 0, 0, 0},
 	},
 
 	{
@@ -2625,7 +2804,7 @@ var scenarios = []queryScenario{
 						results: []Result{
 							{{Field: "@ptr", Value: "1"}},
 						},
-						stats: &Stats{11, 22, 33},
+						stats: &Stats{11, 22, 33, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2645,7 +2824,7 @@ var scenarios = []queryScenario{
 							{{Field: "@ptr", Value: "2"}},
 							{{Field: "@ptr", Value: "3"}},
 						},
-						stats: &Stats{44, 55, 66},
+						stats: &Stats{44, 55, 66, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2664,7 +2843,7 @@ var scenarios = []queryScenario{
 						results: []Result{
 							{{Field: "@ptr", Value: "4"}},
 						},
-						stats: &Stats{77, 88, 99},
+						stats: &Stats{77, 88, 99, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2680,7 +2859,7 @@ var scenarios = []queryScenario{
 				return r[i].get("@ptr") < r[j].get("@ptr")
 			})
 		},
-		stats: Stats{132, 165, 198},
+		stats: Stats{132, 165, 198, 0, 0, 0, 0},
 	},
 
 	{
@@ -2722,7 +2901,7 @@ var scenarios = []queryScenario{
 						results: []Result{
 							{{"@ptr", "1"}, {"instance", "1"}},
 						},
-						stats: &Stats{1, 1, 1},
+						stats: &Stats{1, 1, 1, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2785,7 +2964,7 @@ var scenarios = []queryScenario{
 							{{"@ptr", "7"}, {"instance", "1"}},
 							{{"@ptr", "8"}, {"instance", "1"}},
 						},
-						stats: &Stats{1, 1, 1},
+						stats: &Stats{1, 1, 1, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2810,7 +2989,7 @@ var scenarios = []queryScenario{
 				return pi < pj
 			})
 		},
-		stats: Stats{2, 2, 2},
+		stats: Stats{2, 2, 2, 0, 0, 0, 0},
 	},
 }
 

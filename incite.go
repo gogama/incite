@@ -29,8 +29,8 @@ type QuerySpec struct {
 	// Text must not contain an empty or blank string. Beyond checking
 	// for blank text, Incite does not attempt to parse Text and simply
 	// forwards it to the CloudWatch Logs service. Care must be taken to
-	// specify query text compatible with the Chunk and Preview fields
-	// or the results may be misleading.
+	// specify query text compatible with the Chunk, Preview, and Split
+	// fields, or the results may be confusing.
 	//
 	// To limit the number of results returned by the query, use the
 	// Limit field, since the Insights API seems to ignore the `limit`
@@ -159,27 +159,103 @@ type QuerySpec struct {
 	// query capacity in preference to a query whose Priority number is
 	// higher, but only within the same QueryManager.
 	Priority int
+
+	// Split specifies if, and how, the query time range, or the query
+	// time range chunks, will be split into sub-chunks when the time
+	// range produces the maximum number of results that CloudWatch Logs
+	// Insights will return (MaxLimit).
+	//
+	// If zero, no splitting is done, and when a time range produces
+	// MaxLimit results those results are put into the result stream and
+	// the time range is considered complete.
+	//
+	// If a positive number, when a time range produces MaxResults
+	// results, the range is split into 2^Split sub-chunks of equal size
+	// and the sub-chunks are re-queried. The sum of Split + ReSplit
+	// must not exceed MaxSplit.
+	//
+	// To use Split, you must set Limit to MaxLimit and Preview must be
+	// false.
+	Split int
+
+	// ReSplit specifies how many recursive chunk splits will be
+	// performed if sub-chunks resulting from an initial split
+	// themselves produce more than MaxLimit results.
+	//
+	// If zero, no recursive splits are done. If Split is also zero, no
+	// splits are done at all, and if Split is positive while ReSplit is
+	// zero then at most one split is performed.
+	//
+	// If a positive number, then at most that many recursive splits of
+	// sub-chunks are done after the initial split. The sum of
+	// Split + ReSplit must not exceed MaxSplit.
+	ReSplit int
 }
 
-// Stats contains metadata returned by CloudWatch Logs about the amount
-// of data scanned and number of result records matched during one or
-// more Insights queries.
+// Stats records metadata about query execution. When returned from a
+// Stream, Stats contains metadata about the stream's query. When
+// returned from a QueryManager, Stats contains accumulated metadata
+// about all queries executed by the query manager.
+//
+// The Stats structure contains two types of metadata. The first type of
+// metadata are returned from the CloudWatch Logs Insights web service
+// and consist of metrics about the amount of data scanned by the query
+// or queries. The second type of metadata are collected by Incite and
+// consist of metrics about the size of the time range or ranges queried
+// and how much progress has been on the queries.
 type Stats struct {
-	// BytesScanned represents the total number of bytes of log events
+	// BytesScanned is a metric returned by CloudWatch Logs Insights
+	// which represents the total number of bytes of log events
 	// scanned.
 	BytesScanned float64
-	// RecordsMatched counts the number of log events that matched the
-	// query or queries.
+	// RecordsMatched is a metric returned by CloudWatch Logs Insights
+	// which tallies the number of log events that matched the query or
+	// queries.
 	RecordsMatched float64
-	// RecordsScanned counts the number of log events scanned during the
-	// query or queries.
+	// RecordsScanned is a metric returned by CloudWatch Logs Insights
+	// which tallies the number of log events scanned during the query
+	// or queries.
 	RecordsScanned float64
+
+	// RangeRequested is a metric collected by Incite which tallies the
+	// accumulated time range requested the query or queries.
+	RangeRequested time.Duration
+	// RangeStarted is a metric collected by Incite which tallies the
+	// aggregate amount of query time for which the query has been
+	// initiated in the CloudWatch Logs Insights web service. The value
+	// in this field is always less than or equal to RangeRequested, and
+	// it never decreases.
+	//
+	// For a non-chunked query, this field is either zero or the total
+	// time range covered by the QuerySpec. For a chunked query, this
+	// field reflects the accumulated time of all the chunks which have
+	// been started. For a QueryManager, this field represents the
+	// accumulated time of all started query chunks from all queries
+	// submitted to the query manager.
+	RangeStarted time.Duration
+	// RangeDone is a metric collected by Incite which tallies the
+	// aggregate amount of query time which the CloudWatch Logs Insights
+	// service has successfully finished querying so far. The value in
+	// this field is always less than or equal to RangeStarted, and it
+	// never decreases.
+	RangeDone time.Duration
+	// RangeFailed is a metric collected by Incite which tallies the
+	// aggregate amount of query time which was started in the
+	// CloudWatch Logs Insights service but which ended with an error,
+	// either because the Stream or QueryManager was closed, or because
+	// the CloudWatch Logs service returned a non-retryable error.
+	RangeFailed time.Duration
 }
 
-func (s *Stats) add(t Stats) {
+func (s *Stats) add(t *Stats) {
 	s.BytesScanned += t.BytesScanned
 	s.RecordsMatched += t.RecordsMatched
 	s.RecordsScanned += t.RecordsScanned
+
+	s.RangeRequested += t.RangeRequested
+	s.RangeStarted += t.RangeStarted
+	s.RangeDone += t.RangeDone
+	s.RangeFailed += t.RangeFailed
 }
 
 // StatsGetter provides access to the Insights query statistics
@@ -346,6 +422,14 @@ const (
 	// MaxLimit is the maximum value the result count limit field in a
 	// QuerySpec may be set to.
 	MaxLimit = 10000
+
+	// MaxSplit is the maximum allowed value for the sum of the Split
+	// and ReSplit fields in a QuerySpec.
+	//
+	// Depending on the splitting configuration chosen up to 2^16
+	// sub-chunks being spawned from a single original chunk. (If Split
+	// is set to MaxSplit-1 and ReSplit is set to 1.)
+	MaxSplit = 9
 )
 
 // Config provides the NewQueryManager function with the information it
@@ -725,7 +809,7 @@ func (m *mgr) pollNextChunk() int {
 			m.chunks.Unlink(1)
 			c.stream.setErr(err, true, c.Stats)
 			m.statsLock.Lock()
-			m.stats.add(c.Stats)
+			m.stats.add(&c.Stats)
 			m.statsLock.Unlock()
 			m.cancelChunkMaybe(c, err)
 			continue
@@ -739,8 +823,8 @@ func (m *mgr) pollNextChunk() int {
 			m.numChunks--
 			m.statsLock.Lock()
 			c.stream.lock.Lock()
-			m.stats.add(c.Stats)
-			c.stream.stats.add(c.Stats)
+			m.stats.add(&c.Stats)
+			c.stream.stats.add(&c.Stats)
 			m.statsLock.Unlock()
 			c.stream.lock.Unlock()
 			m.logChunk(c, "finished", "")
@@ -1084,6 +1168,22 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 		return nil, errors.New(exceededMaxLimitMsg)
 	}
 
+	if q.Split < 0 {
+		q.Split = 0
+	} else if q.Split > 0 && q.Preview {
+		return nil, errors.New(splitWithPreviewMsg)
+	} else if q.Split > 0 && q.Limit != MaxLimit {
+		return nil, errors.New(splitWithoutMaxLimitMsg)
+	}
+
+	if q.ReSplit < 0 {
+		q.ReSplit = 0
+	} else if q.ReSplit > 0 && q.Split == 0 {
+		return nil, errors.New(reSplitWithoutSplitMsg)
+	} else if q.Split+q.ReSplit > MaxSplit {
+		return nil, errors.New(exceededMaxSplitMsg)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	ss := &stream{
@@ -1237,7 +1337,7 @@ func (s *stream) setErr(err error, lock bool, stats Stats) bool {
 	}
 
 	s.err = err
-	s.stats.add(stats)
+	s.stats.add(&stats)
 	s.more.Signal()
 	return true
 }

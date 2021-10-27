@@ -25,6 +25,10 @@ Features
   results and AWS recommends you chunk your queries into smaller time ranges if
   your query exceeds 10K results. Incite does this chunking automatically and
   merges the results of all chunks into one convenient stream.
+- **Dynamic Splitting**. *Coming in v1.2.0!* Since v1.2.0, Incite can dynamically
+  detect when a query chunk exceeds the 10K result limit, split that chunk into
+  sub-chunks, and re-query the chunks, all automatically and without
+  intervention.
 - **Multiplexing**. Incite efficiently runs multiple queries at the same time
   and is smart enough to do this without getting throttled or going over your
   CloudWatch Logs service quota limits.
