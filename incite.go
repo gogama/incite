@@ -34,9 +34,9 @@ type QuerySpec struct {
 	//
 	// To limit the number of results returned by the query, use the
 	// Limit field, since the Insights API seems to ignore the `limit`
-	// command. Note that if the QuerySpec specifies a chunked query,
-	// then Limit will apply to the results obtained from each chunk,
-	// not to the global query.
+	// command when specified in the query text. Note that if the
+	// QuerySpec specifies a chunked query, then Limit will apply to the
+	// results obtained from each chunk, not to the global query.
 	//
 	// To learn the Insights query syntax, please see the official
 	// documentation at:
