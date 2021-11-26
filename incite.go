@@ -80,11 +80,13 @@ type QuerySpec struct {
 	// Chunk optionally requests a chunked query and indicates the chunk
 	// size.
 	//
-	// If Chunk is zero, negative, or greater than the difference between
-	// End and Start, the query is not chunked. If Chunk is positive and
-	// less than the difference between End and Start, the query is
-	// broken into n chunks, where n is (End-Start)/Chunk, rounded up to
-	// the nearest integer value.
+	// If Chunk is zero, negative, or greater than the difference
+	// between End and Start, the query is not chunked. If Chunk is
+	// positive and less than the difference between End and Start, the
+	// query is broken into n chunks, where n is (End-Start)/Chunk,
+	// rounded up to the nearest integer value. If Chunk is positive, it
+	// must represent a whole number of seconds (cannot have sub-second
+	// granularity).
 	//
 	// In a chunked query, each chunk is sent to the CloudWatch Logs
 	// service as a separate Insights query. This can help large queries
@@ -160,36 +162,28 @@ type QuerySpec struct {
 	// higher, but only within the same QueryManager.
 	Priority int
 
-	// Split specifies if, and how, the query time range, or the query
-	// time range chunks, will be split into sub-chunks when the time
-	// range produces the maximum number of results that CloudWatch Logs
-	// Insights will return (MaxLimit).
+	// SplitUntil specifies if, and how, the query time range, or the
+	// query chunks, will be split into sub-chunks when it produces the
+	// maximum number of results that CloudWatch Logs Insights will
+	// return (MaxLimit).
 	//
-	// If zero, no splitting is done, and when a time range produces
-	// MaxLimit results those results are put into the result stream and
-	// the time range is considered complete.
+	// If SplitUntil is zero or negative, then splitting is disabled.
+	// If positive, then splitting is enabled and SplitUntil must
+	// represent a whole number of seconds (cannot have sub-second
+	// granularity).
 	//
-	// If a positive number, when a time range produces MaxResults
-	// results, the range is split into 2^Split sub-chunks of equal size
-	// and the sub-chunks are re-queried. The sum of Split + ReSplit
-	// must not exceed MaxSplit.
+	// When splitting is enabled and, when a time range produces
+	// MaxLimit results, the range is split into sub-chunks no larger
+	// than SplitUntil. If a sub-chunk produces MaxLimit results, it is
+	// recursively split into smaller sub-sub-chunks again no larger
+	// than SplitUntil. The splitting process continues until either
+	// the time range cannot be split into at least two chunks no
+	// smaller than SplitUntil or the time range produces fewer than
+	// MaxLimit results.
 	//
-	// To use Split, you must set Limit to MaxLimit and Preview must be
-	// false.
-	Split int
-
-	// ReSplit specifies how many recursive chunk splits will be
-	// performed if sub-chunks resulting from an initial split
-	// themselves produce more than MaxLimit results.
-	//
-	// If zero, no recursive splits are done. If Split is also zero, no
-	// splits are done at all, and if Split is positive while ReSplit is
-	// zero then at most one split is performed.
-	//
-	// If a positive number, then at most that many recursive splits of
-	// sub-chunks are done after the initial split. The sum of
-	// Split + ReSplit must not exceed MaxSplit.
-	ReSplit int
+	// To use splitting, you must also set Limit to MaxLimit and
+	// Preview must be false.
+	SplitUntil time.Duration
 }
 
 // Stats records metadata about query execution. When returned from a
@@ -422,14 +416,6 @@ const (
 	// MaxLimit is the maximum value the result count limit field in a
 	// QuerySpec may be set to.
 	MaxLimit = 10000
-
-	// MaxSplit is the maximum allowed value for the sum of the Split
-	// and ReSplit fields in a QuerySpec.
-	//
-	// Depending on the splitting configuration chosen up to 2^16
-	// sub-chunks being spawned from a single original chunk. (If Split
-	// is set to MaxSplit-1 and ReSplit is set to 1.)
-	MaxSplit = 9
 )
 
 // Config provides the NewQueryManager function with the information it
@@ -1153,6 +1139,8 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 	d := q.End.Sub(q.Start)
 	if q.Chunk <= 0 {
 		q.Chunk = d
+	} else if hasSubSecondD(q.Chunk) {
+		return nil, errors.New(chunkSubSecondMsg)
 	} else if q.Chunk > d {
 		q.Chunk = d
 	}
@@ -1168,20 +1156,12 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 		return nil, errors.New(exceededMaxLimitMsg)
 	}
 
-	if q.Split < 0 {
-		q.Split = 0
-	} else if q.Split > 0 && q.Preview {
-		return nil, errors.New(splitWithPreviewMsg)
-	} else if q.Split > 0 && q.Limit != MaxLimit {
-		return nil, errors.New(splitWithoutMaxLimitMsg)
-	}
-
-	if q.ReSplit < 0 {
-		q.ReSplit = 0
-	} else if q.ReSplit > 0 && q.Split == 0 {
-		return nil, errors.New(reSplitWithoutSplitMsg)
-	} else if q.Split+q.ReSplit > MaxSplit {
-		return nil, errors.New(exceededMaxSplitMsg)
+	if q.SplitUntil <= 0 {
+		q.SplitUntil = q.Chunk
+	} else if hasSubSecondD(q.SplitUntil) {
+		return nil, errors.New(splitUntilSubSecondMsg)
+	} else if q.Preview {
+		return nil, errors.New(splitUntilWithPreviewMsg)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1209,6 +1189,10 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 
 func hasSubSecond(t time.Time) bool {
 	return t.Nanosecond() != 0
+}
+
+func hasSubSecondD(d time.Duration) bool {
+	return d%time.Second > 0
 }
 
 func (m *mgr) GetStats() Stats {
