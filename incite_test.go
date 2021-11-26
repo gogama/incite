@@ -895,10 +895,10 @@ func TestQueryManager_Query(t *testing.T) {
 			{
 				name: "SplitUntil.SubSecond",
 				QuerySpec: QuerySpec{
-					Text:       "He will not see my stopping here",
+					Text:       "Whose woods are these?\nI think I know",
 					Start:      defaultStart,
 					End:        defaultEnd,
-					Groups:     []string{"To watch his woods", "fill up with snow"},
+					Groups:     []string{"His house is in the village", "Though"},
 					Limit:      MaxLimit - 1,
 					SplitUntil: time.Minute + 10*time.Microsecond,
 				},
@@ -907,15 +907,31 @@ func TestQueryManager_Query(t *testing.T) {
 			{
 				name: "SplitUntil.With.Preview",
 				QuerySpec: QuerySpec{
-					Text:       "Whose woods are these?\nI think I know",
+					Text:       "He will not see my stopping here",
 					Start:      defaultStart,
 					End:        defaultEnd,
-					Groups:     []string{"His house is in the village", "Though"},
+					Groups:     []string{"To watch his woods", "fill up with snow"},
 					Limit:      MaxLimit,
 					Preview:    true,
 					SplitUntil: time.Second,
 				},
 				err: splitUntilWithPreviewMsg,
+			},
+			{
+				name: "SplitUntil.Without.MaxLimit",
+				QuerySpec: QuerySpec{
+					Text:  "My little horse must think it queer",
+					Start: defaultStart,
+					End:   defaultEnd,
+					Groups: []string{
+						"To stop without a farmhouse near",
+						"Between the woods and frozen lake",
+						"The darkest evening of the year",
+					},
+					Limit:      MaxLimit - 1,
+					SplitUntil: time.Second,
+				},
+				err: splitUntilWithoutMaxLimit,
 			},
 		}
 
@@ -1012,6 +1028,7 @@ func TestQueryManager_Query(t *testing.T) {
 					Start:      defaultStart,
 					End:        defaultEnd,
 					Groups:     []string{"bar", "Baz"},
+					Limit:      MaxLimit,
 					Chunk:      3 * time.Minute,
 					SplitUntil: 3 * time.Minute,
 				},
@@ -1020,7 +1037,7 @@ func TestQueryManager_Query(t *testing.T) {
 					Start:      defaultStart,
 					End:        defaultEnd,
 					Groups:     []string{"bar", "Baz"},
-					Limit:      DefaultLimit,
+					Limit:      MaxLimit,
 					Chunk:      3 * time.Minute,
 					SplitUntil: 3 * time.Minute,
 				},
@@ -1505,7 +1522,7 @@ func TestQueryManager_Query(t *testing.T) {
 		// ARRANGE.
 		M := 25 // Number of queries
 		N := 4  // Number of chunks per query
-		chunk := time.Duration(int64(defaultEnd.Sub(defaultStart)) / int64(N))
+		chunk := defaultDuration / time.Duration(N)
 		starts := make([]string, 0, M*N)
 		gets := make([]string, 0, M*N)
 		actions := newMockActions(t)
@@ -1640,7 +1657,7 @@ func TestQueryManager_Query(t *testing.T) {
 				}, nil).
 				Once()
 			logger.
-				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "finished", "0(foo)").
+				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "finished", "0(foo)").
 				Once()
 			// CHUNK 2.
 			queryIDChunk2 := []string{"bar.try1", "bar.try2"}
@@ -1719,6 +1736,196 @@ func TestQueryManager_Query(t *testing.T) {
 			actions.AssertExpectations(t)
 			logger.AssertExpectations(t)
 		})
+	})
+
+	t.Run("Chunks are Split as Expected", func(t *testing.T) {
+		// Override maxLimit to 2 for testing purposes.
+		maxLimit = 2
+		t.Cleanup(func() {
+			// Restore maxLimit after this test finishes.
+			maxLimit = MaxLimit
+		})
+
+		// Define the test cases.
+		type expectedChunk struct {
+			size       time.Duration
+			start, end int // Result inclusive start and exclusive end index
+			chunks     []expectedChunk
+		}
+		testCases := []struct {
+			name   string
+			chunks []expectedChunk
+		}{
+			{
+				name:   "Already Minimum Chunk Size",
+				chunks: []expectedChunk{{time.Second, 0, 2, nil}},
+			},
+			{
+				name: "One Split in Half",
+				chunks: []expectedChunk{
+					{
+						size:  2 * time.Second,
+						start: 0,
+						end:   2,
+						chunks: []expectedChunk{
+							{time.Second, 0, 2, nil},
+							{time.Second, 2, 3, nil},
+						},
+					},
+				},
+			},
+			{
+				name: "One Split in Thirds",
+				chunks: []expectedChunk{
+					{
+						size:  3 * time.Second,
+						start: 0,
+						end:   2,
+						chunks: []expectedChunk{
+							{time.Second, 0, 1, nil},
+							{time.Second, 1, 3, nil},
+							{time.Second, 3, 5, nil},
+						},
+					},
+				},
+			},
+			{
+				name: "One Split in Quarters",
+				chunks: []expectedChunk{
+					{
+						size:  4 * time.Second,
+						start: 0,
+						end:   2,
+						chunks: []expectedChunk{
+							{time.Second, 0, 1, nil},
+							{time.Second, 1, 3, nil},
+							{time.Second, 3, 5, nil},
+							{time.Second, 5, 6, nil},
+						},
+					},
+				},
+			},
+			{
+				name: "Odd Splits",
+				chunks: []expectedChunk{
+					{
+						size:  5 * time.Second,
+						start: 0,
+						end:   2,
+						chunks: []expectedChunk{
+							{2 * time.Second, 0, 1, nil},
+							{
+								size:  2 * time.Second,
+								start: 1, end: 3,
+								chunks: []expectedChunk{
+									{time.Second, 1, 2, nil},
+									{time.Second, 2, 3, nil},
+								},
+							},
+							{time.Second, 3, 5, nil},
+						},
+					},
+				},
+			},
+		}
+
+		// Run the sub-tests.
+		for _, testCase := range testCases {
+			t.Run(testCase.name, func(t *testing.T) {
+				// ARRANGE.
+				logger := newMockLogger(t)
+				actions := newMockActions(t)
+				var expectedResults []Result
+				var f func(string, time.Duration, expectedChunk)
+				f = func(chunkID string, offset time.Duration, chunk expectedChunk) {
+					actions.
+						On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
+							QueryString:   sp("foo"),
+							LogGroupNames: []*string{sp("bar")},
+							Limit:         int64p(maxLimit),
+							StartTime:     startTimeSeconds(defaultStart.Add(offset)),
+							EndTime:       endTimeSeconds(defaultStart.Add(offset).Add(chunk.size)),
+						}).
+						Return(&cloudwatchlogs.StartQueryOutput{
+							QueryId: sp(chunkID),
+						}, nil).
+						Once()
+					chunkResults := resultSeries(chunk.start, chunk.end-chunk.start)
+					actions.
+						On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{
+							QueryId: sp(chunkID),
+						}).
+						Return(&cloudwatchlogs.GetQueryResultsOutput{
+							Results: backOut(chunkResults),
+							Status:  sp(cloudwatchlogs.QueryStatusComplete),
+						}, nil).Once()
+					logger.
+						ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", chunkID+"("+chunkID+")", "foo").
+						Once()
+					logger.
+						ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "finished", chunkID+"("+chunkID+")", "foo").
+						Once()
+					if len(chunk.chunks) == 0 {
+						expectedResults = append(expectedResults, chunkResults...)
+						return
+					}
+					logger.
+						ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "split", chunkID+"("+chunkID+")", "foo").
+						Once()
+					for j := range chunk.chunks {
+						f(chunkID+"s"+strconv.Itoa(j), offset, chunk.chunks[j])
+						offset += chunk.chunks[j].size
+					}
+				}
+				var offset time.Duration
+				for i := range testCase.chunks {
+					f(strconv.Itoa(i), offset, testCase.chunks[i])
+					offset += testCase.chunks[i].size
+				}
+				logger.
+					ExpectPrintf("incite: QueryManager(%s) started", t.Name()).
+					Once()
+				logger.
+					ExpectPrintf("incite: QueryManager(%s) stopping...", t.Name()).
+					Maybe()
+				logger.
+					ExpectPrintf("incite: QueryManager(%s) stopped", t.Name()).
+					Maybe()
+				m := NewQueryManager(Config{
+					Actions: actions,
+					RPS:     lotsOfRPS,
+					Logger:  logger,
+					Name:    t.Name(),
+				})
+				t.Cleanup(func() {
+					_ = m.Close()
+				})
+				s, err := m.Query(QuerySpec{
+					Text:       "foo",
+					Groups:     []string{"bar"},
+					Start:      defaultStart,
+					End:        defaultStart.Add(offset),
+					Limit:      maxLimit,
+					Chunk:      testCase.chunks[0].size,
+					SplitUntil: time.Second,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, s)
+
+				// ACT.
+				var actualResults []Result
+				actualResults, err = ReadAll(s)
+
+				// ASSERT.
+				assert.NoError(t, err)
+				sort.Slice(actualResults, func(i, j int) bool {
+					return actualResults[i].get("@ptr") < actualResults[j].get("@ptr")
+				})
+				assert.Equal(t, expectedResults, actualResults)
+				actions.AssertExpectations(t)
+				logger.AssertExpectations(t)
+			})
+		}
 	})
 }
 
@@ -2572,6 +2779,113 @@ var scenarios = []queryScenario{
 	},
 
 	{
+		note: "OneChunk.Split.Once",
+		QuerySpec: QuerySpec{
+			Text:       "display many, things",
+			Start:      defaultStart,
+			End:        defaultEnd,
+			Limit:      MaxLimit,
+			Groups:     []string{"/plentiful/logs/grouped/within"},
+			Chunk:      defaultDuration,
+			SplitUntil: time.Second,
+		},
+		chunks: []chunkPlan{
+			// Original chunk.
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("display many, things"),
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultEnd),
+					Limit:         int64p(MaxLimit),
+					LogGroupNames: []*string{sp("/plentiful/logs/grouped/within")},
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status:  cloudwatchlogs.QueryStatusComplete,
+						results: maxLimitResults,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0},
+					},
+				},
+			},
+			// Split chunk 1/4.
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("display many, things"),
+					StartTime:     startTimeSeconds(defaultStart),
+					EndTime:       endTimeSeconds(defaultStart.Add(defaultDuration / 4)),
+					Limit:         int64p(MaxLimit),
+					LogGroupNames: []*string{sp("/plentiful/logs/grouped/within")},
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status:  cloudwatchlogs.QueryStatusComplete,
+						results: maxLimitResults[0 : MaxLimit/4],
+						stats:   &Stats{2, 2, 2, 0, 0, 0, 0},
+					},
+				},
+			},
+			// Split chunk 2/4.
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("display many, things"),
+					StartTime:     startTimeSeconds(defaultStart.Add(defaultDuration / 4)),
+					EndTime:       endTimeSeconds(defaultStart.Add(defaultDuration / 2)),
+					Limit:         int64p(MaxLimit),
+					LogGroupNames: []*string{sp("/plentiful/logs/grouped/within")},
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status:  cloudwatchlogs.QueryStatusComplete,
+						results: maxLimitResults[MaxLimit/4 : MaxLimit/2],
+						stats:   &Stats{3, 3, 3, 0, 0, 0, 0},
+					},
+				},
+			},
+			// Split chunk 3/4.
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("display many, things"),
+					StartTime:     startTimeSeconds(defaultStart.Add(defaultDuration / 2)),
+					EndTime:       endTimeSeconds(defaultStart.Add(3 * defaultDuration / 4)),
+					Limit:         int64p(MaxLimit),
+					LogGroupNames: []*string{sp("/plentiful/logs/grouped/within")},
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status:  cloudwatchlogs.QueryStatusComplete,
+						results: maxLimitResults[MaxLimit/2 : 3*MaxLimit/4],
+						stats:   &Stats{4, 4, 4, 0, 0, 0, 0},
+					},
+				},
+			},
+			// Split chunk 4/4.
+			{
+				startQueryInput: cloudwatchlogs.StartQueryInput{
+					QueryString:   sp("display many, things"),
+					StartTime:     startTimeSeconds(defaultStart.Add(3 * defaultDuration / 4)),
+					EndTime:       endTimeSeconds(defaultEnd),
+					Limit:         int64p(MaxLimit),
+					LogGroupNames: []*string{sp("/plentiful/logs/grouped/within")},
+				},
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status:  cloudwatchlogs.QueryStatusComplete,
+						results: maxLimitResults[3*MaxLimit/4 : MaxLimit],
+						stats:   &Stats{5, 5, 5, 0, 0, 0, 0},
+					},
+				},
+			},
+		},
+		results: maxLimitResults,
+		stats:   Stats{15, 15, 15, 0, 0, 0, 0},
+	},
+
+	{
 		note: "MultiChunk.LessThanOne",
 		QuerySpec: QuerySpec{
 			Text:   "stats count_distinct(Eggs) as EggCount By Spam",
@@ -3138,10 +3452,7 @@ func (cp *chunkPlan) setup(i, j int, note string, closeEarly, cancelChunk bool, 
 				output.Status = &pollOutput.status
 			}
 			if pollOutput.results != nil {
-				output.Results = make([][]*cloudwatchlogs.ResultField, len(pollOutput.results))
-				for l := range pollOutput.results {
-					output.Results[l] = pollOutput.results[l].backOut()
-				}
+				output.Results = backOut(pollOutput.results)
 			}
 			if pollOutput.stats != nil {
 				output.Statistics = pollOutput.stats.backOut()
@@ -3170,6 +3481,13 @@ func (cp *chunkPlan) setup(i, j int, note string, closeEarly, cancelChunk bool, 
 			call.Maybe()
 		}
 	}
+}
+
+func backOut(r []Result) (cwl [][]*cloudwatchlogs.ResultField) {
+	for _, rr := range r {
+		cwl = append(cwl, rr.backOut())
+	}
+	return // Will return nil if r is nil
 }
 
 func (r Result) backOut() (cwl []*cloudwatchlogs.ResultField) {
@@ -3242,11 +3560,20 @@ func (r Result) get(k string) (v string) {
 	return
 }
 
+func resultSeries(i, n int) []Result {
+	series := make([]Result, n)
+	for j := range series {
+		series[j] = []ResultField{{"@ptr", strconv.Itoa(i + j)}}
+	}
+	return series
+}
+
 var (
-	defaultStart = time.Date(2020, 8, 25, 3, 30, 0, 0, time.UTC)
-	defaultEnd   = defaultStart.Add(5 * time.Minute)
-	defaultLimit = int64p(DefaultLimit)
-	lotsOfRPS    = map[CloudWatchLogsAction]int{
+	defaultDuration = 5 * time.Minute
+	defaultStart    = time.Date(2020, 8, 25, 3, 30, 0, 0, time.UTC)
+	defaultEnd      = defaultStart.Add(defaultDuration)
+	defaultLimit    = int64p(DefaultLimit)
+	lotsOfRPS       = map[CloudWatchLogsAction]int{
 		StartQuery:      100_000,
 		GetQueryResults: 100_000,
 		StopQuery:       100_000,
@@ -3256,4 +3583,5 @@ var (
 	})
 	anyStartQueryInput      = mock.AnythingOfType("*cloudwatchlogs.StartQueryInput")
 	anyGetQueryResultsInput = mock.AnythingOfType("*cloudwatchlogs.GetQueryResultsInput")
+	maxLimitResults         = resultSeries(0, MaxLimit)
 )

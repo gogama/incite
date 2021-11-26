@@ -837,7 +837,7 @@ func (m *mgr) pollNextChunk() int {
 			c.stream.stats.add(&c.Stats)
 			m.statsLock.Unlock()
 			c.stream.lock.Unlock()
-			m.logChunk(c, "finished", "")
+			m.logChunk(c, "finished", "end of chunk")
 		} else {
 			m.chunks.Prev().Link(r)
 		}
@@ -892,6 +892,9 @@ func (m *mgr) pollChunk(c *chunk) error {
 		return sendChunkBlock(c, output.Results, false)
 	case cloudwatchlogs.QueryStatusComplete:
 		translateStats(output.Statistics, &c.Stats)
+		if m.splitChunk(c, len(output.Results)) {
+			return errEndOfChunk
+		}
 		return sendChunkBlock(c, output.Results, true)
 	case cloudwatchlogs.QueryStatusFailed:
 		if c.ptr == nil {
@@ -903,6 +906,79 @@ func (m *mgr) pollChunk(c *chunk) error {
 		translateStats(output.Statistics, &c.Stats)
 		return &TerminalQueryStatusError{c.queryID, c.status, c.stream.Text}
 	}
+}
+
+// splitBits is the number of child chunks into which a parent chunk
+// will be split, assuming the parent chunk range is at least splitBits
+// seconds long. The minimum chunk size is one second, so a 4-second
+// parent chunk will be split into four chunks, but a two-second child
+// chunk will only be split into two child chunks.
+const splitBits = 4
+
+// maxLimit is an indirect holder for the constant value MaxLimit used
+// to facilitate unit testing.
+var maxLimit int64 = MaxLimit
+
+func (m *mgr) splitChunk(c *chunk, n int) bool {
+	if c.ptr != nil {
+		return false // Can't split chunks if previewing is on.
+	}
+	if int64(n) != maxLimit || c.stream.Limit != maxLimit {
+		return false // Don't split unless chunk query overflowed CWL max results.
+	}
+	d := c.end.Sub(c.start)
+	if d <= c.stream.SplitUntil {
+		return false // Stop splitting when we reach minimum chunk size.
+	}
+
+	splitter := func(parent *chunk, start time.Time, frac time.Duration, n int) *chunk {
+		end := start.Add(frac)
+		if end.After(parent.end) {
+			end = parent.end
+		}
+		chunkID := fmt.Sprintf("%ss%d", c.chunkID, n)
+		return &chunk{
+			stream:  parent.stream,
+			ctx:     context.WithValue(parent.stream.ctx, chunkIDKey, chunkID),
+			chunkID: chunkID,
+			start:   start,
+			end:     end,
+		}
+	}
+
+	frac := d / splitBits
+	if hasSubSecondD(frac) {
+		frac = frac + time.Second/2
+		frac = frac.Round(time.Second)
+	}
+
+	children := make([]*chunk, 1, splitBits)
+	child := splitter(c, c.start, frac, 0)
+	children[0] = child
+	for child.end.Before(c.end) {
+		child = splitter(c, child.end, frac, len(children))
+		children = append(children, child)
+	}
+
+	var b strings.Builder
+	r := ring.New(len(children))
+	r.Value = children[0]
+	r = r.Next()
+	_, _ = fmt.Fprintf(&b, "in %d sub-chunks... ", len(children))
+	b.WriteString(children[0].chunkID)
+	for i := 1; i < len(children); i++ {
+		r.Value = children[i]
+		r = r.Next()
+		b.WriteString(" / ")
+		b.WriteString(children[i].chunkID)
+	}
+
+	m.logChunk(c, "split", b.String())
+	c.stream.m++
+	c.stream.n += int64(len(children))
+	m.numReady += len(children)
+	m.ready.Prev().Link(r)
+	return true
 }
 
 func (m *mgr) cancelChunk(c *chunk, err error) {
@@ -1084,7 +1160,7 @@ func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) 
 		c.ptr[ptr] = true
 	}
 
-	// Return the block so it can be sent to the stream.
+	// Return the block so it can be sent to the| stream.
 	return block, nil
 }
 
@@ -1176,7 +1252,7 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 
 	if q.Limit <= 0 {
 		q.Limit = DefaultLimit
-	} else if q.Limit > MaxLimit {
+	} else if q.Limit > maxLimit {
 		return nil, errors.New(exceededMaxLimitMsg)
 	}
 
@@ -1186,6 +1262,8 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 		return nil, errors.New(splitUntilSubSecondMsg)
 	} else if q.Preview {
 		return nil, errors.New(splitUntilWithPreviewMsg)
+	} else if q.Limit < maxLimit {
+		return nil, errors.New(splitUntilWithoutMaxLimit)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
