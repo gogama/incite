@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1891,6 +1892,54 @@ func TestStream_Close(t *testing.T) {
 	}
 }
 
+func TestIsTemporary(t *testing.T) {
+	t.Run("True Cases", func(t *testing.T) {
+		trueCases := []error{
+			cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "stay under that limit"),
+			cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "stand by for more great service"),
+			cwlErr("tttthroTTLED!", "simmer down"),
+			io.EOF,
+			wrapErr{io.EOF},
+			cwlErr("i am at the end of my file", "the end I say", io.EOF),
+			syscall.ETIMEDOUT,
+			wrapErr{syscall.ETIMEDOUT},
+			cwlErr("my time has run out", "the end I say", syscall.ETIMEDOUT),
+			syscall.ECONNREFUSED,
+			wrapErr{syscall.ECONNREFUSED},
+			cwlErr("let there be no connection", "for it has been refused", syscall.ECONNREFUSED),
+			syscall.ECONNRESET,
+			wrapErr{syscall.ECONNRESET},
+			cwlErr("Reset that conn!", "Reset, reset!", syscall.ECONNRESET),
+		}
+		for i, trueCase := range trueCases {
+			t.Run(fmt.Sprintf("trueCase[%d]=%s", i, trueCase), func(t *testing.T) {
+				assert.True(t, isTemporary(trueCase))
+			})
+		}
+	})
+
+	t.Run("False Cases", func(t *testing.T) {
+		falseCases := []error{
+			nil,
+			errors.New("bif"),
+			cwlErr(cloudwatchlogs.ErrCodeInvalidOperationException, "foo"),
+			cwlErr(cloudwatchlogs.ErrCodeInvalidParameterException, "bar"),
+			cwlErr(cloudwatchlogs.ErrCodeMalformedQueryException, "baz"),
+			cwlErr(cloudwatchlogs.ErrCodeResourceNotFoundException, "ham"),
+			cwlErr(cloudwatchlogs.ErrCodeUnrecognizedClientException, "eggs"),
+			syscall.ENETDOWN,
+			wrapErr{syscall.ENETDOWN},
+			cwlErr("Ain't no network", "It's down", syscall.ENETDOWN),
+		}
+		for i, falseCase := range falseCases {
+			t.Run(fmt.Sprintf("trueCase[%d]=%s", i, falseCase), func(t *testing.T) {
+				assert.False(t, isTemporary(falseCase))
+			})
+		}
+	})
+
+}
+
 func TestScenariosSerial(t *testing.T) {
 	actions := newMockActions(t)
 	m := NewQueryManager(Config{
@@ -2200,11 +2249,15 @@ var scenarios = []queryScenario{
 					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "use less"),
 					cwlErr("Throttling", "slow down"),
 					cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "wait for it..."),
+					io.EOF,
 				},
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
 						status: cloudwatchlogs.QueryStatusScheduled,
+					},
+					{
+						err: io.EOF,
 					},
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
@@ -3157,8 +3210,26 @@ func endTimeSeconds(t time.Time) *int64 {
 	return startTimeSeconds(t.Add(-time.Second))
 }
 
-func cwlErr(code, message string) error {
-	return awserr.New(code, message, nil)
+func cwlErr(code, message string, cause ...error) error {
+	var origErr error
+	if len(cause) == 1 {
+		origErr = cause[0]
+	} else if len(cause) > 1 {
+		panic("only one cause allowed")
+	}
+	return awserr.New(code, message, origErr)
+}
+
+type wrapErr struct {
+	cause error
+}
+
+func (err wrapErr) Error() string {
+	return fmt.Sprintf("wrapped: %s", err.cause)
+}
+
+func (err wrapErr) Unwrap() error {
+	return err.cause
 }
 
 func (r Result) get(k string) (v string) {

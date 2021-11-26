@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -716,10 +717,33 @@ func isTemporary(err error) bool {
 			return true
 		default:
 			// Omit 'e' suffix on 'throttl' to match Throttled and Throttling.
-			return strings.Contains(strings.ToLower(x.Code()), "throttl") ||
-				strings.Contains(strings.ToLower(x.Message()), "rate exceeded")
+			if strings.Contains(strings.ToLower(x.Code()), "throttl") ||
+				strings.Contains(strings.ToLower(x.Message()), "rate exceeded") {
+				return true
+			}
+			return isTemporary(x.OrigErr())
 		}
 	}
+
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+
+	var maybeTimeout interface{ Timeout() bool }
+	if errors.As(err, &maybeTimeout) && maybeTimeout.Timeout() {
+		return true
+	}
+
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		switch errno {
+		case syscall.ECONNREFUSED, syscall.ECONNRESET:
+			return true
+		default:
+			return false
+		}
+	}
+
 	return false
 }
 
