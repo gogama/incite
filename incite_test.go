@@ -1864,7 +1864,7 @@ func TestQueryManager_Query(t *testing.T) {
 						Once()
 					logger.
 						ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "finished", chunkID+"("+chunkID+")", "foo").
-						Once()
+						Maybe()
 					if len(chunk.chunks) == 0 {
 						expectedResults = append(expectedResults, chunkResults...)
 						return
