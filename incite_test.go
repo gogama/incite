@@ -973,6 +973,7 @@ func TestQueryManager_Query(t *testing.T) {
 			expectedGroups   []*string
 			expectedNext     int64
 			expectedCauseErr error
+			expectedStats    Stats
 		}{
 			{
 				name: "Zero",
@@ -996,6 +997,11 @@ func TestQueryManager_Query(t *testing.T) {
 				expectedGroups:   []*string{sp("bar"), sp("Baz")},
 				expectedNext:     1,
 				expectedCauseErr: causeErr,
+				expectedStats: Stats{
+					RangeRequested: defaultDuration,
+					RangeStarted:   defaultDuration,
+					RangeFailed:    defaultDuration,
+				},
 			},
 			{
 				name: "ChunkExceedsRange",
@@ -1020,6 +1026,11 @@ func TestQueryManager_Query(t *testing.T) {
 				expectedGroups:   []*string{sp("bar"), sp("Baz")},
 				expectedNext:     1,
 				expectedCauseErr: causeErr,
+				expectedStats: Stats{
+					RangeRequested: defaultDuration,
+					RangeStarted:   defaultDuration,
+					RangeFailed:    defaultDuration,
+				},
 			},
 			{
 				name: "PartialChunk",
@@ -1046,6 +1057,11 @@ func TestQueryManager_Query(t *testing.T) {
 				expectedGroups:   []*string{sp("bar"), sp("Baz")},
 				expectedNext:     1,
 				expectedCauseErr: causeErr,
+				expectedStats: Stats{
+					RangeRequested: defaultDuration,
+					RangeStarted:   3 * time.Minute,
+					RangeFailed:    3 * time.Minute,
+				},
 			},
 			{
 				name: "MissingQueryID",
@@ -1070,6 +1086,11 @@ func TestQueryManager_Query(t *testing.T) {
 				expectedGroups:   []*string{sp("eggs"), sp("Spam")},
 				expectedNext:     1,
 				expectedCauseErr: errors.New(outputMissingQueryIDMsg),
+				expectedStats: Stats{
+					RangeRequested: defaultDuration,
+					RangeStarted:   defaultDuration,
+					RangeFailed:    defaultDuration,
+				},
 			},
 		}
 
@@ -1108,13 +1129,15 @@ func TestQueryManager_Query(t *testing.T) {
 				var sqe *StartQueryError
 				assert.ErrorAs(t, err, &sqe)
 				assert.Equal(t, sqe.Cause, testCase.expectedCauseErr)
-				assert.Equal(t, Stats{}, s.GetStats())
+				assert.Equal(t, testCase.expectedStats, s.GetStats())
+				s.GetStats().checkInvariants(t, true, false)
 
 				err = s.Close()
 				assert.NoError(t, err)
 				err = s.Close()
 				assert.Same(t, ErrClosed, err)
-				assert.Equal(t, Stats{}, s.GetStats())
+				assert.Equal(t, testCase.expectedStats, s.GetStats())
+				s.GetStats().checkInvariants(t, true, false)
 
 				actions.AssertExpectations(t)
 			})
@@ -2222,6 +2245,11 @@ var scenarios = []queryScenario{
 			},
 		},
 		err: &StartQueryError{"a poorly written query", defaultStart, defaultEnd, cwlErr(cloudwatchlogs.ErrCodeInvalidParameterException, "terrible query writing there bud")},
+		stats: Stats{
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeFailed:    defaultDuration,
+		},
 	},
 	{
 		note: "NoStart.UnexpectedError",
@@ -2245,6 +2273,11 @@ var scenarios = []queryScenario{
 			},
 		},
 		err: &StartQueryError{"an ill-fated query", defaultStart, defaultEnd, errors.New("pow exclamation point")},
+		stats: Stats{
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeFailed:    defaultDuration,
+		},
 	},
 
 	{
@@ -2271,6 +2304,11 @@ var scenarios = []queryScenario{
 					},
 				},
 			},
+		},
+		stats: Stats{
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeDone:      defaultDuration,
 		},
 		closeAfter: true,
 	},
@@ -2301,6 +2339,11 @@ var scenarios = []queryScenario{
 			},
 		},
 		err: &TerminalQueryStatusError{"scenario:3|chunk:0|OneChunk.OnePoll.Status.Cancelled", cloudwatchlogs.QueryStatusCancelled, "destined for cancellation"},
+		stats: Stats{
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeFailed:    defaultDuration,
+		},
 	},
 	{
 		note: "OneChunk.OnePoll.Status.Timeout",
@@ -2328,6 +2371,11 @@ var scenarios = []queryScenario{
 			},
 		},
 		err: &TerminalQueryStatusError{"scenario:4|chunk:0|OneChunk.OnePoll.Status.Timeout", "Timeout", "tempting a timeout"},
+		stats: Stats{
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeFailed:    defaultDuration,
+		},
 	},
 	{
 		note: "OneChunk.OnePoll.Status.Unexpected",
@@ -2354,8 +2402,13 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
+		err: &TerminalQueryStatusError{"scenario:5|chunk:0|OneChunk.OnePoll.Status.Unexpected", "Did you see this coming?", "expecting the unexpected...status"},
+		stats: Stats{
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeFailed:    defaultDuration,
+		},
 		expectStop: true,
-		err:        &TerminalQueryStatusError{"scenario:5|chunk:0|OneChunk.OnePoll.Status.Unexpected", "Did you see this coming?", "expecting the unexpected...status"},
 	},
 	{
 		note: "OneChunk.OnePoll.Error.Unexpected",
@@ -2382,8 +2435,13 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
+		err: &UnexpectedQueryError{"scenario:6|chunk:0|OneChunk.OnePoll.Error.Unexpected", "expecting the unexpected...error", errors.New("very bad news")},
+		stats: Stats{
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeFailed:    defaultDuration,
+		},
 		expectStop: true,
-		err:        &UnexpectedQueryError{"scenario:6|chunk:0|OneChunk.OnePoll.Error.Unexpected", "expecting the unexpected...error", errors.New("very bad news")},
 	},
 	{
 		note: "OneChunk.OnePoll.WithResults",
@@ -2432,7 +2490,14 @@ var scenarios = []queryScenario{
 				{"@MyField", "goodbye"},
 			},
 		},
-		stats: Stats{1, 2, 3, 0, 0, 0, 0},
+		stats: Stats{
+			BytesScanned:   1,
+			RecordsMatched: 2,
+			RecordsScanned: 3,
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeDone:      defaultDuration,
+		},
 	},
 
 	{
@@ -2513,7 +2578,14 @@ var scenarios = []queryScenario{
 				{"MyField", "world"},
 			},
 		},
-		stats: Stats{100, 99, 98, 0, 0, 0, 0},
+		stats: Stats{
+			BytesScanned:   100,
+			RecordsMatched: 99,
+			RecordsScanned: 98,
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeDone:      defaultDuration,
+		},
 	},
 
 	{
@@ -2543,6 +2615,11 @@ var scenarios = []queryScenario{
 			},
 		},
 		err: &TerminalQueryStatusError{"scenario:9|chunk:0|OneChunk.Preview.Status.Failed", cloudwatchlogs.QueryStatusFailed, "fated for failure"},
+		stats: Stats{
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeFailed:    defaultDuration,
+		},
 	},
 	{
 		note: "OneChunk.Preview.Status.Cancelled",
@@ -2571,6 +2648,11 @@ var scenarios = []queryScenario{
 			},
 		},
 		err: &TerminalQueryStatusError{"scenario:10|chunk:0|OneChunk.Preview.Status.Cancelled", cloudwatchlogs.QueryStatusCancelled, "preview of coming cancellations"},
+		stats: Stats{
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeFailed:    defaultDuration,
+		},
 	},
 	{
 		note: "OneChunk.Preview.Status.Timeout",
@@ -2599,6 +2681,11 @@ var scenarios = []queryScenario{
 			},
 		},
 		err: &TerminalQueryStatusError{"scenario:11|chunk:0|OneChunk.Preview.Status.Timeout", "Timeout", "preview of coming timeouts"},
+		stats: Stats{
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeFailed:    defaultDuration,
+		},
 	},
 	{
 		note: "OneChunk.Preview.Status.Unexpected",
@@ -2626,8 +2713,13 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
+		err: &TerminalQueryStatusError{"scenario:12|chunk:0|OneChunk.Preview.Status.Unexpected", "I did NOT see this coming!", "preview of coming surprises..."},
+		stats: Stats{
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeFailed:    defaultDuration,
+		},
 		expectStop: true,
-		err:        &TerminalQueryStatusError{"scenario:12|chunk:0|OneChunk.Preview.Status.Unexpected", "I did NOT see this coming!", "preview of coming surprises..."},
 	},
 
 	{
@@ -2716,7 +2808,14 @@ var scenarios = []queryScenario{
 			{{"Foo", "Foo.4.0"}, {"Bar", "Bar.4.0"}, {"@ptr", "4"}},
 			{{"@ptr", "2"}, {"@deleted", "true"}},
 		},
-		stats: Stats{6, 12, 18, 0, 0, 0, 0},
+		stats: Stats{
+			BytesScanned:   6,
+			RecordsMatched: 12,
+			RecordsScanned: 18,
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeDone:      defaultDuration,
+		},
 	},
 	{
 		note: "OneChunk.Preview.SimulateStatsCommand.NoPtr",
@@ -2775,7 +2874,14 @@ var scenarios = []queryScenario{
 			{{"count_distinct(Foo)", "41"}, {"bar", "eggs"}},
 			{{"count_distinct(Foo)", "10"}, {"bar", "spam"}},
 		},
-		stats: Stats{4, 5, 8, 0, 0, 0, 0},
+		stats: Stats{
+			BytesScanned:   4,
+			RecordsMatched: 5,
+			RecordsScanned: 8,
+			RangeRequested: defaultDuration + 2*time.Hour,
+			RangeStarted:   defaultDuration + 2*time.Hour,
+			RangeDone:      defaultDuration + 2*time.Hour,
+		},
 	},
 
 	{
@@ -2882,7 +2988,14 @@ var scenarios = []queryScenario{
 			},
 		},
 		results: maxLimitResults,
-		stats:   Stats{15, 15, 15, 0, 0, 0, 0},
+		stats: Stats{
+			BytesScanned:   15,
+			RecordsMatched: 15,
+			RecordsScanned: 15,
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeDone:      defaultDuration,
+		},
 	},
 
 	{
@@ -2920,7 +3033,14 @@ var scenarios = []queryScenario{
 			{{"EggCount", "1"}, {"Spam", "true"}},
 			{{"EggCount", "2"}, {"Span", "false"}},
 		},
-		stats: Stats{77, 777, 7, 0, 0, 0, 0},
+		stats: Stats{
+			BytesScanned:   77,
+			RecordsMatched: 777,
+			RecordsScanned: 7,
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeDone:      defaultDuration,
+		},
 	},
 
 	{
@@ -2968,7 +3088,14 @@ var scenarios = []queryScenario{
 			{{"@ptr", "1111"}, {"Something", "wicked this way comes"}},
 			{{"@ptr", "2222"}, {"Something", "else"}},
 		},
-		stats: Stats{13, 8, 3, 0, 0, 0, 0},
+		stats: Stats{
+			BytesScanned:   13,
+			RecordsMatched: 8,
+			RecordsScanned: 3,
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeDone:      defaultDuration,
+		},
 	},
 
 	{
@@ -3033,7 +3160,14 @@ var scenarios = []queryScenario{
 				return r[i].get("@timestamp") < r[j].get("@timestamp")
 			})
 		},
-		stats: Stats{3, 3, 2, 0, 0, 0, 0},
+		stats: Stats{
+			BytesScanned:   3,
+			RecordsMatched: 3,
+			RecordsScanned: 2,
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeDone:      defaultDuration,
+		},
 	},
 
 	{
@@ -3108,7 +3242,14 @@ var scenarios = []queryScenario{
 				return r[i].get("@ptr") < r[j].get("@ptr")
 			})
 		},
-		stats: Stats{100, 100, 100, 0, 0, 0, 0},
+		stats: Stats{
+			BytesScanned:   100,
+			RecordsMatched: 100,
+			RecordsScanned: 100,
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeDone:      defaultDuration,
+		},
 	},
 
 	{
@@ -3191,7 +3332,14 @@ var scenarios = []queryScenario{
 				return r[i].get("@ptr") < r[j].get("@ptr")
 			})
 		},
-		stats: Stats{132, 165, 198, 0, 0, 0, 0},
+		stats: Stats{
+			BytesScanned:   132,
+			RecordsMatched: 165,
+			RecordsScanned: 198,
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeDone:      defaultDuration,
+		},
 	},
 
 	{
@@ -3321,7 +3469,14 @@ var scenarios = []queryScenario{
 				return pi < pj
 			})
 		},
-		stats: Stats{2, 2, 2, 0, 0, 0, 0},
+		stats: Stats{
+			BytesScanned:   2,
+			RecordsMatched: 2,
+			RecordsScanned: 2,
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeDone:      defaultDuration,
+		},
 	},
 }
 
@@ -3344,10 +3499,14 @@ func (qs *queryScenario) test(t *testing.T, i int, m QueryManager, actions *mock
 			t.Parallel()
 		}
 		qs.play(t, i, m, actions)
+		m.GetStats().checkInvariants(t, false, false)
 	})
 }
 
 func (qs *queryScenario) play(t *testing.T, i int, m QueryManager, actions *mockActions) {
+	// Validate the expected status in advance.
+	qs.stats.checkInvariants(t, true, false)
+
 	// Set up the chunk polling scenarios.
 	for j := range qs.chunks {
 		qs.chunks[j].setup(i, j, qs.note, qs.closeEarly, qs.expectStop, actions)
@@ -3509,6 +3668,28 @@ func (s *Stats) backOut() *cloudwatchlogs.QueryStatistics {
 		BytesScanned:   &s.BytesScanned,
 		RecordsMatched: &s.RecordsMatched,
 		RecordsScanned: &s.RecordsScanned,
+	}
+}
+
+func (s Stats) checkInvariants(t *testing.T, done bool, success bool) {
+	// The following invariants must always be true regardless of whether
+	// the Stream or QueryManager finished all requested work.
+	assert.GreaterOrEqual(t, s.RangeRequested, s.RangeStarted, "RangeRequested must be greater than or equal to RangeStarted")
+	assert.GreaterOrEqual(t, s.RangeStarted, s.RangeDone, "RangeStarted must be greater than or equal to RangeDone")
+	assert.GreaterOrEqual(t, s.RangeStarted, s.RangeFailed, "RangeStarted must be greater than or equal to RangeFailed")
+	assert.GreaterOrEqual(t, s.RangeStarted, s.RangeDone+s.RangeFailed, "RangeStarted must be greater than or equal to the sum of RangeDone + RangeFailed")
+	// The following invariants are always true when the Stream or
+	// QueryManager has finished all requested work even if some of it
+	// failed.
+	if done {
+		assert.Equal(t, s.RangeDone+s.RangeFailed, s.RangeStarted, "the sum of RangeDone + RangeFailed must equal RangeStarted if all work is done")
+	}
+	// The following invariants are always true when the Stream or
+	// QueryManager has finished all requested work successfully.
+	if success {
+		assert.Equal(t, s.RangeStarted, s.RangeRequested, "RangeStarted must equal RangeRequested if all work finished successfully")
+		assert.Equal(t, s.RangeDone, s.RangeStarted, "RangeDone must equal RangeStarted if all work finished successfully")
+		assert.Equal(t, 0, s.RangeFailed, "RangeFailed must equal zero if all work finished successfully")
 	}
 }
 
