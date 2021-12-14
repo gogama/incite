@@ -213,7 +213,7 @@ type Stats struct {
 	RecordsScanned float64
 
 	// RangeRequested is a metric collected by Incite which tallies the
-	// accumulated time range requested the query or queries.
+	// accumulated time range requested in the query or queries.
 	RangeRequested time.Duration
 	// RangeStarted is a metric collected by Incite which tallies the
 	// aggregate amount of query time for which the query has been
