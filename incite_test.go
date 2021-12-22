@@ -2475,7 +2475,7 @@ var scenarios = []queryScenario{
 								{"@MyField", "goodbye"},
 							},
 						},
-						stats: &Stats{1, 2, 3, 0, 0, 0, 0},
+						stats: &Stats{1, 2, 3, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2533,7 +2533,7 @@ var scenarios = []queryScenario{
 					},
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
-						stats:  &Stats{3, 0, 1, 0, 0, 0, 0},
+						stats:  &Stats{3, 0, 1, 0, 0, 0, 0, 0},
 					},
 					{
 						err: cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "a blip in service"),
@@ -2546,7 +2546,7 @@ var scenarios = []queryScenario{
 								{"MyField", "world"},
 							},
 						},
-						stats: &Stats{99, 98, 97, 0, 0, 0, 0},
+						stats: &Stats{99, 98, 97, 0, 0, 0, 0, 0},
 					},
 					{
 						err: cwlErr("throttling has occurred", "and you were the recipient of the throttling"),
@@ -2563,7 +2563,7 @@ var scenarios = []queryScenario{
 								{"MyField", "world"},
 							},
 						},
-						stats: &Stats{100, 99, 98, 0, 0, 0, 0},
+						stats: &Stats{100, 99, 98, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2751,7 +2751,7 @@ var scenarios = []queryScenario{
 						results: []Result{
 							{{"Foo", "Foo.0.0"}, {"Bar", "Bar.0.0"}, {"@ptr", "0"}},
 						},
-						stats: &Stats{1, 2, 3, 0, 0, 0, 0},
+						stats: &Stats{1, 2, 3, 0, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
@@ -2759,14 +2759,14 @@ var scenarios = []queryScenario{
 							{{"Foo", "Foo.0.0"}, {"Bar", "Bar.0.0"}, {"@ptr", "0"}},
 							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
 						},
-						stats: &Stats{2, 4, 6, 0, 0, 0, 0},
+						stats: &Stats{2, 4, 6, 0, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
 						results: []Result{
 							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
 						},
-						stats: &Stats{3, 6, 9, 0, 0, 0, 0},
+						stats: &Stats{3, 6, 9, 0, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
@@ -2774,7 +2774,7 @@ var scenarios = []queryScenario{
 							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
 							{{"Foo", "Foo.2.0"}, {"Bar", "Bar.2.0"}, {"@ptr", "2"}},
 						},
-						stats: &Stats{4, 8, 12, 0, 0, 0, 0},
+						stats: &Stats{4, 8, 12, 0, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
@@ -2783,7 +2783,7 @@ var scenarios = []queryScenario{
 							{{"Foo", "Foo.2.0"}, {"Bar", "Bar.2.0"}, {"@ptr", "2"}},
 							{{"Foo", "Foo.3.0"}, {"Bar", "Bar.3.0"}, {"@ptr", "3"}},
 						},
-						stats: &Stats{5, 10, 15, 0, 0, 0, 0},
+						stats: &Stats{5, 10, 15, 0, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusComplete,
@@ -2793,7 +2793,7 @@ var scenarios = []queryScenario{
 							{{"Foo", "Foo.3.0"}, {"Bar", "Bar.3.0"}, {"@ptr", "3"}},
 							{{"Foo", "Foo.4.0"}, {"Bar", "Bar.4.0"}, {"@ptr", "4"}},
 						},
-						stats: &Stats{6, 12, 18, 0, 0, 0, 0},
+						stats: &Stats{6, 12, 18, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2844,7 +2844,7 @@ var scenarios = []queryScenario{
 						results: []Result{
 							{{"count_distinct(Foo)", "100"}, {"bar", "ham"}},
 						},
-						stats: &Stats{1, 2, 3, 0, 0, 0, 0},
+						stats: &Stats{1, 2, 3, 0, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
@@ -2852,7 +2852,7 @@ var scenarios = []queryScenario{
 							{{"count_distinct(Foo)", "37"}, {"bar", "eggs"}},
 							{{"count_distinct(Foo)", "100"}, {"bar", "ham"}},
 						},
-						stats: &Stats{2, 4, 6, 0, 0, 0, 0},
+						stats: &Stats{2, 4, 6, 0, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusComplete,
@@ -2861,7 +2861,7 @@ var scenarios = []queryScenario{
 							{{"count_distinct(Foo)", "41"}, {"bar", "eggs"}},
 							{{"count_distinct(Foo)", "10"}, {"bar", "spam"}},
 						},
-						stats: &Stats{4, 5, 8, 0, 0, 0, 0},
+						stats: &Stats{4, 5, 8, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2910,7 +2910,7 @@ var scenarios = []queryScenario{
 					{
 						status:  cloudwatchlogs.QueryStatusComplete,
 						results: maxLimitResults,
-						stats:   &Stats{1, 1, 1, 0, 0, 0, 0},
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2928,7 +2928,7 @@ var scenarios = []queryScenario{
 					{
 						status:  cloudwatchlogs.QueryStatusComplete,
 						results: maxLimitResults[0 : MaxLimit/4],
-						stats:   &Stats{2, 2, 2, 0, 0, 0, 0},
+						stats:   &Stats{2, 2, 2, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2946,7 +2946,7 @@ var scenarios = []queryScenario{
 					{
 						status:  cloudwatchlogs.QueryStatusComplete,
 						results: maxLimitResults[MaxLimit/4 : MaxLimit/2],
-						stats:   &Stats{3, 3, 3, 0, 0, 0, 0},
+						stats:   &Stats{3, 3, 3, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2964,7 +2964,7 @@ var scenarios = []queryScenario{
 					{
 						status:  cloudwatchlogs.QueryStatusComplete,
 						results: maxLimitResults[MaxLimit/2 : 3*MaxLimit/4],
-						stats:   &Stats{4, 4, 4, 0, 0, 0, 0},
+						stats:   &Stats{4, 4, 4, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -2982,7 +2982,7 @@ var scenarios = []queryScenario{
 					{
 						status:  cloudwatchlogs.QueryStatusComplete,
 						results: maxLimitResults[3*MaxLimit/4 : MaxLimit],
-						stats:   &Stats{5, 5, 5, 0, 0, 0, 0},
+						stats:   &Stats{5, 5, 5, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -3024,7 +3024,7 @@ var scenarios = []queryScenario{
 							{{"EggCount", "1"}, {"Spam", "true"}},
 							{{"EggCount", "2"}, {"Span", "false"}},
 						},
-						stats: &Stats{77, 777, 7, 0, 0, 0, 0},
+						stats: &Stats{77, 777, 7, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -3071,7 +3071,7 @@ var scenarios = []queryScenario{
 						results: []Result{
 							{{"ignore", "me"}},
 						},
-						stats: &Stats{-1, -2, -12, 0, 0, 0, 0},
+						stats: &Stats{-1, -2, -12, 0, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusComplete,
@@ -3079,7 +3079,7 @@ var scenarios = []queryScenario{
 							{{"@ptr", "1111"}, {"Something", "wicked this way comes"}},
 							{{"@ptr", "2222"}, {"Something", "else"}},
 						},
-						stats: &Stats{13, 8, 3, 0, 0, 0, 0},
+						stats: &Stats{13, 8, 3, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -3124,7 +3124,7 @@ var scenarios = []queryScenario{
 							{{"@ptr", "aaaa"}, {"@timestamp", "2021-08-05 15:26:000.123"}},
 							{{"@ptr", "bbbb"}, {"@timestamp", "2021-08-05 15:26:000.125"}},
 						},
-						stats: &Stats{1, 1, 1, 0, 0, 0, 0},
+						stats: &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -3144,7 +3144,7 @@ var scenarios = []queryScenario{
 							{{"@ptr", "dddd"}, {"@timestamp", "2021-08-05 15:26:000.126"}},
 							{{"@ptr", "cccc"}, {"@timestamp", "2021-08-05 15:26:000.124"}},
 						},
-						stats: &Stats{2, 2, 1, 0, 0, 0, 0},
+						stats: &Stats{2, 2, 1, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -3202,7 +3202,7 @@ var scenarios = []queryScenario{
 							{{Field: "@ptr", Value: "1"}},
 							{{Field: "@ptr", Value: "2"}},
 						},
-						stats: &Stats{49, 23, 1, 0, 0, 0, 0},
+						stats: &Stats{49, 23, 1, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -3218,7 +3218,7 @@ var scenarios = []queryScenario{
 				pollOutputs: []chunkPollOutput{
 					{
 						status: cloudwatchlogs.QueryStatusRunning,
-						stats:  &Stats{3, 2, 3, 0, 0, 0, 0},
+						stats:  &Stats{3, 2, 3, 0, 0, 0, 0, 0},
 					},
 					{
 						status: cloudwatchlogs.QueryStatusComplete,
@@ -3226,7 +3226,7 @@ var scenarios = []queryScenario{
 							{{Field: "@ptr", Value: "3"}},
 							{{Field: "@ptr", Value: "4"}},
 						},
-						stats: &Stats{51, 77, 99, 0, 0, 0, 0},
+						stats: &Stats{51, 77, 99, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -3277,7 +3277,7 @@ var scenarios = []queryScenario{
 						results: []Result{
 							{{Field: "@ptr", Value: "1"}},
 						},
-						stats: &Stats{11, 22, 33, 0, 0, 0, 0},
+						stats: &Stats{11, 22, 33, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -3297,7 +3297,7 @@ var scenarios = []queryScenario{
 							{{Field: "@ptr", Value: "2"}},
 							{{Field: "@ptr", Value: "3"}},
 						},
-						stats: &Stats{44, 55, 66, 0, 0, 0, 0},
+						stats: &Stats{44, 55, 66, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -3316,7 +3316,7 @@ var scenarios = []queryScenario{
 						results: []Result{
 							{{Field: "@ptr", Value: "4"}},
 						},
-						stats: &Stats{77, 88, 99, 0, 0, 0, 0},
+						stats: &Stats{77, 88, 99, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -3381,7 +3381,7 @@ var scenarios = []queryScenario{
 						results: []Result{
 							{{"@ptr", "1"}, {"instance", "1"}},
 						},
-						stats: &Stats{1, 1, 1, 0, 0, 0, 0},
+						stats: &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
 			},
@@ -3444,7 +3444,7 @@ var scenarios = []queryScenario{
 							{{"@ptr", "7"}, {"instance", "1"}},
 							{{"@ptr", "8"}, {"instance", "1"}},
 						},
-						stats: &Stats{1, 1, 1, 0, 0, 0, 0},
+						stats: &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
 			},

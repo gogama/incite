@@ -164,9 +164,9 @@ type QuerySpec struct {
 	Priority int
 
 	// SplitUntil specifies if, and how, the query time range, or the
-	// query chunks, will be split into sub-chunks when it produces the
-	// maximum number of results that CloudWatch Logs Insights will
-	// return (MaxLimit).
+	// query chunks, will be dynamically split into sub-chunks when
+	// they produce the maximum number of results that CloudWatch Logs
+	// Insights will return (MaxLimit).
 	//
 	// If SplitUntil is zero or negative, then splitting is disabled.
 	// If positive, then splitting is enabled and SplitUntil must
@@ -204,7 +204,8 @@ type QuerySpec struct {
 // and how much progress has been on the queries. These metadata can be
 // useful, for example, for showing progress bars or other work in
 // progress indicators. They are contained within the fields
-// RangeRequested, RangeStarted, RangeDone, and RangeFailed.
+// RangeRequested, RangeStarted, RangeDone, RangeFailed, and
+// RangeMaxed.
 type Stats struct {
 	// BytesScanned is a metric returned by CloudWatch Logs Insights
 	// which represents the total number of bytes of log events
@@ -247,6 +248,20 @@ type Stats struct {
 	// either because the Stream or QueryManager was closed, or because
 	// the CloudWatch Logs service returned a non-retryable error.
 	RangeFailed time.Duration
+	// RangeMaxed is a metric collected by Incite which tallies the
+	// aggregate amount of query time which the CloudWatch Logs Insights
+	// service has successfully finished querying so far but for which
+	// Insights returned MaxLimit results, indicating that more results
+	// may be available than were returned. The value in this field is
+	// always less than or equal to RangeDone, and it never decreases.
+	//
+	// If RangeMaxed is zero, no query chunks produced MaxLimit results.
+	//
+	// Queries with dynamic chunk splitting enabled will only increase
+	// this field when, after splitting a chunk into the smallest
+	// allowable sub-chunks, a sub-chunk still produced MaxLimit
+	// results.
+	RangeMaxed time.Duration
 }
 
 func (s *Stats) add(t *Stats) {
