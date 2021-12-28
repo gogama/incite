@@ -251,16 +251,20 @@ type Stats struct {
 	// RangeMaxed is a metric collected by Incite which tallies the
 	// aggregate amount of query time which the CloudWatch Logs Insights
 	// service has successfully finished querying so far but for which
-	// Insights returned MaxLimit results, indicating that more results
-	// may be available than were returned. The value in this field is
-	// always less than or equal to RangeDone, and it never decreases.
+	// Insights returned the maximum number of results requested in the
+	// QuerySpec Limit field, indicating that more results may be
+	// available than were returned. The value in this field is always
+	// less than or equal to RangeDone, and it never decreases.
 	//
-	// If RangeMaxed is zero, no query chunks produced MaxLimit results.
+	// If RangeMaxed is zero, this indicates that no query chunks
+	// produced the maximum number of results requested.
 	//
-	// Queries with dynamic chunk splitting enabled will only increase
-	// this field when, after splitting a chunk into the smallest
-	// allowable sub-chunks, a sub-chunk still produced MaxLimit
-	// results.
+	// RangeMaxed will usually not be increased by queries that use
+	// dynamic chunk splitting. This is because chunk splitting will
+	// continue recursively splitting until sub-chunks do not produce
+	// the maximum number of results. However, when a chunk which
+	// produces MaxLimit results is too small to split further, its
+	// duration will be added to RangeMaxed.
 	RangeMaxed time.Duration
 }
 
@@ -273,6 +277,7 @@ func (s *Stats) add(t *Stats) {
 	s.RangeStarted += t.RangeStarted
 	s.RangeDone += t.RangeDone
 	s.RangeFailed += t.RangeFailed
+	s.RangeMaxed += t.RangeMaxed
 }
 
 // StatsGetter provides access to the Insights query statistics
@@ -982,16 +987,30 @@ const splitBits = 4
 var maxLimit int64 = MaxLimit
 
 func (m *mgr) splitChunk(c *chunk, n int) bool {
+	// Short circuit if the chunk isn't maxed out.
+	if int64(n) < c.stream.Limit {
+		return false
+	}
+
+	// This chunk is maxed out so record that.
+	d := c.end.Sub(c.start)
+	c.Stats.RangeMaxed += d
+
+	// Short circuit if splitting isn't required.
 	if c.ptr != nil {
 		return false // Can't split chunks if previewing is on.
 	}
-	if int64(n) != maxLimit || c.stream.Limit != maxLimit {
+	if int64(n) < maxLimit {
 		return false // Don't split unless chunk query overflowed CWL max results.
 	}
-	d := c.end.Sub(c.start)
 	if d <= c.stream.SplitUntil {
 		return false // Stop splitting when we reach minimum chunk size.
 	}
+
+	// At this point we know this chunk will be split. Thus, we should
+	// stop counting it as maxed out. If the sub-chunks are later
+	// determined to be maxed out that will be recorded later.
+	c.Stats.RangeMaxed -= d
 
 	splitter := func(parent *chunk, start time.Time, frac time.Duration, n int) *chunk {
 		end := start.Add(frac)
