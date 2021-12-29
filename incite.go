@@ -173,6 +173,9 @@ type QuerySpec struct {
 	// represent a whole number of seconds (cannot have sub-second
 	// granularity).
 	//
+	// To use splitting, you must also set Limit to MaxLimit and
+	// Preview must be false.
+	//
 	// When splitting is enabled and, when a time range produces
 	// MaxLimit results, the range is split into sub-chunks no larger
 	// than SplitUntil. If a sub-chunk produces MaxLimit results, it is
@@ -181,9 +184,6 @@ type QuerySpec struct {
 	// the time range cannot be split into at least two chunks no
 	// smaller than SplitUntil or the time range produces fewer than
 	// MaxLimit results.
-	//
-	// To use splitting, you must also set Limit to MaxLimit and
-	// Preview must be false.
 	SplitUntil time.Duration
 }
 
