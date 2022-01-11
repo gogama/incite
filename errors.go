@@ -7,7 +7,13 @@ package incite
 import (
 	"errors"
 	"fmt"
+	"io"
+	"strings"
+	"syscall"
 	"time"
+
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 )
 
 var (
@@ -111,23 +117,66 @@ func errNoValue(key string) error {
 	return fmt.Errorf("incite: result field missing value for key %q", key)
 }
 
+func isTemporary(err error) bool {
+	if x, ok := err.(awserr.Error); ok {
+		switch x.Code() {
+		case cloudwatchlogs.ErrCodeLimitExceededException, cloudwatchlogs.ErrCodeServiceUnavailableException:
+			return true
+		default:
+			// Omit 'e' suffix on 'throttl' to match Throttled and Throttling.
+			if strings.Contains(strings.ToLower(x.Code()), "throttl") ||
+				strings.Contains(strings.ToLower(x.Message()), "rate exceeded") {
+				return true
+			}
+			return isTemporary(x.OrigErr())
+		}
+	}
+
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+
+	var maybeTimeout interface{ Timeout() bool }
+	if errors.As(err, &maybeTimeout) && maybeTimeout.Timeout() {
+		return true
+	}
+
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		switch errno {
+		case syscall.ECONNREFUSED, syscall.ECONNRESET:
+			return true
+		default:
+			return false
+		}
+	}
+
+	return false
+}
+
 const (
 	nilActionsMsg = "incite: nil actions"
 	nilStreamMsg  = "incite: nil stream"
 	nilContextMsg = "incite: nil context"
 
-	textBlankMsg              = "incite: blank query text"
-	startSubSecondMsg         = "incite: start has sub-second granularity"
-	endSubSecondMsg           = "incite: end has sub-second granularity"
-	endNotBeforeStartMsg      = "incite: end not before start"
-	noGroupsMsg               = "incite: no log groups"
-	exceededMaxLimitMsg       = "incite: exceeded MaxLimit"
-	chunkSubSecondMsg         = "incite: chunk has sub-second granularity"
-	splitUntilSubSecondMsg    = "incite: split-until has sub-second granularity"
-	splitUntilWithPreviewMsg  = "incite: split-until incompatible with preview"
-	splitUntilWithoutMaxLimit = "incite: split-until requires MaxLimit"
+	textBlankMsg                 = "incite: blank query text"
+	startSubSecondMsg            = "incite: start has sub-second granularity"
+	endSubSecondMsg              = "incite: end has sub-second granularity"
+	endNotBeforeStartMsg         = "incite: end not before start"
+	noGroupsMsg                  = "incite: no log groups"
+	exceededMaxLimitMsg          = "incite: exceeded MaxLimit"
+	chunkSubSecondMsg            = "incite: chunk has sub-second granularity"
+	splitUntilSubSecondMsg       = "incite: split-until has sub-second granularity"
+	splitUntilWithPreviewMsg     = "incite: split-until incompatible with preview"
+	splitUntilWithoutMaxLimitMsg = "incite: split-until requires MaxLimit"
 
 	outputMissingQueryIDMsg = "incite: nil query ID in StartQuery output from CloudWatch Logs"
 	outputMissingStatusMsg  = "incite: nil status in GetQueryResults output from CloudWatch Logs"
 	fieldMissingKeyMsg      = "incite: result field missing key"
+)
+
+var (
+	errClosing      = errors.New("incite: closing")
+	errStopChunk    = errors.New("incite: owning stream died, cancel chunk")
+	errRestartChunk = errors.New("incite: transient chunk failure, restart chunk")
 )

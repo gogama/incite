@@ -4,6 +4,8 @@
 
 package incite
 
+import "time"
+
 // TimeLayout is a Go time layout which documents the format of the time
 // values returned in the timestamp fields of CloudWatch Logs Insights
 // queries.
@@ -16,3 +18,11 @@ package incite
 // time.Parse to parse timestamp fields, such as @timestamp and @ingestionTime,
 // which are returned in CloudWatch Logs Insights query results.
 const TimeLayout = "2006-01-02 15:04:05.000"
+
+func hasSubSecond(t time.Time) bool {
+	return t.Nanosecond() != 0
+}
+
+func hasSubSecondD(d time.Duration) bool {
+	return d%time.Second > 0
+}
