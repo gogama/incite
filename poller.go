@@ -36,6 +36,11 @@ func (p *poller) context(c *chunk) context.Context {
 	return c.ctx
 }
 
+// maxRestart is the maximum number of times a chunk whose associated
+// CloudWatch Logs Insights query goes into the "Failed" state can be
+// restarted before it is considered permanently failed.
+const maxRestart = 2
+
 func (p *poller) manipulate(c *chunk) bool {
 	// If the owning stream has died, send chunk back for cancellation.
 	if !c.stream.alive() {
@@ -323,8 +328,3 @@ func (p *poller) splitChunk(c *chunk, n int) bool {
 	}
 	return true
 }
-
-// TODO: Maybe move this constant block elsewhere and/or merge with others.
-const (
-	maxRestart = 2
-)
