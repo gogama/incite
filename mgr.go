@@ -39,6 +39,12 @@ type mgr struct {
 	// Fields written by mgr loop and potentially read by any goroutine.
 	stats     Stats        // Read by GetStats, written by mgr loop goroutine
 	statsLock sync.RWMutex // Controls access to stats
+
+	// Worker references. Not strictly necessary, and primarily here to
+	// make it easier to observe state while debugging tests.
+	starter *starter
+	poller  *poller
+	stopper *stopper
 }
 
 // NewQueryManager returns a new query manager with the given
@@ -90,11 +96,12 @@ func NewQueryManager(cfg Config) QueryManager {
 
 	go m.loop()
 
-	s := newStarter(m) // TODO
-	go s.loop()        // TODO
-	//go newStarter(m).loop() TODO
-	go newPoller(m).loop()
-	go newStopper(m).loop()
+	m.starter = newStarter(m)
+	go m.starter.loop()
+	m.poller = newPoller(m)
+	go m.poller.loop()
+	m.stopper = newStopper(m)
+	go m.stopper.loop()
 
 	return m
 }
