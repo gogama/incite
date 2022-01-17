@@ -169,11 +169,13 @@ func TestStream_Read(t *testing.T) {
 			assert.Equal(t, []Result{{{"@ptr", "1"}}}, p)
 		})
 
-		t.Run("Read Into Length One Buffer Succeeds with Second of Two Results and EOF", func(t *testing.T) {
+		t.Run("Read Into Length One Buffer Succeeds with Second of Two Results and Possible EOF", func(t *testing.T) {
 			p := make([]Result, 1)
 			n, err := s.Read(p)
 			assert.Equal(t, 1, n)
-			assert.Same(t, io.EOF, err)
+			if err != nil {
+				assert.Same(t, io.EOF, err)
+			}
 			assert.Equal(t, []Result{{{"@ptr", "2"}}}, p)
 		})
 

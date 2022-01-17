@@ -252,6 +252,7 @@ const splitBits = 4
 // to facilitate unit testing.
 var maxLimit int64 = MaxLimit
 
+// TODO: Refactor this to live in mgr.
 func (p *poller) splitChunk(c *chunk, n int) bool {
 	// Short circuit if the chunk isn't maxed out.
 	if int64(n) < c.stream.Limit {
