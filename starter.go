@@ -24,7 +24,7 @@ func newStarter(m *mgr) *starter {
 			in:        m.start,
 			out:       m.update,
 			name:      "starter",
-			maxTry:    10, // TODO: put real constant here.
+			maxTry:    10,
 		},
 	}
 	s.manipulator = s

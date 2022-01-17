@@ -23,7 +23,7 @@ func newStopper(m *mgr) *stopper {
 			in:        m.stop,
 			out:       m.update,
 			name:      "stopper",
-			maxTry:    10, // TODO: put real constant here.
+			maxTry:    3,
 		},
 	}
 	s.manipulator = s

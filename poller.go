@@ -25,7 +25,7 @@ func newPoller(m *mgr) *poller {
 			in:        m.poll,
 			out:       m.update,
 			name:      "poller",
-			maxTry:    10, // TODO: put real constant here.
+			maxTry:    10,
 		},
 	}
 	p.manipulator = p
