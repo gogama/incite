@@ -179,4 +179,5 @@ var (
 	errClosing      = errors.New("incite: closing")
 	errStopChunk    = errors.New("incite: owning stream died, cancel chunk")
 	errRestartChunk = errors.New("incite: transient chunk failure, restart chunk")
+	errSplitChunk   = errors.New("incite: chunk maxed, split chunk")
 )

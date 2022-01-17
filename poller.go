@@ -6,8 +6,6 @@ package incite
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
@@ -78,8 +76,8 @@ func (p *poller) manipulate(c *chunk) bool {
 		return !sendChunkBlock(c, output.Results)
 	case cloudwatchlogs.QueryStatusComplete:
 		translateStats(output.Statistics, &c.Stats)
-		if p.splitChunk(c, len(output.Results)) {
-			c.state = complete
+		if p.splittable(c, len(output.Results)) {
+			c.err = errSplitChunk
 			return true
 		}
 		c.Stats.RangeDone += c.duration()
@@ -246,19 +244,11 @@ func deleteResult(ptr string) Result {
 	}
 }
 
-// splitBits is the number of child chunks into which a parent chunk
-// will be split, assuming the parent chunk range is at least splitBits
-// seconds long. The minimum chunk size is one second, so a 4-second
-// parent chunk will be split into four chunks, but a two-second child
-// chunk will only be split into two child chunks.
-const splitBits = 4
-
 // maxLimit is an indirect holder for the constant value MaxLimit used
 // to facilitate unit testing.
 var maxLimit int64 = MaxLimit
 
-// TODO: Refactor this to live in mgr.
-func (p *poller) splitChunk(c *chunk, n int) bool {
+func (p *poller) splittable(c *chunk, n int) bool {
 	// Short circuit if the chunk isn't maxed out.
 	if int64(n) < c.stream.Limit {
 		return false
@@ -282,49 +272,5 @@ func (p *poller) splitChunk(c *chunk, n int) bool {
 	// stop counting it as maxed out. If the sub-chunks are later
 	// determined to be maxed out that will be recorded later.
 	c.Stats.RangeMaxed -= c.duration()
-
-	splitter := func(parent *chunk, start time.Time, frac time.Duration, n int) *chunk {
-		end := start.Add(frac)
-		if end.After(parent.end) {
-			end = parent.end
-		}
-		chunkID := fmt.Sprintf("%ss%d", c.chunkID, n)
-		return &chunk{
-			stream:  parent.stream,
-			ctx:     context.WithValue(parent.stream.ctx, chunkIDKey, chunkID),
-			gen:     parent.gen + 1,
-			chunkID: chunkID,
-			start:   start,
-			end:     end,
-		}
-	}
-
-	frac := c.duration() / splitBits
-	if hasSubSecondD(frac) {
-		frac = frac + time.Second/2
-		frac = frac.Round(time.Second)
-	}
-
-	children := make([]*chunk, 1, splitBits)
-	child := splitter(c, c.start, frac, 0)
-	children[0] = child
-	for child.end.Before(c.end) {
-		child = splitter(c, child.end, frac, len(children))
-		children = append(children, child)
-	}
-
-	var b strings.Builder
-	_, _ = fmt.Fprintf(&b, "in %d sub-chunks... ", len(children))
-	b.WriteString(children[0].chunkID)
-	for i := 1; i < len(children); i++ {
-		b.WriteString(" / ")
-		b.WriteString(children[i].chunkID)
-	}
-
-	p.m.logChunk(c, "split", b.String())
-	c.stream.n += int64(len(children))
-	for i := range children {
-		p.out <- children[i]
-	}
 	return true
 }

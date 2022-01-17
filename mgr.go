@@ -83,11 +83,8 @@ func NewQueryManager(cfg Config) QueryManager {
 		// All three workers send back their updates on the update
 		// channel. To prevent deadlock, the channel buffer needs
 		// to be big enough to receive all possible chunks that all
-		// three workers could have in flight at the same time. They
-		// can each have up to cfg.Parallel chunks in flight, but if
-		// splitting is enabled, poller may also return (1+splitBits)
-		// chunks for each chunk it received.
-		update: make(chan *chunk, (3+splitBits)*cfg.Parallel),
+		// three workers could have in flight at the same time.
+		update: make(chan *chunk, 3*cfg.Parallel),
 	}
 
 	if m.Name == "" {
@@ -288,7 +285,7 @@ func (m *mgr) addQuery(s *stream) {
 	heap.Push(&m.pq, s)
 	m.addStats(&Stats{
 		RangeRequested: s.stats.RangeRequested,
-	}, nil)
+	})
 }
 
 func (m *mgr) handleChunk(c *chunk) {
@@ -331,6 +328,13 @@ func (m *mgr) handlePollingError(c *chunk) {
 		return
 	}
 
+	if c.err == errSplitChunk {
+		m.splitChunk(c)
+		c.err = nil
+		m.handleChunkCompletion(c)
+		return
+	}
+
 	if c.err == errStopChunk {
 		m.logChunk(c, "owning stream died, will stop", "")
 		m.stopChunk(c)
@@ -360,21 +364,17 @@ func (m *mgr) handleChunkCompletion(c *chunk) {
 }
 
 func (m *mgr) killStream(c *chunk) {
-	c.stream.setErr(c.err, true, c.Stats)
-	m.addStats(&c.Stats, nil)
-}
-
-func (m *mgr) addStats(t *Stats, s *stream) {
 	m.statsLock.Lock()
 	defer m.statsLock.Unlock()
+	c.stream.lock.Lock()
+	defer c.stream.lock.Unlock()
+	m.stats.add(&c.Stats)
+	c.stream.setErr(c.err, false, c.Stats)
+}
 
-	if s != nil {
-		s.lock.Lock()
-		defer s.lock.Unlock()
-
-		s.stats.add(t)
-	}
-
+func (m *mgr) addStats(t *Stats) {
+	m.statsLock.Lock()
+	defer m.statsLock.Unlock()
 	m.stats.add(t)
 }
 
@@ -426,6 +426,47 @@ func (m *mgr) stopChunk(c *chunk) {
 	c.state = stopping
 	m.numStopping++
 	m.stop <- c
+}
+
+// splitBits is the number of child chunks into which a parent chunk
+// will be split, assuming the parent chunk range is at least splitBits
+// seconds long. The minimum chunk size is one second, so a 4-second
+// parent chunk will be split into four chunks, but a two-second child
+// chunk will only be split into two child chunks.
+const splitBits = 4
+
+func (m *mgr) splitChunk(c *chunk) {
+	frac := c.duration() / splitBits
+	if hasSubSecondD(frac) {
+		frac = frac + time.Second/2
+		frac = frac.Round(time.Second)
+	}
+
+	children := make([]*chunk, 1, splitBits)
+	child := c.split(c.start, frac, 0)
+	children[0] = child
+	for child.end.Before(c.end) {
+		child = c.split(child.end, frac, len(children))
+		children = append(children, child)
+	}
+
+	var b strings.Builder
+	r := ring.New(len(children))
+	r.Value = children[0]
+	r = r.Next()
+	_, _ = fmt.Fprintf(&b, "in %d sub-chunks... ", len(children))
+	_, _ = b.WriteString(children[0].chunkID)
+	for i := 1; i < len(children); i++ {
+		r.Value = children[i]
+		r = r.Next()
+		b.WriteString(" / ")
+		b.WriteString(children[i].chunkID)
+	}
+
+	m.logChunk(c, "split", b.String())
+	c.stream.n += int64(len(children))
+	m.numReady += len(children)
+	m.ready.Prev().Link(r)
 }
 
 func (m *mgr) logEvent(worker, event string) {

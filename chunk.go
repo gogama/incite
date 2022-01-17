@@ -6,6 +6,7 @@ package incite
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -68,6 +69,22 @@ func (c *chunk) started() {
 	}
 	if c.err != nil {
 		c.RangeFailed += c.duration()
+	}
+}
+
+func (c *chunk) split(start time.Time, frac time.Duration, n int) *chunk {
+	end := start.Add(frac)
+	if end.After(c.end) {
+		end = c.end
+	}
+	chunkID := fmt.Sprintf("%ss%d", c.chunkID, n)
+	return &chunk{
+		stream:  c.stream,
+		ctx:     context.WithValue(c.stream.ctx, chunkIDKey, chunkID),
+		gen:     c.gen + 1,
+		chunkID: chunkID,
+		start:   start,
+		end:     end,
 	}
 }
 
