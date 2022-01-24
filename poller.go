@@ -54,6 +54,7 @@ func (p *poller) manipulate(c *chunk) bool {
 	p.lastReq = time.Now()
 
 	if err != nil && isTemporary(err) {
+		p.m.logChunk(c, "temporary failure to poll", err.Error())
 		return false
 	} else if err != nil {
 		c.err = &UnexpectedQueryError{c.queryID, c.stream.Text, err}
@@ -73,7 +74,11 @@ func (p *poller) manipulate(c *chunk) bool {
 		if c.ptr == nil {
 			return false // Ignore non-previewable results.
 		}
-		return !sendChunkBlock(c, output.Results)
+		if !sendChunkBlock(c, output.Results) {
+			translateStats(output.Statistics, &c.Stats)
+			return true
+		}
+		return false
 	case cloudwatchlogs.QueryStatusComplete:
 		translateStats(output.Statistics, &c.Stats)
 		if p.splittable(c, len(output.Results)) {
@@ -87,6 +92,7 @@ func (p *poller) manipulate(c *chunk) bool {
 		return true
 	case cloudwatchlogs.QueryStatusFailed:
 		if c.ptr == nil && c.restart < maxRestart {
+			translateStats(output.Statistics, &c.Stats)
 			c.restart++
 			c.err = errRestartChunk
 			return true // Retry transient failures if stream isn't previewable.
@@ -206,7 +212,7 @@ func translateResultsPreview(c *chunk, results [][]*cloudwatchlogs.ResultField) 
 		c.ptr[ptr] = true
 	}
 
-	// Return the block so it can be sent to the stream.
+	// Return the block so that it can be sent to the stream.
 	return block, nil
 }
 
@@ -249,12 +255,12 @@ func deleteResult(ptr string) Result {
 var maxLimit int64 = MaxLimit
 
 func (p *poller) splittable(c *chunk, n int) bool {
-	// Short circuit if the chunk isn't maxed out.
+	// Short circuit if the chunk isn't maxed expected.
 	if int64(n) < c.stream.Limit {
 		return false
 	}
 
-	// This chunk is maxed out so record that.
+	// This chunk is maxed expected so record that.
 	c.Stats.RangeMaxed += c.duration()
 
 	// Short circuit if splitting isn't required.
@@ -269,8 +275,8 @@ func (p *poller) splittable(c *chunk, n int) bool {
 	}
 
 	// At this point we know this chunk will be split. Thus, we should
-	// stop counting it as maxed out. If the sub-chunks are later
-	// determined to be maxed out that will be recorded later.
+	// stop counting it as maxed expected. If the sub-chunks are later
+	// determined to be maxed expected that will be recorded later.
 	c.Stats.RangeMaxed -= c.duration()
 	return true
 }

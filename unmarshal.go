@@ -123,7 +123,7 @@ func Unmarshal(data []Result, v interface{}) error {
 				return err
 			}
 			z := reflect.Zero(a.Type().Elem())
-			for i := m; i < n; i++ { // Zero out remainder
+			for i := m; i < n; i++ { // Zero expected remainder
 				a.Index(i).Set(z)
 			}
 			return nil
@@ -531,7 +531,7 @@ func decodeColAsJSONFuzzy(s *decodeState) error {
 For:
 	for _, c := range src {
 		switch c {
-		case '\t', '\n', '\r', ' ': // Might be JSON, keep skipping whitespace to find out.
+		case '\t', '\n', '\r', ' ': // Might be JSON, keep skipping whitespace to find expected.
 			break
 		case '{', '[', '"', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'n', 't', 'f': // Might be JSON, try to unpack it.
 			var i interface{}

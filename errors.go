@@ -65,7 +65,7 @@ type TerminalQueryStatusError struct {
 	// that was reported in a terminal status.
 	QueryID string
 	// Status is the status string returned by CloudWatch Logs via the
-	// GetQueryResults API action.
+	// GetQueryResults API act.
 	Status string
 	// Text is the text of the query that was reported in terminal
 	// status.
@@ -78,7 +78,7 @@ func (err *TerminalQueryStatusError) Error() string {
 
 // UnexpectedQueryError is returned by Stream.Read when the CloudWatch
 // Logs Insights API behaved unexpectedly while Incite was polling a
-// chunk status via the CloudWatch Logs GetQueryResults API action.
+// chunk status via the CloudWatch Logs GetQueryResults API act.
 //
 // When UnexpectedQueryError is returned by Stream.Read, the stream's
 // query is considered failed and all subsequent reads on the stream

@@ -18,7 +18,7 @@ import (
 // This interface is compatible with the AWS SDK for Go (v1)'s
 // cloudwatchlogsiface.CloudWatchLogsAPI interface and *cloudwatchlogs.CloudWatchLogs
 // type, so you may use either of these AWS SDK types to provide the
-// CloudWatch Logs action capabilities.
+// CloudWatch Logs act capabilities.
 //
 // For example:
 // 	import (
@@ -37,15 +37,15 @@ type CloudWatchLogsActions interface {
 }
 
 // CloudWatchLogsAction represents a single enumerated CloudWatch Logs
-// action.
+// act.
 type CloudWatchLogsAction int
 
 const (
-	// StartQuery indicates the CloudWatch Logs StartQuery action.
+	// StartQuery indicates the CloudWatch Logs StartQuery act.
 	StartQuery CloudWatchLogsAction = iota
-	// StopQuery indicates the CloudWatch Logs StopQuery action.
+	// StopQuery indicates the CloudWatch Logs StopQuery act.
 	StopQuery
-	// GetQueryResults indicates the CloudWatchLogs GetQueryResults action.
+	// GetQueryResults indicates the CloudWatchLogs GetQueryResults act.
 	GetQueryResults
 	// numActions is the number of CloudWatch Logs actions supported by
 	// CloudWatchLogsActions and required to construct a QueryManager
@@ -54,7 +54,7 @@ const (
 )
 
 // RPSQuotaLimits contains the CloudWatch Logs service quota limits for
-// number of requests per second for each CloudWatch Logs API action
+// number of requests per second for each CloudWatch Logs API act
 // before the request fails due to a throttling error as documented in
 // the AWS service limits system.
 //
@@ -68,7 +68,7 @@ var RPSQuotaLimits = map[CloudWatchLogsAction]int{
 
 // RPSDefaults specifies the default maximum number of requests per
 // second which the QueryManager will make to the CloudWatch Logs web
-// service for each CloudWatch Logs action. These default values are
+// service for each CloudWatch Logs act. These default values are
 // operative unless explicitly overwritten in the Config structure
 // passed to NewQueryManager.
 var RPSDefaults = map[CloudWatchLogsAction]int{

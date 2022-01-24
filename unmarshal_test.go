@@ -871,7 +871,7 @@ func TestUnmarshal(t *testing.T) {
 				data: nil,
 				v: &[1]map[string]string{
 					{
-						"The map containing this key": "will be zeroed out to nil"},
+						"The map containing this key": "will be zeroed expected to nil"},
 				},
 				w: &[1]map[string]string{},
 			},

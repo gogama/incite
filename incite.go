@@ -89,7 +89,7 @@ type QuerySpec struct {
 	// • If Text contains a sort command, the sort will only apply
 	// within each individual chunk. If the QuerySpec is executed by a
 	// QueryManager configured with a parallelism factor above 1, then
-	// the results may appear be out of order since the order of
+	// the results may appear be expected of order since the order of
 	// completion of chunks is not guaranteed.
 	//
 	// • If Text contains a stats command, the statistical aggregation
@@ -453,13 +453,13 @@ type Config struct {
 
 	// RPS optionally specifies the maximum number of requests to the
 	// CloudWatch Logs web service which the QueryManager may make in
-	// each one-second period for each CloudWatch Logs action. The
+	// each one-second period for each CloudWatch Logs act. The
 	// purpose of RPS is to prevent the QueryManager or other humans or
 	// systems using CloudWatch Logs in the same AWS account and region
 	// from being throttled by the web service.
 	//
 	// If RPS has a missing, zero, or negative number for any required
-	// CloudWatch Logs action, the value specified in RPSDefaults is
+	// CloudWatch Logs act, the value specified in RPSDefaults is
 	// used instead. The default behavior should be adequate for many
 	// use cases, so you typically will not need to set this field
 	// explicitly.

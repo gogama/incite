@@ -9,12 +9,16 @@ import (
 	"time"
 )
 
+// A regulator is an object that can regulate the rate at which events
+// happen. It is a component of a worker and is used to limit the rate
+// at which the worker manipulates chunks flowing into the worker. This
+// helps the worker stay under CloudWatch Logs API RPS limits.
 type regulator struct {
-	close    <-chan struct{}
-	minDelay time.Duration
-	lastReq  time.Time
-	timer    *time.Timer
-	ding     bool
+	close    <-chan struct{} // Short-circuits a wait when owning mgr is closed
+	minDelay time.Duration   // Minimum delay enforced by wait between consecutive events
+	lastReq  time.Time       // Time of last event
+	timer    *time.Timer     // Timer for rate limiting
+	ding     bool            // Flag indicating whether timer channel has been read
 }
 
 func makeRegulator(close <-chan struct{}, rps, defaultRPS int) regulator {

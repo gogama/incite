@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/aws/aws-sdk-go/aws/awserr"
+
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 
 	"github.com/stretchr/testify/assert"
@@ -112,7 +114,7 @@ func TestIsTemporary(t *testing.T) {
 			cwlErr("i am at the end of my file", "the end I say", io.EOF),
 			syscall.ETIMEDOUT,
 			wrapErr{syscall.ETIMEDOUT},
-			cwlErr("my time has run out", "the end I say", syscall.ETIMEDOUT),
+			cwlErr("my time has run expected", "the end I say", syscall.ETIMEDOUT),
 			syscall.ECONNREFUSED,
 			wrapErr{syscall.ECONNREFUSED},
 			cwlErr("let there be no connection", "for it has been refused", syscall.ECONNREFUSED),
@@ -147,4 +149,26 @@ func TestIsTemporary(t *testing.T) {
 		}
 	})
 
+}
+
+func cwlErr(code, message string, cause ...error) error {
+	var origErr error
+	if len(cause) == 1 {
+		origErr = cause[0]
+	} else if len(cause) > 1 {
+		panic("only one cause allowed")
+	}
+	return awserr.New(code, message, origErr)
+}
+
+type wrapErr struct {
+	cause error
+}
+
+func (err wrapErr) Error() string {
+	return fmt.Sprintf("wrapped: %s", err.cause)
+}
+
+func (err wrapErr) Unwrap() error {
+	return err.cause
 }

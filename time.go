@@ -7,8 +7,8 @@ package incite
 import "time"
 
 // TimeLayout is a Go time layout which documents the format of the time
-// values returned in the timestamp fields of CloudWatch Logs Insights
-// queries.
+// values returned within the timestamp fields of CloudWatch Logs
+// Insights queries.
 //
 // TimeLayout defines the format by showing how the Go reference time of
 //
@@ -16,7 +16,7 @@ import "time"
 //
 // would be formatted if it were the value. TimeLayout can be used with
 // time.Parse to parse timestamp fields, such as @timestamp and @ingestionTime,
-// which are returned in CloudWatch Logs Insights query results.
+// which are returned within CloudWatch Logs Insights query results.
 const TimeLayout = "2006-01-02 15:04:05.000"
 
 func hasSubSecond(t time.Time) bool {

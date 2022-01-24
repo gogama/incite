@@ -4,4 +4,245 @@
 
 package incite
 
-// TODO: unit tests please.
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+)
+
+func TestWorker_LoopAndShutdown(t *testing.T) {
+	t.Run("Loop Exits When In Channel Is Closed", func(t *testing.T) {
+		w, l, m, in, _ := newTestableWorker(t, 1, 1)
+		w.expectLoopLogs(l)
+		close(in)
+
+		w.loop()
+
+		l.AssertExpectations(t)
+		m.AssertExpectations(t)
+	})
+
+	t.Run("Chunk Is Pushed When Manipulate Fails and Retries Not Exceeded", func(t *testing.T) {
+		w, l, m, in, out := newTestableWorker(t, 100_000, 2)
+		out2 := make(chan *chunk)
+		w.expectLoopLogs(l)
+		c := &chunk{}
+
+		go func() {
+			in <- c
+		}()
+		go func() {
+			d := <-out
+			out2 <- d
+		}()
+		m.On("context", c).Return(context.Background()).Once()
+		m.On("manipulate", c).
+			Run(func(_ mock.Arguments) {
+				close(in)
+			}).
+			Return(false).
+			Once()
+		m.On("release", c).Once()
+
+		w.loop()
+		d := <-out2
+
+		l.AssertExpectations(t)
+		m.AssertExpectations(t)
+		assert.Same(t, c, d)
+	})
+
+	t.Run("Chunk Is Sent to Out Channel When Manipulate Fails and Retries Exceeded", func(t *testing.T) {
+		w, l, m, in, out := newTestableWorker(t, 100_000, 1)
+		out2 := make(chan *chunk)
+		w.expectLoopLogs(l)
+		c := &chunk{
+			stream: &stream{},
+		}
+
+		go func() {
+			in <- c
+		}()
+		go func() {
+			d := <-out
+			out2 <- d
+		}()
+		l.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", w.m.Name)
+		m.On("context", c).Return(context.Background()).Once()
+		m.On("manipulate", c).
+			Run(func(_ mock.Arguments) {
+				close(in)
+			}).
+			Return(false).
+			Once()
+
+		w.loop()
+		d := <-out2
+
+		l.AssertExpectations(t)
+		m.AssertExpectations(t)
+		assert.Same(t, c, d)
+	})
+
+	t.Run("Chunk Is Sent to Out Channel When Manipulate Succeeds", func(t *testing.T) {
+		w, l, m, in, out := newTestableWorker(t, 100_000, 1)
+		out2 := make(chan *chunk)
+		w.expectLoopLogs(l)
+		c := &chunk{}
+
+		go func() {
+			in <- c
+		}()
+		go func() {
+			d := <-out
+			out2 <- d
+		}()
+		m.
+			On("context", c).
+			Run(func(_ mock.Arguments) {
+				close(in)
+			}).
+			Return(context.Background()).Once()
+		m.On("manipulate", c).Return(true).Once()
+
+		w.loop()
+		d := <-out2
+
+		l.AssertExpectations(t)
+		m.AssertExpectations(t)
+		assert.Same(t, c, d)
+	})
+}
+
+func TestWorker_PushAndPop(t *testing.T) {
+	t.Run("Empty Pop, Not Closed", func(t *testing.T) {
+		w, _, _, in, _ := newTestableWorker(t, 1, 1)
+		expected := &chunk{}
+		go func() {
+			in <- expected
+		}()
+
+		actual := w.pop()
+
+		assert.Same(t, expected, actual)
+	})
+
+	t.Run("Empty Pop, Closed", func(t *testing.T) {
+		w, _, _, in, _ := newTestableWorker(t, 1, 1)
+		close(in)
+
+		actual := w.pop()
+
+		assert.Nil(t, actual)
+	})
+
+	t.Run("Single Push, Pop without Receive", func(t *testing.T) {
+		w, _, _, _, _ := newTestableWorker(t, 1, 1)
+		expected := &chunk{}
+
+		t.Run("Push", func(t *testing.T) {
+			w.push(expected)
+
+			assert.Equal(t, 1, w.numChunks)
+		})
+
+		t.Run("Pop", func(t *testing.T) {
+			actual := w.pop()
+
+			assert.Same(t, expected, actual)
+			assert.Equal(t, 0, w.numChunks)
+		})
+	})
+
+	t.Run("Single Push, Pop with Receive, Pop without Receive", func(t *testing.T) {
+		w, _, _, in, _ := newTestableWorker(t, 1, 1)
+		first, second := &chunk{}, &chunk{}
+		var x, y *chunk
+
+		t.Run("Push", func(t *testing.T) {
+			w.push(first)
+
+			assert.Equal(t, 1, w.numChunks)
+		})
+
+		t.Run("Pop with Receive", func(t *testing.T) {
+			go func() {
+				in <- second
+			}()
+			x = w.pop()
+
+			assert.True(t, x == first || x == second)
+			if x == second {
+				assert.Same(t, x, second)
+				assert.Equal(t, 1, w.numChunks)
+			}
+		})
+
+		t.Run("Pop without Receive", func(t *testing.T) {
+			y = w.pop()
+
+			if x == first {
+				assert.Same(t, second, y)
+			} else {
+				assert.Same(t, first, y)
+			}
+			assert.Equal(t, 0, w.numChunks)
+		})
+	})
+}
+
+func newTestableWorker(t *testing.T, rps, maxTry int) (w *worker, l *mockLogger, m *mockManipulator, in, out chan *chunk) {
+	closer := make(chan struct{})
+	l = newMockLogger(t)
+	m = newMockManipulator(t)
+	in = make(chan *chunk)
+	out = make(chan *chunk)
+	w = &worker{
+		m: &mgr{
+			Config: Config{
+				Logger: l,
+				Name:   "mgr:" + t.Name(),
+			},
+			close: closer,
+		},
+		regulator:   makeRegulator(closer, rps, 0),
+		in:          in,
+		out:         out,
+		name:        "worker:" + t.Name(),
+		maxTry:      maxTry,
+		manipulator: m,
+	}
+	return
+}
+
+type mockManipulator struct {
+	mock.Mock
+}
+
+func newMockManipulator(t *testing.T) *mockManipulator {
+	m := &mockManipulator{}
+	m.Test(t)
+	return m
+}
+
+func (m *mockManipulator) context(c *chunk) context.Context {
+	args := m.Called(c)
+	return args.Get(0).(context.Context)
+}
+
+func (m *mockManipulator) manipulate(c *chunk) bool {
+	args := m.Called(c)
+	return args.Bool(0)
+}
+
+func (m *mockManipulator) release(c *chunk) {
+	m.Called(c)
+}
+
+func (w *worker) expectLoopLogs(m *mockLogger) {
+	m.ExpectPrintf("incite: QueryManager(%s) %s %s", w.m.Name, w.name, "started").Once()
+	m.ExpectPrintf("incite: QueryManager(%s) %s %s", w.m.Name, w.name, "stopping...").Once()
+	m.ExpectPrintf("incite: QueryManager(%s) %s %s", w.m.Name, w.name, "stopped").Once()
+}

@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -1906,28 +1905,6 @@ func startTimeSeconds(t time.Time) *int64 {
 
 func endTimeSeconds(t time.Time) *int64 {
 	return startTimeSeconds(t.Add(-time.Second))
-}
-
-func cwlErr(code, message string, cause ...error) error {
-	var origErr error
-	if len(cause) == 1 {
-		origErr = cause[0]
-	} else if len(cause) > 1 {
-		panic("only one cause allowed")
-	}
-	return awserr.New(code, message, origErr)
-}
-
-type wrapErr struct {
-	cause error
-}
-
-func (err wrapErr) Error() string {
-	return fmt.Sprintf("wrapped: %s", err.cause)
-}
-
-func (err wrapErr) Unwrap() error {
-	return err.cause
 }
 
 func (r Result) get(k string) (v string) {
