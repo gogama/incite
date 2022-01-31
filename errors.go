@@ -119,17 +119,30 @@ func errNoValue(key string) error {
 
 func isTemporary(err error) bool {
 	if x, ok := err.(awserr.Error); ok {
+		// Short-circuit if the HTTP status code indicates retryability.
+		if f, ok := err.(awserr.RequestFailure); ok {
+			status := f.StatusCode()
+			if status == 429 || status == 502 || status == 503 || status == 504 {
+				return true
+			}
+		}
+
+		// Check for known CloudWatch Logs retryability codes.
 		switch x.Code() {
 		case cloudwatchlogs.ErrCodeLimitExceededException, cloudwatchlogs.ErrCodeServiceUnavailableException:
 			return true
-		default:
-			// Omit 'e' suffix on 'throttl' to match Throttled and Throttling.
-			if strings.Contains(strings.ToLower(x.Code()), "throttl") ||
-				strings.Contains(strings.ToLower(x.Message()), "rate exceeded") {
-				return true
-			}
-			return isTemporary(x.OrigErr())
 		}
+
+		// Check for throttling using common AWS service patterns for indicating
+		// throttling via exception. Omit 'e' suffix on 'throttl' to match
+		// Throttled and Throttling.
+		if strings.Contains(strings.ToLower(x.Code()), "throttl") ||
+			strings.Contains(strings.ToLower(x.Message()), "rate exceeded") {
+			return true
+		}
+
+		// Recursively examine the cause error, if any.
+		return isTemporary(x.OrigErr())
 	}
 
 	if errors.Is(err, io.EOF) {

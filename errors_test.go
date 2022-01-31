@@ -8,8 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"net/http"
+	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/aws/aws-sdk-go/private/protocol/restjson"
+
+	"github.com/aws/aws-sdk-go/aws/request"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
 
@@ -106,6 +113,11 @@ func TestErrNoValue(t *testing.T) {
 func TestIsTemporary(t *testing.T) {
 	t.Run("True Cases", func(t *testing.T) {
 		trueCases := []error{
+			awserr.NewRequestFailure(awserr.New("a", "b", nil), 429, "too-many-requests"),
+			awserr.NewRequestFailure(awserr.New("a", "b", nil), 502, "bad-gateway"),
+			awserr.NewRequestFailure(awserr.New("a", "b", nil), 503, "service-unavailable"),
+			awserr.NewRequestFailure(awserr.New("a", "b", nil), 504, "gateway-timeout"),
+			awserr.New("there was no availability of service", "unavailable", awserr.NewRequestFailure(awserr.New("a", "b", nil), 503, "my request")),
 			cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "stay under that limit"),
 			cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "stand by for more great service"),
 			cwlErr("tttthroTTLED!", "simmer down"),
@@ -133,6 +145,8 @@ func TestIsTemporary(t *testing.T) {
 		falseCases := []error{
 			nil,
 			errors.New("bif"),
+			awserr.NewRequestFailure(awserr.New("a", "b", nil), 400, "very, very, bad request"),
+			awserr.NewRequestFailure(awserr.New("a", "b", nil), 500, "internal server error"),
 			cwlErr(cloudwatchlogs.ErrCodeInvalidOperationException, "foo"),
 			cwlErr(cloudwatchlogs.ErrCodeInvalidParameterException, "bar"),
 			cwlErr(cloudwatchlogs.ErrCodeMalformedQueryException, "baz"),
@@ -149,6 +163,27 @@ func TestIsTemporary(t *testing.T) {
 		}
 	})
 
+	t.Run("Special Cases", func(t *testing.T) {
+		t.Run("Issue #13 - Retry API calls when the CWL API response payload can't be deserialized", func(t *testing.T) {
+			// Regression test for: https://github.com/gogama/incite/issues/13
+
+			// Construct an AWS SDK for Go response of the type that triggers
+			// the problem.
+			r := request.Request{
+				RequestID: t.Name(),
+				HTTPResponse: &http.Response{
+					StatusCode: 503,
+					Body:       ioutil.NopCloser(strings.NewReader("")),
+				},
+			}
+
+			// Construct the problem error.
+			restjson.UnmarshalError(&r)
+
+			// Validate that this error is considered temporary.
+			assert.True(t, isTemporary(r.Error))
+		})
+	})
 }
 
 func cwlErr(code, message string, cause ...error) error {
