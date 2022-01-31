@@ -14,14 +14,10 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/private/protocol/restjson"
-
-	"github.com/aws/aws-sdk-go/aws/request"
-
 	"github.com/aws/aws-sdk-go/aws/awserr"
-
+	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/private/protocol/restjson"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
-
 	"github.com/stretchr/testify/assert"
 )
 
