@@ -529,13 +529,11 @@ func TestQueryManager_Close(t *testing.T) {
 			queryID := fmt.Sprintf("%s[%d]", t.Name(), i)
 			wg.Add(1)
 			actions.
-				On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
-					StartTime:     startTimeSeconds(defaultStart.Add(time.Duration(i) * time.Minute)),
-					EndTime:       endTimeSeconds(defaultStart.Add(time.Duration(i+1) * time.Minute)),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("bar")},
-					QueryString:   &text,
-				}).
+				On("StartQueryWithContext", anyContext, startQueryInput(
+					text,
+					defaultStart.Add(time.Duration(i)*time.Minute), defaultStart.Add(time.Duration(i+1)*time.Minute),
+					DefaultLimit, "bar",
+				)).
 				Run(func(_ mock.Arguments) { wg.Done() }).
 				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryID}, nil).
 				Once()
@@ -1294,13 +1292,11 @@ func TestQueryManager_Query(t *testing.T) {
 					for i := 1; i <= maxRestart; i++ {
 						queryID := fmt.Sprintf("n=%d|c=%d|i=%d", n, c, i)
 						actions.
-							On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
-								StartTime:     startTimeSeconds(defaultStart.Add(time.Duration(c-1) * time.Minute)),
-								EndTime:       endTimeSeconds(defaultStart.Add(time.Duration(c) * time.Minute)),
-								Limit:         defaultLimit,
-								LogGroupNames: []*string{sp("foo")},
-								QueryString:   &text,
-							}).
+							On("StartQueryWithContext", anyContext, startQueryInput(
+								text,
+								defaultStart.Add(time.Duration(c-1)*time.Minute), defaultStart.Add(time.Duration(c)*time.Minute),
+								DefaultLimit, "foo",
+							)).
 							Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryID}, nil).
 							Once()
 						getCall := actions.
@@ -1491,26 +1487,14 @@ func TestQueryManager_Query(t *testing.T) {
 			// CHUNK 1.
 			queryIDChunk1 := "foo"
 			actions.
-				On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultStart.Add(time.Second)),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("grp")},
-					QueryString:   &text,
-				}).
+				On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultStart.Add(time.Second), DefaultLimit, "grp")).
 				Return(nil, cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "foo")).
 				Once()
 			logger.
 				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "temporary failure to start", "0", text, defaultStart, defaultStart.Add(time.Second), "ServiceUnavailableException: foo").
 				Once()
 			actions.
-				On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultStart.Add(time.Second)),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("grp")},
-					QueryString:   &text,
-				}).
+				On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultStart.Add(time.Second), DefaultLimit, "grp")).
 				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryIDChunk1}, nil).
 				Once()
 			logger.
@@ -1529,13 +1513,7 @@ func TestQueryManager_Query(t *testing.T) {
 			// CHUNK 2.
 			queryIDChunk2 := []string{"bar.try1", "bar.try2"}
 			actions.
-				On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
-					StartTime:     startTimeSeconds(defaultStart.Add(time.Second)),
-					EndTime:       endTimeSeconds(defaultStart.Add(2 * time.Second)),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("grp")},
-					QueryString:   &text,
-				}).
+				On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart.Add(time.Second), defaultStart.Add(2*time.Second), DefaultLimit, "grp")).
 				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryIDChunk2[0]}, nil).
 				Once()
 			logger.
@@ -1549,13 +1527,7 @@ func TestQueryManager_Query(t *testing.T) {
 				}, nil).
 				Once()
 			actions.
-				On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
-					StartTime:     startTimeSeconds(defaultStart.Add(time.Second)),
-					EndTime:       endTimeSeconds(defaultStart.Add(2 * time.Second)),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("grp")},
-					QueryString:   &text,
-				}).
+				On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart.Add(time.Second), defaultStart.Add(2*time.Second), DefaultLimit, "grp")).
 				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryIDChunk2[1]}, nil).
 				Once()
 			logger.

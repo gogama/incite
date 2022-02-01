@@ -183,13 +183,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("a poorly written query"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         int64p(50),
-					LogGroupNames: []*string{sp("/my/group/1"), sp("/my/group/2")},
-				},
+				startQueryInput: startQueryInput("a poorly written query", defaultStart, defaultEnd, 50, "/my/group/1", "/my/group/2"),
 				startQueryErrs: []error{
 					cwlErr(cloudwatchlogs.ErrCodeInvalidParameterException, "terrible query writing there bud"),
 				},
@@ -213,13 +207,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("an ill-fated query"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/any/group")},
-				},
+				startQueryInput:   startQueryInput("an ill-fated query", defaultStart, defaultEnd, DefaultLimit, "/any/group"),
 				startQueryErrs:    []error{errors.New("pow exclamation point")},
 				startQuerySuccess: false,
 			},
@@ -242,13 +230,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("empty"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/my/empty/group")},
-				},
+				startQueryInput:   startQueryInput("empty", defaultStart, defaultEnd, DefaultLimit, "/my/empty/group"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -275,13 +257,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("destined for cancellation"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/any/group")},
-				},
+				startQueryInput:   startQueryInput("destined for cancellation", defaultStart, defaultEnd, DefaultLimit, "/any/group"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -307,13 +283,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("tempting a timeout"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/any/group")},
-				},
+				startQueryInput:   startQueryInput("tempting a timeout", defaultStart, defaultEnd, DefaultLimit, "/any/group"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -339,13 +309,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("expecting the unexpected...status"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/any/group")},
-				},
+				startQueryInput:   startQueryInput("expecting the unexpected...status", defaultStart, defaultEnd, DefaultLimit, "/any/group"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -371,13 +335,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("expecting the unexpected...error"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/foo/bar")},
-				},
+				startQueryInput:   startQueryInput("expecting the unexpected...error", defaultStart, defaultEnd, DefaultLimit, "/foo/bar"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -405,13 +363,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("deliver me some results"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/any/group")},
-				},
+				startQueryInput:   startQueryInput("deliver me some results", defaultStart, defaultEnd, DefaultLimit, "/any/group"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -461,13 +413,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("many happy results"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/thomas/gray"), sp("/thomas/aquinas")},
-				},
+				startQueryInput: startQueryInput("many happy results", defaultStart, defaultEnd, DefaultLimit, "/thomas/gray", "/thomas/aquinas"),
 				startQueryErrs: []error{
 					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "use less"),
 					cwlErr("Throttling", "slow down"),
@@ -550,13 +496,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("fated for failure"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/any/group")},
-				},
+				startQueryInput:   startQueryInput("fated for failure", defaultStart, defaultEnd, DefaultLimit, "/any/group"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -583,13 +523,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("preview of coming cancellations"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/some/group"), sp("/other/group")},
-				},
+				startQueryInput:   startQueryInput("preview of coming cancellations", defaultStart, defaultEnd, DefaultLimit, "/some/group", "/other/group"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -616,13 +550,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("preview of coming timeouts"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/any/group")},
-				},
+				startQueryInput:   startQueryInput("preview of coming timeouts", defaultStart, defaultEnd, DefaultLimit, "/any/group"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -649,13 +577,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("preview of coming surprises..."),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/any/group")},
-				},
+				startQueryInput:   startQueryInput("preview of coming surprises...", defaultStart, defaultEnd, DefaultLimit, "/any/group"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -684,13 +606,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("fields Foo, Bar"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         int64p(MaxLimit),
-					LogGroupNames: []*string{sp("/normal/log/group")},
-				},
+				startQueryInput:   startQueryInput("fields Foo, Bar", defaultStart, defaultEnd, MaxLimit, "/normal/log/group"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{status: cloudwatchlogs.QueryStatusScheduled},
@@ -778,13 +694,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("stats count_distinct(Foo) by bar"),
-					StartTime:     startTimeSeconds(defaultStart.Add(-time.Hour)),
-					EndTime:       endTimeSeconds(defaultEnd.Add(time.Hour)),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/trove/of/data")},
-				},
+				startQueryInput:   startQueryInput("stats count_distinct(Foo) by bar", defaultStart.Add(-time.Hour), defaultEnd.Add(time.Hour), DefaultLimit, "/trove/of/data"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{status: cloudwatchlogs.QueryStatusScheduled},
@@ -848,13 +758,7 @@ var scenarios = []queryScenario{
 		chunks: []chunkPlan{
 			// Original chunk.
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("display many, things"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         int64p(MaxLimit),
-					LogGroupNames: []*string{sp("/plentiful/logs/grouped/within")},
-				},
+				startQueryInput:   startQueryInput("display many, things", defaultStart, defaultEnd, MaxLimit, "/plentiful/logs/grouped/within"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -866,13 +770,7 @@ var scenarios = []queryScenario{
 			},
 			// Split chunk 1/4.
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("display many, things"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultStart.Add(defaultDuration / 4)),
-					Limit:         int64p(MaxLimit),
-					LogGroupNames: []*string{sp("/plentiful/logs/grouped/within")},
-				},
+				startQueryInput:   startQueryInput("display many, things", defaultStart, defaultStart.Add(defaultDuration/4), MaxLimit, "/plentiful/logs/grouped/within"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -884,13 +782,7 @@ var scenarios = []queryScenario{
 			},
 			// Split chunk 2/4.
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("display many, things"),
-					StartTime:     startTimeSeconds(defaultStart.Add(defaultDuration / 4)),
-					EndTime:       endTimeSeconds(defaultStart.Add(defaultDuration / 2)),
-					Limit:         int64p(MaxLimit),
-					LogGroupNames: []*string{sp("/plentiful/logs/grouped/within")},
-				},
+				startQueryInput:   startQueryInput("display many, things", defaultStart.Add(defaultDuration/4), defaultStart.Add(defaultDuration/2), MaxLimit, "/plentiful/logs/grouped/within"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -902,13 +794,7 @@ var scenarios = []queryScenario{
 			},
 			// Split chunk 3/4.
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("display many, things"),
-					StartTime:     startTimeSeconds(defaultStart.Add(defaultDuration / 2)),
-					EndTime:       endTimeSeconds(defaultStart.Add(3 * defaultDuration / 4)),
-					Limit:         int64p(MaxLimit),
-					LogGroupNames: []*string{sp("/plentiful/logs/grouped/within")},
-				},
+				startQueryInput:   startQueryInput("display many, things", defaultStart.Add(defaultDuration/2), defaultStart.Add(3*defaultDuration/4), MaxLimit, "/plentiful/logs/grouped/within"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -920,13 +806,7 @@ var scenarios = []queryScenario{
 			},
 			// Split chunk 4/4.
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("display many, things"),
-					StartTime:     startTimeSeconds(defaultStart.Add(3 * defaultDuration / 4)),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         int64p(MaxLimit),
-					LogGroupNames: []*string{sp("/plentiful/logs/grouped/within")},
-				},
+				startQueryInput:   startQueryInput("display many, things", defaultStart.Add(3*defaultDuration/4), defaultEnd, MaxLimit, "/plentiful/logs/grouped/within"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -961,13 +841,7 @@ var scenarios = []queryScenario{
 		chunks: []chunkPlan{
 			// Original chunk, length two seconds.
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("fields maximum, items"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultStart.Add(2 * time.Second)),
-					Limit:         int64p(MaxLimit),
-					LogGroupNames: []*string{sp("/a/plethora/of/logs")},
-				},
+				startQueryInput:   startQueryInput("fields maximum, items", defaultStart, defaultStart.Add(2*time.Second), MaxLimit, "/a/plethora/of/logs"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -979,13 +853,7 @@ var scenarios = []queryScenario{
 			},
 			// Split chunk 1/2.
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("fields maximum, items"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultStart.Add(time.Second)),
-					Limit:         int64p(MaxLimit),
-					LogGroupNames: []*string{sp("/a/plethora/of/logs")},
-				},
+				startQueryInput:   startQueryInput("fields maximum, items", defaultStart, defaultStart.Add(time.Second), MaxLimit, "/a/plethora/of/logs"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -997,13 +865,7 @@ var scenarios = []queryScenario{
 			},
 			// Split chunk 2/2.
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("fields maximum, items"),
-					StartTime:     startTimeSeconds(defaultStart.Add(time.Second)),
-					EndTime:       endTimeSeconds(defaultStart.Add(2 * time.Second)),
-					Limit:         int64p(MaxLimit),
-					LogGroupNames: []*string{sp("/a/plethora/of/logs")},
-				},
+				startQueryInput:   startQueryInput("fields maximum, items", defaultStart.Add(time.Second), defaultStart.Add(2*time.Second), MaxLimit, "/a/plethora/of/logs"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1036,13 +898,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("display how_many_results_are_there"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         int64p(1),
-					LogGroupNames: []*string{sp("/very/full/log/group")},
-				},
+				startQueryInput:   startQueryInput("display how_many_results_are_there", defaultStart, defaultEnd, 1, "/very/full/log/group"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1076,13 +932,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("stats count_distinct(Eggs) as EggCount By Spam"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("/very/full/log/group")},
-				},
+				startQueryInput:   startQueryInput("stats count_distinct(Eggs) as EggCount By Spam", defaultStart, defaultEnd, DefaultLimit, "/very/full/log/group"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1121,13 +971,10 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates chunking but chunk size is fully aligned with start/end to produce one real chunk"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("primo"), sp("secondo")},
-				},
+				startQueryInput: startQueryInput(
+					"QuerySpec indicates chunking but chunk size is fully aligned with start/end to produce one real chunk",
+					defaultStart, defaultEnd, DefaultLimit, "primo", "secondo",
+				),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1176,13 +1023,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates chunking and [start, end) defines exactly two chunks"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultStart.Add(150 * time.Second)),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("ein"), sp("zwei")},
-				},
+				startQueryInput:   startQueryInput("QuerySpec indicates chunking and [start, end) defines exactly two chunks", defaultStart, defaultStart.Add(150*time.Second), DefaultLimit, "ein", "zwei"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1196,13 +1037,7 @@ var scenarios = []queryScenario{
 				},
 			},
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates chunking and [start, end) defines exactly two chunks"),
-					StartTime:     startTimeSeconds(defaultStart.Add(150 * time.Second)),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         defaultLimit,
-					LogGroupNames: []*string{sp("ein"), sp("zwei")},
-				},
+				startQueryInput:   startQueryInput("QuerySpec indicates chunking and [start, end) defines exactly two chunks", defaultStart.Add(150*time.Second), defaultEnd, DefaultLimit, "ein", "zwei"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1248,13 +1083,10 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates chunking and [start, end) defines two chunks, the second of which is not full sized"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultStart.Add(4 * time.Minute)),
-					LogGroupNames: []*string{sp("forest")},
-					Limit:         int64p(DefaultLimit),
-				},
+				startQueryInput: startQueryInput(
+					"QuerySpec indicates chunking and [start, end) defines two chunks, the second of which is not full sized",
+					defaultStart, defaultStart.Add(4*time.Minute), DefaultLimit, "forest",
+				),
 				startQueryErrs: []error{
 					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "use less"),
 				},
@@ -1274,13 +1106,10 @@ var scenarios = []queryScenario{
 				},
 			},
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates chunking and [start, end) defines two chunks, the second of which is not full sized"),
-					StartTime:     startTimeSeconds(defaultStart.Add(4 * time.Minute)),
-					EndTime:       endTimeSeconds(defaultEnd),
-					LogGroupNames: []*string{sp("forest")},
-					Limit:         int64p(DefaultLimit),
-				},
+				startQueryInput: startQueryInput(
+					"QuerySpec indicates chunking and [start, end) defines two chunks, the second of which is not full sized",
+					defaultStart.Add(4*time.Minute), defaultEnd, DefaultLimit, "forest",
+				),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1330,13 +1159,10 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates chunking and [start, end) defines three chunks, the third of which is fractional sized"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultStart.Add(2 * time.Minute)),
-					LogGroupNames: []*string{sp("lumberyard")},
-					Limit:         int64p(DefaultLimit),
-				},
+				startQueryInput: startQueryInput(
+					"QuerySpec indicates chunking and [start, end) defines three chunks, the third of which is fractional sized",
+					defaultStart, defaultStart.Add(2*time.Minute), DefaultLimit, "lumberyard",
+				),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1349,13 +1175,10 @@ var scenarios = []queryScenario{
 				},
 			},
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates chunking and [start, end) defines three chunks, the third of which is fractional sized"),
-					StartTime:     startTimeSeconds(defaultStart.Add(2 * time.Minute)),
-					EndTime:       endTimeSeconds(defaultStart.Add(4 * time.Minute)),
-					LogGroupNames: []*string{sp("lumberyard")},
-					Limit:         int64p(DefaultLimit),
-				},
+				startQueryInput: startQueryInput(
+					"QuerySpec indicates chunking and [start, end) defines three chunks, the third of which is fractional sized",
+					defaultStart.Add(2*time.Minute), defaultStart.Add(4*time.Minute), DefaultLimit, "lumberyard",
+				),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1369,13 +1192,10 @@ var scenarios = []queryScenario{
 				},
 			},
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates chunking and [start, end) defines three chunks, the third of which is fractional sized"),
-					StartTime:     startTimeSeconds(defaultStart.Add(4 * time.Minute)),
-					EndTime:       endTimeSeconds(defaultEnd),
-					LogGroupNames: []*string{sp("lumberyard")},
-					Limit:         int64p(DefaultLimit),
-				},
+				startQueryInput: startQueryInput(
+					"QuerySpec indicates chunking and [start, end) defines three chunks, the third of which is fractional sized",
+					defaultStart.Add(4*time.Minute), defaultEnd, DefaultLimit, "lumberyard",
+				),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1422,13 +1242,7 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates a previewed query in three chunks"),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultStart.Add(2 * time.Minute)),
-					LogGroupNames: []*string{sp("fireplace")},
-					Limit:         int64p(5),
-				},
+				startQueryInput:   startQueryInput("QuerySpec indicates a previewed query in three chunks", defaultStart, defaultStart.Add(2*time.Minute), 5, "fireplace"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1453,13 +1267,7 @@ var scenarios = []queryScenario{
 				},
 			},
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates a previewed query in three chunks"),
-					StartTime:     startTimeSeconds(defaultStart.Add(2 * time.Minute)),
-					EndTime:       endTimeSeconds(defaultStart.Add(4 * time.Minute)),
-					LogGroupNames: []*string{sp("fireplace")},
-					Limit:         int64p(5),
-				},
+				startQueryInput:   startQueryInput("QuerySpec indicates a previewed query in three chunks", defaultStart.Add(2*time.Minute), defaultStart.Add(4*time.Minute), 5, "fireplace"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1477,13 +1285,7 @@ var scenarios = []queryScenario{
 				},
 			},
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates a previewed query in three chunks"),
-					StartTime:     startTimeSeconds(defaultStart.Add(4 * time.Minute)),
-					EndTime:       endTimeSeconds(defaultEnd),
-					LogGroupNames: []*string{sp("fireplace")},
-					Limit:         int64p(5),
-				},
+				startQueryInput: startQueryInput("QuerySpec indicates a previewed query in three chunks", defaultStart.Add(4*time.Minute), defaultEnd, 5, "fireplace"),
 				startQueryErrs: []error{
 					cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "wait for it..."),
 					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "use less"),
@@ -1558,13 +1360,10 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates chunking; [start, end) defines exactly two chunks; and limit is 1."),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultStart.Add(150 * time.Second)),
-					Limit:         int64p(1),
-					LogGroupNames: []*string{sp("uno"), sp("due")},
-				},
+				startQueryInput: startQueryInput(
+					"QuerySpec indicates chunking; [start, end) defines exactly two chunks; and limit is 1.",
+					defaultStart, defaultStart.Add(150*time.Second), 1, "uno", "due",
+				),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1574,13 +1373,10 @@ var scenarios = []queryScenario{
 				},
 			},
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates chunking; [start, end) defines exactly two chunks; and limit is 1."),
-					StartTime:     startTimeSeconds(defaultStart.Add(150 * time.Second)),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         int64p(1),
-					LogGroupNames: []*string{sp("uno"), sp("due")},
-				},
+				startQueryInput: startQueryInput(
+					"QuerySpec indicates chunking; [start, end) defines exactly two chunks; and limit is 1.",
+					defaultStart.Add(150*time.Second), defaultEnd, 1, "uno", "due",
+				),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1619,13 +1415,10 @@ var scenarios = []queryScenario{
 		},
 		chunks: []chunkPlan{
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates chunking; [start, end) defines exactly two chunks; and limit is 1."),
-					StartTime:     startTimeSeconds(defaultStart),
-					EndTime:       endTimeSeconds(defaultStart.Add(150 * time.Second)),
-					Limit:         int64p(1),
-					LogGroupNames: []*string{sp("primo"), sp("secondo")},
-				},
+				startQueryInput: startQueryInput(
+					"QuerySpec indicates chunking; [start, end) defines exactly two chunks; and limit is 1.",
+					defaultStart, defaultStart.Add(150*time.Second), 1, "primo", "secondo",
+				),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1638,13 +1431,10 @@ var scenarios = []queryScenario{
 				},
 			},
 			{
-				startQueryInput: cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("QuerySpec indicates chunking; [start, end) defines exactly two chunks; and limit is 1."),
-					StartTime:     startTimeSeconds(defaultStart.Add(150 * time.Second)),
-					EndTime:       endTimeSeconds(defaultEnd),
-					Limit:         int64p(1),
-					LogGroupNames: []*string{sp("primo"), sp("secondo")},
-				},
+				startQueryInput: startQueryInput(
+					"QuerySpec indicates chunking; [start, end) defines exactly two chunks; and limit is 1.",
+					defaultStart.Add(150*time.Second), defaultEnd, 1, "primo", "secondo",
+				),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1682,7 +1472,6 @@ type queryScenario struct {
 	QuerySpec
 	note        string         // Optional note describing the scenario
 	chunks      []chunkPlan    // Sub-scenario for each chunk
-	closeEarly  bool           // Whether to prematurely close the stream. [TODO: Not currently used.]
 	err         error          // Final expected error.
 	results     []Result       // Final results in the expected order after optional sorting using less.
 	postprocess func([]Result) // Optional function to post-process (e.g. sort) results in-place.
@@ -1707,20 +1496,13 @@ func (qs *queryScenario) play(t *testing.T, i int, m QueryManager, actions *mock
 
 	// Set up the chunk polling scenarios.
 	for j := range qs.chunks {
-		qs.chunks[j].setup(i, j, qs.note, qs.closeEarly, qs.expectStop, actions)
+		qs.chunks[j].setup(i, j, qs.note, qs.expectStop, actions)
 	}
 
 	// Start the scenario query.
 	s, err := m.Query(qs.QuerySpec)
 	assert.NoError(t, err)
 	require.NotNil(t, s)
-
-	// If premature closure is desired, just close the stream and leave.
-	if qs.closeEarly {
-		err = s.Close()
-		assert.NoError(t, err)
-		return
-	}
 
 	// Read the whole stream.
 	r, err := ReadAll(s)
@@ -1753,7 +1535,7 @@ func (qs *queryScenario) play(t *testing.T, i int, m QueryManager, actions *mock
 
 type chunkPlan struct {
 	// Starting the chunk.
-	startQueryInput   cloudwatchlogs.StartQueryInput
+	startQueryInput   *cloudwatchlogs.StartQueryInput
 	startQueryErrs    []error // Initial failures before success, may be empty.
 	startQuerySuccess bool
 
@@ -1768,13 +1550,13 @@ type chunkPollOutput struct {
 	stats   *Stats
 }
 
-func (cp *chunkPlan) setup(i, j int, note string, closeEarly, cancelChunk bool, actions *mockActions) {
+func (cp *chunkPlan) setup(i, j int, note string, cancelChunk bool, actions *mockActions) {
 	actions.lock.Lock()
 	defer actions.lock.Unlock()
 
 	for k := range cp.startQueryErrs {
 		actions.
-			On("StartQueryWithContext", anyContext, &cp.startQueryInput).
+			On("StartQueryWithContext", anyContext, cp.startQueryInput).
 			Return(nil, cp.startQueryErrs[k]).
 			Once()
 	}
@@ -1788,7 +1570,7 @@ func (cp *chunkPlan) setup(i, j int, note string, closeEarly, cancelChunk bool, 
 		queryID += "|" + note
 	}
 	actions.
-		On("StartQueryWithContext", anyContext, &cp.startQueryInput).
+		On("StartQueryWithContext", anyContext, cp.startQueryInput).
 		Return(&cloudwatchlogs.StartQueryOutput{
 			QueryId: &queryID,
 		}, nil)
@@ -1818,14 +1600,10 @@ func (cp *chunkPlan) setup(i, j int, note string, closeEarly, cancelChunk bool, 
 				On("GetQueryResultsWithContext", anyContext, input).
 				Return(output, nil)
 		}
-		if closeEarly {
-			call.Maybe()
-		} else {
-			call.Once()
-		}
+		call.Once()
 	}
 
-	if closeEarly || cancelChunk {
+	if cancelChunk {
 		input := &cloudwatchlogs.StopQueryInput{
 			QueryId: &queryID,
 		}
@@ -1907,6 +1685,20 @@ func endTimeSeconds(t time.Time) *int64 {
 	return startTimeSeconds(t.Add(-time.Second))
 }
 
+func startQueryInput(text string, start, end time.Time, limit int64, groups ...string) *cloudwatchlogs.StartQueryInput {
+	g := make([]*string, len(groups))
+	for i := range groups {
+		g[i] = &groups[i]
+	}
+	return &cloudwatchlogs.StartQueryInput{
+		QueryString:   &text,
+		StartTime:     startTimeSeconds(start),
+		EndTime:       endTimeSeconds(end),
+		Limit:         &limit,
+		LogGroupNames: g,
+	}
+}
+
 func (r Result) get(k string) (v string) {
 	for _, f := range r {
 		if f.Field == k {
@@ -1929,7 +1721,6 @@ var (
 	defaultDuration = 5 * time.Minute
 	defaultStart    = time.Date(2020, 8, 25, 3, 30, 0, 0, time.UTC)
 	defaultEnd      = defaultStart.Add(defaultDuration)
-	defaultLimit    = int64p(DefaultLimit)
 	lotsOfRPS       = map[CloudWatchLogsAction]int{
 		StartQuery:      100_000,
 		GetQueryResults: 100_000,

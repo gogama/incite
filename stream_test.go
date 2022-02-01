@@ -53,13 +53,10 @@ func TestStream_Close(t *testing.T) {
 				for ci := 0; ci < testCase.chunks; ci++ {
 					queryID := fmt.Sprintf("%s[ci=%d]", name, ci)
 					startCall := actions.
-						On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
-							StartTime:     startTimeSeconds(defaultStart.Add(time.Duration(ci) * time.Hour)),
-							EndTime:       endTimeSeconds(defaultStart.Add(time.Duration(ci+1) * time.Hour)),
-							Limit:         defaultLimit,
-							LogGroupNames: []*string{sp("baz")},
-							QueryString:   &text[si],
-						})
+						On("StartQueryWithContext", anyContext, startQueryInput(
+							text[si],
+							defaultStart.Add(time.Duration(ci)*time.Hour), defaultStart.Add(time.Duration(ci+1)*time.Hour),
+							DefaultLimit, "baz"))
 					if si*testCase.streams+testCase.chunks < QueryConcurrencyQuotaLimit {
 						wg.Add(1)
 						startCall.
