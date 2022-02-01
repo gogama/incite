@@ -162,24 +162,26 @@ func TestIsTemporary(t *testing.T) {
 	t.Run("Special Cases", func(t *testing.T) {
 		t.Run("Issue #13 - Retry API calls when the CWL API response payload can't be deserialized", func(t *testing.T) {
 			// Regression test for: https://github.com/gogama/incite/issues/13
-
-			// Construct an AWS SDK for Go response of the type that triggers
-			// the problem.
-			r := request.Request{
-				RequestID: t.Name(),
-				HTTPResponse: &http.Response{
-					StatusCode: 503,
-					Body:       ioutil.NopCloser(strings.NewReader("")),
-				},
-			}
-
-			// Construct the problem error.
-			restjson.UnmarshalError(&r)
-
-			// Validate that this error is considered temporary.
-			assert.True(t, isTemporary(r.Error))
+			assert.True(t, isTemporary(issue13Error(t.Name(), 503)))
 		})
 	})
+}
+
+// issue13Error returns an error of the type that triggered issue #13,
+// https://github.com/gogama/incite/issues/13.
+func issue13Error(requestID string, statusCode int) error {
+	r := request.Request{
+		RequestID: requestID,
+		HTTPResponse: &http.Response{
+			StatusCode: statusCode,
+			Body:       ioutil.NopCloser(strings.NewReader("")),
+		},
+	}
+
+	// Construct the problem error.
+	restjson.UnmarshalError(&r)
+
+	return r.Error
 }
 
 func cwlErr(code, message string, cause ...error) error {

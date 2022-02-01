@@ -11,8 +11,11 @@ import (
 	"io"
 	"sort"
 	"strconv"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/aws/aws-sdk-go/aws/awserr"
 
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/stretchr/testify/assert"
@@ -1466,6 +1469,251 @@ var scenarios = []queryScenario{
 			RangeMaxed:     defaultDuration,
 		},
 	},
+
+	// This is the last scenario, and it is meant to be a super test case that,
+	// by itself, runs more chunks than the QueryManager can run in parallel.
+	//
+	// The overall scheme is, assuming we start at index 0 and index 0 is even.
+	// - Even chunks have no results and stats 0/0/0.
+	// - Odd chunks produce exactly one result and the result @ptr is equal to
+	//   MaxLimit + the chunk index. Odd chunks produce stats 1/1/1.
+	// - The last chunk produces MaxResults results and gets split once, with
+	//   each sub-chunk producing a quarter of expected results. This special
+	//   chunk produces stats MaxLimit+1+1+1+1/MaxLimit+1+1+1+1/MaxLimit+1+1+1+1.
+	{
+		note: "MultiChunk.ÜberTest",
+		QuerySpec: QuerySpec{
+			Text:       "vikings",
+			Start:      defaultStart,
+			End:        defaultStart.Add((QueryConcurrencyQuotaLimit + 1) * time.Hour),
+			Limit:      MaxLimit,
+			Groups:     []string{"/frihed/februar/første"},
+			Chunk:      time.Hour,
+			SplitUntil: time.Second,
+		},
+		chunks: []chunkPlan{
+			// CHUNK 0.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart, defaultStart.Add(time.Hour), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				startQueryErrs:    []error{issue13Error("foo", 429), io.EOF, cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "pending", issue13Error("bar", 502))},
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusScheduled,
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+					},
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 1.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(time.Hour), defaultStart.Add(2*time.Hour), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						results: resultSeries(MaxLimit+1, 1),
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 2.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(2*time.Hour), defaultStart.Add(3*time.Hour), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 3.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(3*time.Hour), defaultStart.Add(4*time.Hour), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						results: resultSeries(MaxLimit+3, 1),
+						status:  cloudwatchlogs.QueryStatusRunning,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+					{
+						results: resultSeries(MaxLimit+3, 1),
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 4.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(4*time.Hour), defaultStart.Add(5*time.Hour), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+					},
+				},
+			},
+			// CHUNK 5.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(5*time.Hour), defaultStart.Add(6*time.Hour), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				startQueryErrs:    []error{awserr.New("connection reset", "reset that connection", syscall.ECONNRESET)},
+				pollOutputs: []chunkPollOutput{
+					{
+						results: resultSeries(MaxLimit+5, 1),
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 6.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(6*time.Hour), defaultStart.Add(7*time.Hour), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusScheduled,
+						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusScheduled,
+						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+					},
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 7.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(7*time.Hour), defaultStart.Add(8*time.Hour), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						results: resultSeries(MaxLimit+7, 1),
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 8.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(8*time.Hour), defaultStart.Add(9*time.Hour), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+					},
+				},
+			},
+			// CHUNK 9.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(9*time.Hour), defaultStart.Add(10*time.Hour), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusScheduled,
+					},
+					{
+						results: resultSeries(MaxLimit+9, 1),
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 10 [before split].
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(10*time.Hour), defaultStart.Add(11*time.Hour), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						results: maxLimitResults,
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{MaxLimit, MaxLimit, MaxLimit, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 10 [split sub-chunk 1/4].
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(10*time.Hour), defaultStart.Add(10*time.Hour+15*time.Minute), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						results: maxLimitResults[0 : MaxLimit/4],
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 10 [split sub-chunk 2/4].
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(10*time.Hour+15*time.Minute), defaultStart.Add(10*time.Hour+30*time.Minute), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						results: maxLimitResults[MaxLimit/4 : MaxLimit/2],
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 10 [split sub-chunk 3/4].
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(10*time.Hour+30*time.Minute), defaultStart.Add(10*time.Hour+45*time.Minute), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						results: maxLimitResults[MaxLimit/2 : 3*MaxLimit/4],
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 10 [split sub-chunk 4/4].
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(10*time.Hour+45*time.Minute), defaultStart.Add(11*time.Hour), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						results: maxLimitResults[3*MaxLimit/4 : MaxLimit],
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+		},
+		results: append(maxLimitResults, result(MaxLimit+1), result(MaxLimit+3), result(MaxLimit+5), result(MaxLimit+7), result(MaxLimit+9)),
+		postprocess: func(r []Result) {
+			sort.Slice(r, func(i, j int) bool {
+				a, _ := strconv.Atoi(r[i].get("@ptr"))
+				b, _ := strconv.Atoi(r[j].get("@ptr"))
+				return a < b
+			})
+		},
+		stats: Stats{
+			BytesScanned:   9 + MaxLimit,
+			RecordsMatched: 9 + MaxLimit,
+			RecordsScanned: 9 + MaxLimit,
+			RangeRequested: (1 + QueryConcurrencyQuotaLimit) * time.Hour,
+			RangeStarted:   (1 + QueryConcurrencyQuotaLimit) * time.Hour,
+			RangeDone:      (1 + QueryConcurrencyQuotaLimit) * time.Hour,
+		},
+	},
 }
 
 type queryScenario struct {
@@ -1712,9 +1960,13 @@ func (r Result) get(k string) (v string) {
 func resultSeries(i, n int) []Result {
 	series := make([]Result, n)
 	for j := range series {
-		series[j] = []ResultField{{"@ptr", strconv.Itoa(i + j)}}
+		series[j] = result(i + j)
 	}
 	return series
+}
+
+func result(ptr int) Result {
+	return Result{{"@ptr", strconv.Itoa(ptr)}}
 }
 
 var (
