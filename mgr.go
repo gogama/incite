@@ -290,8 +290,6 @@ func (m *mgr) addQuery(s *stream) {
 
 func (m *mgr) handleChunk(c *chunk) {
 	switch c.state {
-	case created:
-		m.makeReady(c)
 	case starting:
 		m.numStarting--
 		c.started()
@@ -310,6 +308,8 @@ func (m *mgr) handleChunk(c *chunk) {
 		m.handleChunkCompletion(c)
 	case stopping, stopped:
 		m.numStopping--
+	default:
+		panic("unexpected chunk state")
 	}
 }
 
