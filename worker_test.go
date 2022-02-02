@@ -6,15 +6,22 @@ package incite
 
 import (
 	"context"
+	"fmt"
+	"strconv"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
+
+var i int // TODO - delete
 
 func TestWorker_LoopAndShutdown(t *testing.T) {
 	t.Run("Loop Exits When In Channel Is Closed", func(t *testing.T) {
-		w, l, m, in, _ := newTestableWorker(t, 1, 1)
+		w, l, m, in, _, _ := newTestableWorker(t, 1, 1)
 		w.expectLoopLogs(l)
 		close(in)
 
@@ -25,7 +32,7 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 	})
 
 	t.Run("Chunk Is Pushed When Manipulate Fails and Retries Not Exceeded", func(t *testing.T) {
-		w, l, m, in, out := newTestableWorker(t, 100_000, 2)
+		w, l, m, in, out, _ := newTestableWorker(t, 100_000, 2)
 		out2 := make(chan *chunk)
 		w.expectLoopLogs(l)
 		c := &chunk{}
@@ -55,7 +62,7 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 	})
 
 	t.Run("Chunk Is Sent to Out Channel When Manipulate Fails and Retries Exceeded", func(t *testing.T) {
-		w, l, m, in, out := newTestableWorker(t, 100_000, 1)
+		w, l, m, in, out, _ := newTestableWorker(t, 100_000, 1)
 		out2 := make(chan *chunk)
 		w.expectLoopLogs(l)
 		c := &chunk{
@@ -87,7 +94,7 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 	})
 
 	t.Run("Chunk Is Sent to Out Channel When Manipulate Succeeds", func(t *testing.T) {
-		w, l, m, in, out := newTestableWorker(t, 100_000, 1)
+		w, l, m, in, out, _ := newTestableWorker(t, 100_000, 1)
 		out2 := make(chan *chunk)
 		w.expectLoopLogs(l)
 		c := &chunk{}
@@ -114,11 +121,84 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 		m.AssertExpectations(t)
 		assert.Same(t, c, d)
 	})
+
+	t.Run("Leftover Chunks in Channel are Released In Shutdown", func(t *testing.T) {
+		i++
+		d, _ := t.Deadline()
+		s := time.Now()
+		fmt.Printf("START %d [%v remains]...", i, d.Sub(s))
+
+		w, l, m, in, out, closer := newTestableWorker(t, 1, 1)
+		w.expectLoopLogs(l)
+		n := 15
+		readFromOut := make(map[int]bool, n)
+		manipulated := make(map[int]bool, n)
+		released := make(map[int]bool, n)
+		var wg sync.WaitGroup
+		wg.Add(n)
+
+		go func() {
+			for i := 0; i < n; i++ {
+				in <- &chunk{
+					chunkID: strconv.Itoa(i),
+				}
+			}
+			close(in)
+		}()
+		go func() {
+			for c := range out {
+				require.NotNil(t, c)
+				i, err := strconv.Atoi(c.chunkID)
+				require.NoError(t, err)
+				readFromOut[i] = true
+				wg.Done()
+			}
+		}()
+		m.
+			On("context", mock.Anything).
+			Return(context.Background())
+		matcher := func(i int, m map[int]bool) interface{} {
+			return mock.MatchedBy(func(c *chunk) bool {
+				j, err := strconv.Atoi(c.chunkID)
+				require.NoError(t, err)
+				if j == i {
+					m[i] = true
+					return true
+				}
+				return false
+			})
+		}
+		for i := 0; i < n; i++ {
+			m.
+				On("manipulate", matcher(i, manipulated)).
+				Run(func(_ mock.Arguments) {
+					w.lastReq = time.Now()
+				}).
+				Return(true).
+				Maybe()
+			m.
+				On("release", matcher(i, released)).
+				Return().
+				Maybe()
+		}
+
+		close(closer)
+		w.loop()
+		wg.Wait()
+		close(out)
+
+		l.AssertExpectations(t)
+		m.AssertExpectations(t)
+		assert.Len(t, readFromOut, n)
+		assert.Equal(t, n, len(manipulated)+len(released))
+
+		fmt.Printf("STOP [elapsed %v]\n", time.Since(s))
+	})
 }
 
 func TestWorker_PushAndPop(t *testing.T) {
 	t.Run("Empty Pop, Not Closed", func(t *testing.T) {
-		w, _, _, in, _ := newTestableWorker(t, 1, 1)
+		w, _, _, in, _, _ := newTestableWorker(t, 1, 1)
 		expected := &chunk{}
 		go func() {
 			in <- expected
@@ -130,7 +210,7 @@ func TestWorker_PushAndPop(t *testing.T) {
 	})
 
 	t.Run("Empty Pop, Closed", func(t *testing.T) {
-		w, _, _, in, _ := newTestableWorker(t, 1, 1)
+		w, _, _, in, _, _ := newTestableWorker(t, 1, 1)
 		close(in)
 
 		actual := w.pop()
@@ -139,7 +219,7 @@ func TestWorker_PushAndPop(t *testing.T) {
 	})
 
 	t.Run("Single Push, Pop without Receive", func(t *testing.T) {
-		w, _, _, _, _ := newTestableWorker(t, 1, 1)
+		w, _, _, _, _, _ := newTestableWorker(t, 1, 1)
 		expected := &chunk{}
 
 		t.Run("Push", func(t *testing.T) {
@@ -157,7 +237,7 @@ func TestWorker_PushAndPop(t *testing.T) {
 	})
 
 	t.Run("Single Push, Pop with Receive, Pop without Receive", func(t *testing.T) {
-		w, _, _, in, _ := newTestableWorker(t, 1, 1)
+		w, _, _, in, _, _ := newTestableWorker(t, 1, 1)
 		first, second := &chunk{}, &chunk{}
 		var x, y *chunk
 
@@ -193,8 +273,8 @@ func TestWorker_PushAndPop(t *testing.T) {
 	})
 }
 
-func newTestableWorker(t *testing.T, rps, maxTry int) (w *worker, l *mockLogger, m *mockManipulator, in, out chan *chunk) {
-	closer := make(chan struct{})
+func newTestableWorker(t *testing.T, rps, maxTry int) (w *worker, l *mockLogger, m *mockManipulator, in, out chan *chunk, closer chan struct{}) {
+	closer = make(chan struct{})
 	l = newMockLogger(t)
 	m = newMockManipulator(t)
 	in = make(chan *chunk)

@@ -76,6 +76,8 @@ func (w *worker) loop() {
 
 func (w *worker) shutdown() {
 	w.m.logEvent(w.name, "stopping...")
+
+	// Release the chunks we already queued for manipulation.
 	w.chunks.Do(func(i interface{}) {
 		if i != nil {
 			c := i.(*chunk)
@@ -83,7 +85,18 @@ func (w *worker) shutdown() {
 			w.out <- c
 		}
 	})
+
+	// Release stray chunks in the input channel. These can arise due
+	// to a race condition if this worker detected the closure of the
+	// close channel before the mgr did, so the mgr had time to cram
+	// another chunk down the worker's channel.
+	for c := range w.in {
+		w.manipulator.release(c)
+		w.out <- c
+	}
+
 	w.timer.Stop()
+
 	w.m.logEvent(w.name, "stopped")
 }
 
