@@ -21,14 +21,17 @@ type mgr struct {
 	Config
 
 	// Fields owned exclusively by the mgr loop goroutine.
-	pq          streamHeap    // Written by Query, written by mgr loop goroutine
 	close       chan struct{} // Receives notification on Close()
-	query       chan *stream  // Receives notification of new Query()
+	pq          streamHeap    // Written by Query, written by mgr loop goroutine
 	ready       ring.Ring     // Chunks ready to start
 	numReady    int           // Number of chunks ready to start
 	numStarting int           // Number of chunks handed off to starter
 	numPolling  int           // Number of chunks handed off to poller
 	numStopping int           // Number of chunks handed off to stopper
+
+	// Fields written by arbitrary goroutines.
+	query     chan *stream // Receives notification of new Query()
+	queryLock sync.Mutex
 
 	// Fields for communicating with workers.
 	start  chan *chunk // Sends chunks to starter
@@ -110,6 +113,8 @@ func (m *mgr) Close() (err error) {
 		}
 	}()
 
+	m.queryLock.Lock()
+	defer m.queryLock.Unlock()
 	close(m.close)
 	close(m.query)
 	return
@@ -198,6 +203,8 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 		}
 	}()
 
+	m.queryLock.Lock()
+	defer m.queryLock.Unlock()
 	m.query <- ss
 
 	return ss, nil
@@ -283,6 +290,8 @@ func (m *mgr) shutdown() {
 
 func (m *mgr) addQuery(s *stream) {
 	heap.Push(&m.pq, s)
+	s.lock.RLock()
+	defer s.lock.RUnlock()
 	m.addStats(&Stats{
 		RangeRequested: s.stats.RangeRequested,
 	})
