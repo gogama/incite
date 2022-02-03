@@ -80,6 +80,12 @@ func TestQuery(t *testing.T) {
 				Status: sp(cloudwatchlogs.QueryStatusComplete),
 			}, nil).
 			Maybe()
+		trueValue := true
+		actions.On("StopQueryWithContext", anyContext, mock.Anything).
+			Return(&cloudwatchlogs.StopQueryOutput{
+				Success: &trueValue,
+			}).
+			Maybe()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
