@@ -104,6 +104,7 @@ func (w *worker) shutdown() {
 	w.chunks.Do(func(i interface{}) {
 		if i != nil {
 			c := i.(*chunk)
+			c.err = ErrClosed
 			w.manipulator.release(c)
 			w.out <- c
 		}
@@ -114,6 +115,7 @@ func (w *worker) shutdown() {
 	// close channel before the mgr did, so the mgr had time to cram
 	// another chunk down the worker's channel.
 	for c := range w.in {
+		c.err = ErrClosed
 		w.manipulator.release(c)
 		w.out <- c
 	}
