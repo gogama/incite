@@ -28,6 +28,7 @@ type chunk struct {
 	state   state           // Chunk state consumed by mgr loop
 	err     error           // Chunk error
 	try     int             // Local attempt number within worker loop
+	tmp     int             // Local number of temporary errors within worker loop
 	restart int             // Number of times a chunk is restarted after CW Insights "Failed" status
 }
 

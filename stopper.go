@@ -18,12 +18,12 @@ type stopper struct {
 func newStopper(m *mgr) *stopper {
 	s := &stopper{
 		worker: worker{
-			m:         m,
-			regulator: makeRegulator(m.close, m.RPS[StopQuery], RPSDefaults[StopQuery]),
-			in:        m.stop,
-			out:       m.update,
-			name:      "stopper",
-			maxTry:    3,
+			m:                 m,
+			regulator:         makeRegulator(m.close, m.RPS[StopQuery], RPSDefaults[StopQuery]),
+			in:                m.stop,
+			out:               m.update,
+			name:              "stopper",
+			maxTemporaryError: 3,
 		},
 	}
 	s.manipulator = s
@@ -34,22 +34,22 @@ func (s *stopper) context(_ *chunk) context.Context {
 	return context.Background()
 }
 
-func (s *stopper) manipulate(c *chunk) bool {
+func (s *stopper) manipulate(c *chunk) outcome {
 	output, err := s.m.Actions.StopQueryWithContext(context.Background(), &cloudwatchlogs.StopQueryInput{
 		QueryId: &c.queryID,
 	})
 	s.lastReq = time.Now()
 	if err != nil && isTemporary(err) {
-		return false
+		return temporaryError
 	} else if err != nil {
 		s.m.logChunk(c, "failed to stop", "error from CloudWatch Logs: "+err.Error())
-		return true
+		return finished
 	} else if output.Success == nil || !*output.Success {
 		s.m.logChunk(c, "failed to stop", "CloudWatch Logs did not indicate success")
-		return true
+		return finished
 	} else {
 		s.m.logChunk(c, "stopped", "")
-		return true
+		return finished
 	}
 }
 

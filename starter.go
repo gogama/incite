@@ -19,12 +19,12 @@ type starter struct {
 func newStarter(m *mgr) *starter {
 	s := &starter{
 		worker: worker{
-			m:         m,
-			regulator: makeRegulator(m.close, m.RPS[StartQuery], RPSDefaults[StopQuery]),
-			in:        m.start,
-			out:       m.update,
-			name:      "starter",
-			maxTry:    10,
+			m:                 m,
+			regulator:         makeRegulator(m.close, m.RPS[StartQuery], RPSDefaults[StopQuery]),
+			in:                m.start,
+			out:               m.update,
+			name:              "starter",
+			maxTemporaryError: 10,
 		},
 	}
 	s.manipulator = s
@@ -35,10 +35,10 @@ func (s *starter) context(c *chunk) context.Context {
 	return c.ctx
 }
 
-func (s *starter) manipulate(c *chunk) bool {
+func (s *starter) manipulate(c *chunk) outcome {
 	// Discard chunk if the owning stream is dead.
 	if !c.stream.alive() {
-		return true
+		return finished
 	}
 
 	// Get the chunk time range in Insights' format.
@@ -57,11 +57,11 @@ func (s *starter) manipulate(c *chunk) bool {
 	s.lastReq = time.Now()
 	if err != nil && isTemporary(err) {
 		s.m.logChunk(c, "temporary failure to start", err.Error())
-		return false
+		return temporaryError
 	} else if err != nil {
 		c.err = &StartQueryError{c.stream.Text, c.start, c.end, err}
 		s.m.logChunk(c, "permanent failure to start", "fatal error from CloudWatch Logs: "+err.Error())
-		return true
+		return finished
 	}
 
 	// Save the current query ID into the chunk.
@@ -69,14 +69,14 @@ func (s *starter) manipulate(c *chunk) bool {
 	if queryID == nil {
 		c.err = &StartQueryError{c.stream.Text, c.start, c.end, errors.New(outputMissingQueryIDMsg)}
 		s.m.logChunk(c, "nil query ID from CloudWatch Logs for", "")
-		return true
+		return finished
 	}
 	c.queryID = *queryID
 
 	// Chunk is started successfully.
 	c.state = started
 	s.m.logChunk(c, "started", "")
-	return true
+	return finished
 }
 
 func (s *starter) release(c *chunk) {

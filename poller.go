@@ -18,12 +18,12 @@ type poller struct {
 func newPoller(m *mgr) *poller {
 	p := &poller{
 		worker: worker{
-			m:         m,
-			regulator: makeRegulator(m.close, m.RPS[GetQueryResults], RPSDefaults[GetQueryResults]),
-			in:        m.poll,
-			out:       m.update,
-			name:      "poller",
-			maxTry:    10,
+			m:                 m,
+			regulator:         makeRegulator(m.close, m.RPS[GetQueryResults], RPSDefaults[GetQueryResults]),
+			in:                m.poll,
+			out:               m.update,
+			name:              "poller",
+			maxTemporaryError: 10,
 		},
 	}
 	p.manipulator = p
@@ -39,11 +39,11 @@ func (p *poller) context(c *chunk) context.Context {
 // restarted before it is considered permanently failed.
 const maxRestart = 2
 
-func (p *poller) manipulate(c *chunk) bool {
+func (p *poller) manipulate(c *chunk) outcome {
 	// If the owning stream has died, send chunk back for cancellation.
 	if !c.stream.alive() {
 		c.err = errStopChunk
-		return true
+		return finished
 	}
 
 	// Poll the chunk.
@@ -55,53 +55,53 @@ func (p *poller) manipulate(c *chunk) bool {
 
 	if err != nil && isTemporary(err) {
 		p.m.logChunk(c, "temporary failure to poll", err.Error())
-		return false
+		return temporaryError
 	} else if err != nil {
 		c.err = &UnexpectedQueryError{c.queryID, c.stream.Text, err}
-		return true
+		return finished
 	}
 
 	if output.Status == nil {
 		c.err = &UnexpectedQueryError{c.queryID, c.stream.Text, errNilStatus()}
-		return true
+		return finished
 	}
 
 	status := *output.Status
 	switch status {
 	case cloudwatchlogs.QueryStatusScheduled, "Unknown":
-		return false
+		return inconclusive
 	case cloudwatchlogs.QueryStatusRunning:
 		if c.ptr == nil {
-			return false // Ignore non-previewable results.
+			return inconclusive // Ignore non-previewable results.
 		}
 		if !sendChunkBlock(c, output.Results) {
 			translateStats(output.Statistics, &c.Stats)
-			return true
+			return finished
 		}
-		return false
+		return inconclusive
 	case cloudwatchlogs.QueryStatusComplete:
 		translateStats(output.Statistics, &c.Stats)
 		if p.splittable(c, len(output.Results)) {
 			c.err = errSplitChunk
-			return true
+			return finished
 		}
 		c.Stats.RangeDone += c.duration()
 		if sendChunkBlock(c, output.Results) {
 			c.state = complete
 		}
-		return true
+		return finished
 	case cloudwatchlogs.QueryStatusFailed:
 		if c.ptr == nil && c.restart < maxRestart {
 			translateStats(output.Statistics, &c.Stats)
 			c.restart++
 			c.err = errRestartChunk
-			return true // Retry transient failures if stream isn't previewable.
+			return finished // Transient server-side failures should be restarted if stream isn't previewable.
 		}
 		fallthrough
 	default:
 		translateStats(output.Statistics, &c.Stats)
 		c.err = &TerminalQueryStatusError{c.queryID, status, c.stream.Text}
-		return true
+		return finished
 	}
 }
 

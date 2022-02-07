@@ -29,7 +29,7 @@ func TestNewStopper(t *testing.T) {
 	var out chan<- *chunk = s.m.update
 	assert.Equal(t, out, s.out)
 	assert.Equal(t, "stopper", s.name)
-	assert.Equal(t, 3, s.maxTry)
+	assert.Equal(t, 3, s.maxTemporaryError)
 	a.AssertExpectations(t)
 	l.AssertExpectations(t)
 }
@@ -47,7 +47,7 @@ func TestStopper_context(t *testing.T) {
 var stopperManipulateCases = []struct {
 	name     string
 	setup    func(t *testing.T, actions *mockActions, logger *mockLogger)
-	expected bool
+	expected outcome
 }{
 	{
 		name: "Temporary Error",
@@ -59,6 +59,7 @@ var stopperManipulateCases = []struct {
 				Return(nil, cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "baz", errors.New("qux"))).
 				Once()
 		},
+		expected: temporaryError,
 	},
 	{
 		name: "Permanent Error",
@@ -72,7 +73,6 @@ var stopperManipulateCases = []struct {
 			logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
 				t.Name(), "failed to stop", "foo(bar)", "", mock.Anything, mock.Anything, mock.Anything)
 		},
-		expected: true,
 	},
 	{
 		name: "Nil Success",
@@ -86,7 +86,6 @@ var stopperManipulateCases = []struct {
 			logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
 				t.Name(), "failed to stop", "foo(bar)", "", mock.Anything, mock.Anything, "CloudWatch Logs did not indicate success")
 		},
-		expected: true,
 	},
 	{
 		name: "False Success",
@@ -103,7 +102,6 @@ var stopperManipulateCases = []struct {
 			logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
 				t.Name(), "failed to stop", "foo(bar)", "", mock.Anything, mock.Anything, "CloudWatch Logs did not indicate success")
 		},
-		expected: true,
 	},
 	{
 		name: "True Success",
@@ -120,7 +118,6 @@ var stopperManipulateCases = []struct {
 			logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)",
 				t.Name(), "stopped", "foo(bar)", "", mock.Anything, mock.Anything)
 		},
-		expected: true,
 	},
 }
 

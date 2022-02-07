@@ -49,7 +49,7 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 			Run(func(_ mock.Arguments) {
 				close(in)
 			}).
-			Return(false).
+			Return(temporaryError).
 			Once()
 		m.On("release", c).Once()
 
@@ -82,7 +82,7 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 			Run(func(_ mock.Arguments) {
 				close(in)
 			}).
-			Return(false).
+			Return(temporaryError).
 			Once()
 
 		w.loop()
@@ -112,7 +112,7 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 				close(in)
 			}).
 			Return(context.Background()).Once()
-		m.On("manipulate", c).Return(true).Once()
+		m.On("manipulate", c).Return(finished).Once()
 
 		w.loop()
 		d := <-out2
@@ -174,7 +174,7 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 				Run(func(_ mock.Arguments) {
 					w.lastReq = time.Now()
 				}).
-				Return(true).
+				Return(finished).
 				Maybe()
 			m.
 				On("release", matcher(i, released)).
@@ -273,7 +273,7 @@ func TestWorker_PushAndPop(t *testing.T) {
 	})
 }
 
-func newTestableWorker(t *testing.T, rps, maxTry int) (w *worker, l *mockLogger, m *mockManipulator, in, out chan *chunk, closer chan struct{}) {
+func newTestableWorker(t *testing.T, rps, tmp int) (w *worker, l *mockLogger, m *mockManipulator, in, out chan *chunk, closer chan struct{}) {
 	closer = make(chan struct{})
 	l = newMockLogger(t)
 	m = newMockManipulator(t)
@@ -287,12 +287,12 @@ func newTestableWorker(t *testing.T, rps, maxTry int) (w *worker, l *mockLogger,
 			},
 			close: closer,
 		},
-		regulator:   makeRegulator(closer, rps, 0),
-		in:          in,
-		out:         out,
-		name:        "worker:" + t.Name(),
-		maxTry:      maxTry,
-		manipulator: m,
+		regulator:         makeRegulator(closer, rps, 0),
+		in:                in,
+		out:               out,
+		name:              "worker:" + t.Name(),
+		maxTemporaryError: tmp,
+		manipulator:       m,
 	}
 	return
 }
@@ -312,9 +312,9 @@ func (m *mockManipulator) context(c *chunk) context.Context {
 	return args.Get(0).(context.Context)
 }
 
-func (m *mockManipulator) manipulate(c *chunk) bool {
+func (m *mockManipulator) manipulate(c *chunk) outcome {
 	args := m.Called(c)
-	return args.Bool(0)
+	return args.Get(0).(outcome)
 }
 
 func (m *mockManipulator) release(c *chunk) {

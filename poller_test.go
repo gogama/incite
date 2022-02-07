@@ -30,7 +30,7 @@ func TestNewPoller(t *testing.T) {
 	var out chan<- *chunk = p.m.update
 	assert.Equal(t, out, p.out)
 	assert.Equal(t, "poller", p.name)
-	assert.Equal(t, 10, p.maxTry)
+	assert.Equal(t, 10, p.maxTemporaryError)
 	a.AssertExpectations(t)
 	l.AssertExpectations(t)
 }
@@ -57,9 +57,9 @@ func TestPoller_manipulate(t *testing.T) {
 			},
 		}
 
-		result := p.manipulate(c)
+		o := p.manipulate(c)
 
-		assert.True(t, result)
+		assert.Equal(t, finished, o)
 		actions.AssertExpectations(t)
 		logger.AssertExpectations(t)
 	})
@@ -77,7 +77,7 @@ func TestPoller_manipulate(t *testing.T) {
 			setup              func(t *testing.T, logger *mockLogger, c *chunk)
 			output             *cloudwatchlogs.GetQueryResultsOutput
 			err                error
-			expectedResult     bool
+			expectedOutcome    outcome
 			expectedStats      Stats
 			expectedChunkErr   error
 			expectedChunkState state
@@ -89,12 +89,12 @@ func TestPoller_manipulate(t *testing.T) {
 					logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(),
 						"temporary failure to poll", logID, text, start, end, "connection reset by peer")
 				},
-				err: syscall.ECONNRESET,
+				err:             syscall.ECONNRESET,
+				expectedOutcome: temporaryError,
 			},
 			{
-				name:           "Permanent Error",
-				err:            errors.New("a very permanent error"),
-				expectedResult: true,
+				name: "Permanent Error",
+				err:  errors.New("a very permanent error"),
 				expectedChunkErr: &UnexpectedQueryError{
 					QueryID: queryID,
 					Text:    text,
@@ -102,9 +102,8 @@ func TestPoller_manipulate(t *testing.T) {
 				},
 			},
 			{
-				name:           "Nil Status",
-				output:         &cloudwatchlogs.GetQueryResultsOutput{},
-				expectedResult: true,
+				name:   "Nil Status",
+				output: &cloudwatchlogs.GetQueryResultsOutput{},
 				expectedChunkErr: &UnexpectedQueryError{
 					QueryID: queryID,
 					Text:    text,
@@ -116,18 +115,21 @@ func TestPoller_manipulate(t *testing.T) {
 				output: &cloudwatchlogs.GetQueryResultsOutput{
 					Status: sp(cloudwatchlogs.QueryStatusScheduled),
 				},
+				expectedOutcome: inconclusive,
 			},
 			{
 				name: "Status Unknown",
 				output: &cloudwatchlogs.GetQueryResultsOutput{
 					Status: sp("Unknown"),
 				},
+				expectedOutcome: inconclusive,
 			},
 			{
 				name: "Status Running, Non-Preview",
 				output: &cloudwatchlogs.GetQueryResultsOutput{
 					Status: sp(cloudwatchlogs.QueryStatusRunning),
 				},
+				expectedOutcome: inconclusive,
 			},
 			{
 				name: "Status Running, Preview, Translate Success",
@@ -145,6 +147,7 @@ func TestPoller_manipulate(t *testing.T) {
 					},
 					Status: sp(cloudwatchlogs.QueryStatusRunning),
 				},
+				expectedOutcome: inconclusive,
 			},
 			{
 				name: "Status Running, Preview, Translate Error",
@@ -162,8 +165,7 @@ func TestPoller_manipulate(t *testing.T) {
 					},
 					Status: sp(cloudwatchlogs.QueryStatusRunning),
 				},
-				expectedResult: true,
-				expectedStats:  Stats{6, 5, 4, 0, 0, 0, 0, 0},
+				expectedStats: Stats{6, 5, 4, 0, 0, 0, 0, 0},
 				expectedChunkErr: &UnexpectedQueryError{
 					QueryID: queryID,
 					Text:    text,
@@ -181,7 +183,6 @@ func TestPoller_manipulate(t *testing.T) {
 					},
 					Status: sp(cloudwatchlogs.QueryStatusComplete),
 				},
-				expectedResult: true,
 				expectedStats: Stats{
 					BytesScanned: 31,
 					RangeDone:    6 * time.Minute,
@@ -208,7 +209,6 @@ func TestPoller_manipulate(t *testing.T) {
 					RecordsMatched: 32,
 					RangeDone:      6 * time.Minute,
 				},
-				expectedResult: true,
 			},
 			{
 				name: "Status Complete, Non-Splittable, Translate Error, No Key",
@@ -230,7 +230,6 @@ func TestPoller_manipulate(t *testing.T) {
 					RecordsScanned: 33,
 					RangeDone:      6 * time.Minute,
 				},
-				expectedResult: true,
 			},
 			{
 				name: "Status Complete, Non-Splittable, Translate Error, No Value",
@@ -244,7 +243,6 @@ func TestPoller_manipulate(t *testing.T) {
 					},
 					Status: sp(cloudwatchlogs.QueryStatusComplete),
 				},
-				expectedResult: true,
 				expectedStats: Stats{
 					BytesScanned:   34,
 					RecordsMatched: 101,
@@ -277,7 +275,6 @@ func TestPoller_manipulate(t *testing.T) {
 					},
 					Status: sp(cloudwatchlogs.QueryStatusComplete),
 				},
-				expectedResult:   true,
 				expectedStats:    Stats{50, 55, 60, 0, 0, 0, 0, 0},
 				expectedChunkErr: errSplitChunk,
 			},
@@ -292,8 +289,7 @@ func TestPoller_manipulate(t *testing.T) {
 					},
 					Status: sp(cloudwatchlogs.QueryStatusFailed),
 				},
-				expectedResult: true,
-				expectedStats:  Stats{70, 0, 0, 0, 0, 0, 0, 0},
+				expectedStats: Stats{70, 0, 0, 0, 0, 0, 0, 0},
 				expectedChunkErr: &TerminalQueryStatusError{
 					QueryID: queryID,
 					Status:  cloudwatchlogs.QueryStatusFailed,
@@ -308,7 +304,6 @@ func TestPoller_manipulate(t *testing.T) {
 					},
 					Status: sp(cloudwatchlogs.QueryStatusFailed),
 				},
-				expectedResult:   true,
 				expectedStats:    Stats{0, 85, 0, 0, 0, 0, 0, 0},
 				expectedChunkErr: errRestartChunk,
 				expectedRestart:  1,
@@ -324,8 +319,7 @@ func TestPoller_manipulate(t *testing.T) {
 					},
 					Status: sp(cloudwatchlogs.QueryStatusFailed),
 				},
-				expectedResult: true,
-				expectedStats:  Stats{0, 0, 90, 0, 0, 0, 0, 0},
+				expectedStats: Stats{0, 0, 90, 0, 0, 0, 0, 0},
 				expectedChunkErr: &TerminalQueryStatusError{
 					QueryID: queryID,
 					Status:  cloudwatchlogs.QueryStatusFailed,
@@ -343,8 +337,7 @@ func TestPoller_manipulate(t *testing.T) {
 					},
 					Status: sp(cloudwatchlogs.QueryStatusCancelled),
 				},
-				expectedResult: true,
-				expectedStats:  Stats{222, 221, 223, 0, 0, 0, 0, 0},
+				expectedStats: Stats{222, 221, 223, 0, 0, 0, 0, 0},
 				expectedChunkErr: &TerminalQueryStatusError{
 					QueryID: queryID,
 					Status:  cloudwatchlogs.QueryStatusCancelled,
@@ -361,8 +354,7 @@ func TestPoller_manipulate(t *testing.T) {
 					},
 					Status: sp("Fake Status"),
 				},
-				expectedResult: true,
-				expectedStats:  Stats{375, 380, 385, 0, 0, 0, 0, 0},
+				expectedStats: Stats{375, 380, 385, 0, 0, 0, 0, 0},
 				expectedChunkErr: &TerminalQueryStatusError{
 					QueryID: queryID,
 					Status:  "Fake Status",
@@ -405,7 +397,7 @@ func TestPoller_manipulate(t *testing.T) {
 				actualResult := p.manipulate(c)
 				after := time.Now()
 
-				assert.Equal(t, testCase.expectedResult, actualResult)
+				assert.Equal(t, testCase.expectedOutcome, actualResult)
 				assert.GreaterOrEqual(t, p.lastReq.Sub(before), time.Duration(0))
 				assert.GreaterOrEqual(t, after.Sub(p.lastReq), time.Duration(0))
 				assert.Equal(t, testCase.expectedStats, c.Stats)

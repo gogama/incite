@@ -10,11 +10,28 @@ import (
 	"strconv"
 )
 
+// A nextStep is an instruction returned from a manipulator's manipulate
+// method which tells the worker what to do next.
+type outcome int
+
+const (
+	// finished indicates that the chunk manipulation is finished and
+	// the chunk should be sent back down the worker's out channel.
+	finished outcome = iota
+	// inconclusive indicates that the manipulation did not obtain a
+	// final result and the manipulation should be retried.
+	inconclusive
+	// temporaryError indicates that the manipulation encountered a
+	// temporary error which should be retried up to the worker's
+	// maximum try limit.
+	temporaryError
+)
+
 // A manipulator specializes a generic worker, allowing the worker to
 // manipulate chunks.
 type manipulator interface {
 	context(*chunk) context.Context
-	manipulate(*chunk) bool
+	manipulate(*chunk) outcome
 	release(*chunk)
 }
 
@@ -35,15 +52,15 @@ type manipulator interface {
 // calls the manipulator's release method once for every in-progress
 // chunk, and sends the in-progress chunk to channel out.
 type worker struct {
-	m           *mgr          // Owning mgr
-	regulator                 // Used to rate limit the work loop
-	in          <-chan *chunk // Provides chunks to the worker
-	out         chan<- *chunk // Receives chunks manipulated or released by the worker
-	chunks      ring.Ring     // In-progress chunks
-	numChunks   int           // Number of in-progress chunks
-	name        string        // Worker name for logging purposes
-	maxTry      int           // Maximum number of failed manipulations per chunk
-	manipulator manipulator   // Specializes the worker
+	m                 *mgr          // Owning mgr
+	regulator                       // Used to rate limit the work loop
+	in                <-chan *chunk // Provides chunks to the worker
+	out               chan<- *chunk // Receives chunks manipulated or released by the worker
+	chunks            ring.Ring     // In-progress chunks
+	numChunks         int           // Number of in-progress chunks
+	name              string        // Worker name for logging purposes
+	maxTemporaryError int           // Maximum number of temporary errors per chunk
+	manipulator       manipulator   // Specializes the worker
 }
 
 func (w *worker) loop() {
@@ -62,14 +79,20 @@ func (w *worker) loop() {
 			w.push(c)
 			return // mgr is closing, so stop working
 		}
-		ok := w.manipulator.manipulate(c)
-		if !ok && c.try < w.maxTry {
+		o := w.manipulator.manipulate(c)
+		switch o {
+		case finished:
+			w.out <- c
+		case inconclusive:
 			w.push(c)
-		} else if !ok {
-			w.m.logChunk(c, "exceeded max tries", strconv.Itoa(w.maxTry))
-			w.out <- c
-		} else {
-			w.out <- c
+		case temporaryError:
+			c.tmp++
+			if c.tmp < w.maxTemporaryError {
+				w.push(c)
+			} else {
+				w.m.logChunk(c, w.name+" exceeded max tries for", strconv.Itoa(c.tmp))
+				w.out <- c
+			}
 		}
 	}
 }
@@ -120,6 +143,7 @@ func (w *worker) pop() *chunk {
 	}
 	if c != nil {
 		c.try = 0
+		c.tmp = 0
 		w.push(c)
 	}
 	r := w.chunks.Next()

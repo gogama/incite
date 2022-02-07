@@ -29,7 +29,7 @@ func TestNewStarter(t *testing.T) {
 	var out chan<- *chunk = s.m.update
 	assert.Equal(t, out, s.out)
 	assert.Equal(t, "starter", s.name)
-	assert.Equal(t, 10, s.maxTry)
+	assert.Equal(t, 10, s.maxTemporaryError)
 	a.AssertExpectations(t)
 	l.AssertExpectations(t)
 }
@@ -56,9 +56,9 @@ func TestStarter_manipulate(t *testing.T) {
 			},
 		}
 
-		result := s.manipulate(c)
+		o := s.manipulate(c)
 
-		assert.True(t, result)
+		assert.Equal(t, finished, o)
 		actions.AssertExpectations(t)
 		logger.AssertExpectations(t)
 	})
@@ -75,7 +75,7 @@ func TestStarter_manipulate(t *testing.T) {
 			setup    func(t *testing.T, logger *mockLogger)
 			output   *cloudwatchlogs.StartQueryOutput
 			err      error
-			expected bool
+			expected outcome
 		}{
 			{
 				name: "Temporary Error",
@@ -83,7 +83,8 @@ func TestStarter_manipulate(t *testing.T) {
 					logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(),
 						"temporary failure to start", chunkID, text, start, end, "connection refused")
 				},
-				err: syscall.ECONNREFUSED,
+				err:      syscall.ECONNREFUSED,
+				expected: temporaryError,
 			},
 			{
 				name: "Permanent Error",
@@ -91,8 +92,7 @@ func TestStarter_manipulate(t *testing.T) {
 					logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(),
 						"permanent failure to start", chunkID, text, start, end, "fatal error from CloudWatch Logs: what do you imagine you can design")
 				},
-				err:      errors.New("what do you imagine you can design"),
-				expected: true,
+				err: errors.New("what do you imagine you can design"),
 			},
 			{
 				name: "Nil Query IDs",
@@ -100,8 +100,7 @@ func TestStarter_manipulate(t *testing.T) {
 					logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(),
 						"nil query ID from CloudWatch Logs for", chunkID, text, start, end)
 				},
-				output:   &cloudwatchlogs.StartQueryOutput{},
-				expected: true,
+				output: &cloudwatchlogs.StartQueryOutput{},
 			},
 			{
 				name: "Successful Start",
@@ -112,7 +111,6 @@ func TestStarter_manipulate(t *testing.T) {
 				output: &cloudwatchlogs.StartQueryOutput{
 					QueryId: sp("eggs"),
 				},
-				expected: true,
 			},
 		}
 
