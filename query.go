@@ -56,8 +56,13 @@ func Query(ctx context.Context, a CloudWatchLogsActions, q QuerySpec) ([]Result,
 	}()
 	select {
 	case p := <-c:
+		close(c)
 		return p.r, p.err
 	case <-ctx.Done():
+		go func() {
+			<-c
+			close(c)
+		}()
 		return nil, ctx.Err()
 	}
 }

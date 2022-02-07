@@ -126,14 +126,9 @@ func TestStats(t *testing.T) {
 	})
 }
 
-var (
-	testForLeaksIteration int
-)
-
 func TestForLeaks(t *testing.T) {
 	t.Run("Goroutines", func(t *testing.T) {
-		testForLeaksIteration++
-		assert.LessOrEqual(t, runtime.NumGoroutine(), testForLeaksIteration+20)
+		assert.LessOrEqual(t, runtime.NumGoroutine(), 20)
 	})
 }
 
