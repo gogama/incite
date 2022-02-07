@@ -6,7 +6,6 @@ package incite
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"sync"
 	"testing"
@@ -16,8 +15,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
-
-var i int // TODO - delete
 
 func TestWorker_LoopAndShutdown(t *testing.T) {
 	t.Run("Loop Exits When In Channel Is Closed", func(t *testing.T) {
@@ -123,11 +120,6 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 	})
 
 	t.Run("Leftover Chunks in Channel are Released In Shutdown", func(t *testing.T) {
-		i++
-		d, _ := t.Deadline()
-		s := time.Now()
-		fmt.Printf("START %d [%v remains]...", i, d.Sub(s))
-
 		w, l, m, in, out, closer := newTestableWorker(t, 1, 1)
 		w.expectLoopLogs(l)
 		n := 15
@@ -191,8 +183,6 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 		m.AssertExpectations(t)
 		assert.Len(t, readFromOut, n)
 		assert.Equal(t, n, len(manipulated)+len(released))
-
-		fmt.Printf("STOP [elapsed %v]\n", time.Since(s))
 	})
 }
 
