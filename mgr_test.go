@@ -1018,6 +1018,10 @@ func TestQueryManager_Query(t *testing.T) {
 			Actions: actions,
 		})
 		require.NotNil(t, m)
+		t.Cleanup(func() {
+			close(event)
+			_ = m.Close()
+		})
 		s, err := m.Query(QuerySpec{
 			Text:   "I see the future and this query never happens.",
 			Start:  defaultStart,
@@ -1026,10 +1030,6 @@ func TestQueryManager_Query(t *testing.T) {
 		})
 		require.NotNil(t, s)
 		require.NoError(t, err)
-		t.Cleanup(func() {
-			close(event)
-			_ = m.Close()
-		})
 
 		// ACT.
 		b := make([]Result, 0)
@@ -1104,6 +1104,10 @@ func TestQueryManager_Query(t *testing.T) {
 			Actions: actions,
 		})
 		require.NotNil(t, m)
+		t.Cleanup(func() {
+			close(event)
+			_ = m.Close()
+		})
 		var s1, s2 Stream
 		var err1, err2 error
 		s1, err1 = m.Query(QuerySpec{
@@ -1128,10 +1132,6 @@ func TestQueryManager_Query(t *testing.T) {
 			require.NoError(t, err2)
 			wg2.Done()
 		}()
-		t.Cleanup(func() {
-			close(event)
-			_ = m.Close()
-		})
 
 		// ACT.
 		wg1.Wait()
@@ -1234,6 +1234,9 @@ func TestQueryManager_Query(t *testing.T) {
 							Maybe()
 						m := NewQueryManager(Config{
 							Actions: actions,
+						})
+						t.Cleanup(func() {
+							_ = m.Close()
 						})
 						require.NotNil(t, m)
 						s, err := m.Query(QuerySpec{

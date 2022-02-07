@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"sort"
 	"strconv"
 	"syscall"
@@ -122,6 +123,17 @@ func TestStats(t *testing.T) {
 				assert.Equal(t, testCase.u, v)
 			})
 		}
+	})
+}
+
+var (
+	testForLeaksIteration int
+)
+
+func TestForLeaks(t *testing.T) {
+	t.Run("Goroutines", func(t *testing.T) {
+		testForLeaksIteration++
+		assert.LessOrEqual(t, runtime.NumGoroutine(), testForLeaksIteration+20)
 	})
 }
 
