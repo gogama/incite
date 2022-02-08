@@ -94,7 +94,7 @@ func TestStream_Close(t *testing.T) {
 					Groups:   []string{"baz"},
 					Start:    defaultStart,
 					End:      defaultStart.Add(time.Duration(testCase.chunks) * 30 * time.Minute),
-					Chunk:    time.Hour,
+					Chunk:    30 * time.Minute,
 					Priority: si,
 				})
 				require.NoError(t, err, "failed to start stream %d", si)
