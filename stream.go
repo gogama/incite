@@ -7,6 +7,7 @@ package incite
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 type stream struct {
@@ -102,4 +103,37 @@ func (s *stream) alive() bool {
 	defer s.lock.RUnlock()
 
 	return s.err == nil
+}
+
+// nextChunkRange calculates the time range for the next chunk to be
+// started in the stream. This calculation is intended to align as many
+// chunk time ranges as possible with even multiples of the stream's
+// chunk granularity to increase the probability of profiting from
+// typical time-based partitioning schemes in log storage and map/reduce
+// systems.
+//
+// For example if the chunk boundary is 5m and stream start time is
+// 16:32:17Z, this calculation will give the first chunk duration 2m43s
+// so the next chunk starts at 16:35:00, the following one at 16:40:00,
+// and so on. On the other hand if the chunk boundary is 5m and the
+// stream start time is 16:35:00Z, then the second chunk will start at
+// 16:40:00 and so on.
+func (s *stream) nextChunkRange() (start, end time.Time) {
+	// For a single-chunk query, the chunk range is always the query
+	// range.
+	if s.n == 1 && s.Chunk == s.End.Sub(s.Start) {
+		start, end = s.Start, s.End
+		return
+	}
+	// For a multi-chunk query, try to align the end of the chunk range
+	// with an even multiple of the chunk size.
+	end = s.Start.Add(time.Duration(1+s.next) * s.Chunk).Truncate(s.Chunk)
+	start = end.Add(-s.Chunk)
+	if !end.Before(s.End) {
+		end = s.End
+	}
+	if start.Before(s.Start) {
+		start = s.Start
+	}
+	return
 }

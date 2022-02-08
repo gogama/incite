@@ -806,7 +806,6 @@ func TestQueryManager_Query(t *testing.T) {
 			startQueryErr    error
 			expectedN        int64
 			expectedGroups   []*string
-			expectedNext     int64
 			expectedCauseErr error
 			expectedStats    Stats
 		}{
@@ -830,7 +829,6 @@ func TestQueryManager_Query(t *testing.T) {
 				startQueryErr:    causeErr,
 				expectedN:        1,
 				expectedGroups:   []*string{sp("bar"), sp("Baz")},
-				expectedNext:     1,
 				expectedCauseErr: causeErr,
 				expectedStats: Stats{
 					RangeRequested: defaultDuration,
@@ -859,7 +857,6 @@ func TestQueryManager_Query(t *testing.T) {
 				startQueryErr:    causeErr,
 				expectedN:        1,
 				expectedGroups:   []*string{sp("bar"), sp("Baz")},
-				expectedNext:     1,
 				expectedCauseErr: causeErr,
 				expectedStats: Stats{
 					RangeRequested: defaultDuration,
@@ -868,7 +865,7 @@ func TestQueryManager_Query(t *testing.T) {
 				},
 			},
 			{
-				name: "PartialChunk",
+				name: "PartialChunk/2",
 				before: QuerySpec{
 					Text:       "foo",
 					Start:      defaultStart,
@@ -890,12 +887,41 @@ func TestQueryManager_Query(t *testing.T) {
 				startQueryErr:    causeErr,
 				expectedN:        2,
 				expectedGroups:   []*string{sp("bar"), sp("Baz")},
-				expectedNext:     2,
 				expectedCauseErr: causeErr,
 				expectedStats: Stats{
 					RangeRequested: defaultDuration,
 					RangeStarted:   3 * time.Minute,
 					RangeFailed:    3 * time.Minute,
+				},
+			},
+			{
+				name: "PartialChunk/3",
+				before: QuerySpec{
+					Text:       "foo",
+					Start:      defaultStart.Add(-time.Minute),
+					End:        defaultEnd,
+					Groups:     []string{"bar", "Baz"},
+					Limit:      MaxLimit,
+					Chunk:      3 * time.Minute,
+					SplitUntil: 3 * time.Minute,
+				},
+				after: QuerySpec{
+					Text:       "foo",
+					Start:      defaultStart.Add(-time.Minute),
+					End:        defaultEnd,
+					Groups:     []string{"bar", "Baz"},
+					Limit:      MaxLimit,
+					Chunk:      3 * time.Minute,
+					SplitUntil: 3 * time.Minute,
+				},
+				startQueryErr:    causeErr,
+				expectedN:        3,
+				expectedGroups:   []*string{sp("bar"), sp("Baz")},
+				expectedCauseErr: causeErr,
+				expectedStats: Stats{
+					RangeRequested: defaultDuration + time.Minute,
+					RangeStarted:   time.Minute,
+					RangeFailed:    time.Minute,
 				},
 			},
 			{
@@ -919,7 +945,6 @@ func TestQueryManager_Query(t *testing.T) {
 				startQueryOutput: &cloudwatchlogs.StartQueryOutput{},
 				expectedN:        1,
 				expectedGroups:   []*string{sp("eggs"), sp("Spam")},
-				expectedNext:     1,
 				expectedCauseErr: errors.New(outputMissingQueryIDMsg),
 				expectedStats: Stats{
 					RangeRequested: defaultDuration,
@@ -940,7 +965,8 @@ func TestQueryManager_Query(t *testing.T) {
 					Run(func(_ mock.Arguments) { wg.Done() }).
 					Once()
 				m := NewQueryManager(Config{
-					Actions: actions,
+					Actions:  actions,
+					Parallel: 1,
 				})
 				require.NotNil(t, m)
 				defer func() {
@@ -959,7 +985,7 @@ func TestQueryManager_Query(t *testing.T) {
 				r := make([]Result, 1)
 				n, err := s.Read(r)
 				wg.Wait()
-				assert.Equal(t, testCase.expectedNext, s2.next)
+				assert.Equal(t, int64(1), s2.next)
 				assert.Equal(t, 0, n)
 				var sqe *StartQueryError
 				assert.ErrorAs(t, err, &sqe)

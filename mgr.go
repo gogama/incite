@@ -161,9 +161,11 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 		q.Chunk = d
 	}
 
-	n := int64(d / q.Chunk)
-	if d%q.Chunk != 0 {
-		n++
+	var n int64 = 1
+	if q.Chunk != d {
+		x := q.Start.Truncate(q.Chunk)
+		y := q.End.Add(q.Chunk - 1).Truncate(q.Chunk)
+		n = int64(y.Sub(x) / q.Chunk)
 	}
 
 	if q.Limit <= 0 {
@@ -394,15 +396,12 @@ func (m *mgr) getReadyChunk() *chunk {
 			continue
 		}
 
-		start := s.Start.Add(time.Duration(s.next) * s.Chunk)
-		end := start.Add(s.Chunk)
-		if end.Before(s.End) {
-			heap.Push(&m.pq, s)
-		} else {
-			end = s.End
-		}
+		start, end := s.nextChunkRange()
 		chunkID := strconv.Itoa(int(s.next))
-		s.next++ // Only manager loop goroutine modifies next, and we are the manager loop.
+		s.next++
+		if s.next < s.n {
+			heap.Push(&m.pq, s)
+		}
 
 		c := &chunk{
 			stream:  s,

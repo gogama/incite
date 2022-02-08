@@ -185,3 +185,226 @@ func TestStream_Read(t *testing.T) {
 		})
 	})
 }
+
+func TestStream_NextChunkRange(t *testing.T) {
+	testCases := []*struct {
+		name string
+		s    stream
+		c    chunk
+	}{
+		{
+			name: "Partial Chunk",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultStart,
+					End:   defaultStart.Add(defaultDuration / 4),
+					Chunk: defaultDuration,
+				},
+			},
+			c: chunk{
+				start: defaultStart,
+				end:   defaultStart.Add(defaultDuration / 4),
+			},
+		},
+		{
+			name: "Single Chunk Query, Aligned",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultStart,
+					End:   defaultEnd,
+					Chunk: defaultDuration,
+				},
+			},
+			c: chunk{
+				start: defaultStart,
+				end:   defaultEnd,
+			},
+		},
+		{
+			name: "Single Chunk Query, Misaligned",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultStart.Add(-time.Hour),
+					End:   defaultEnd.Add(time.Hour),
+					Chunk: 2*time.Hour + defaultDuration,
+				},
+				n:    1,
+				next: 0,
+			},
+			c: chunk{
+				start: defaultStart.Add(-time.Hour),
+				end:   defaultEnd.Add(time.Hour),
+			},
+		},
+		{
+			name: "1/2 Chunks Aligned Exact",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultStart,
+					End:   defaultEnd,
+					Chunk: defaultDuration / 2,
+				},
+			},
+			c: chunk{
+				start: defaultStart,
+				end:   defaultStart.Add(defaultDuration / 2),
+			},
+		},
+		{
+			name: "2/2 Chunks Aligned Exact",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultStart,
+					End:   defaultEnd,
+					Chunk: defaultDuration / 2,
+				},
+				next: 1,
+			},
+			c: chunk{
+				start: defaultStart.Add(defaultDuration / 2),
+				end:   defaultEnd,
+			},
+		},
+		{
+			name: "1/2 Chunks Aligned Start",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultStart,
+					End:   defaultEnd.Add(defaultDuration / 4),
+					Chunk: defaultDuration,
+				},
+			},
+			c: chunk{
+				start: defaultStart,
+				end:   defaultEnd,
+			},
+		},
+		{
+			name: "2/2 Chunks Aligned Start",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultStart,
+					End:   defaultEnd.Add(defaultDuration / 4),
+					Chunk: defaultDuration,
+				},
+				next: 1,
+			},
+			c: chunk{
+				start: defaultEnd,
+				end:   defaultEnd.Add(defaultDuration / 4),
+			},
+		},
+		{
+			name: "1/3 Chunks Aligned Start",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultStart,
+					End:   defaultStart.Add(9 * defaultDuration / 4),
+					Chunk: defaultDuration,
+				},
+			},
+			c: chunk{
+				start: defaultStart,
+				end:   defaultStart.Add(defaultDuration),
+			},
+		},
+		{
+			name: "2/3 Chunks Aligned Start",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultStart,
+					End:   defaultStart.Add(9 * defaultDuration / 4),
+					Chunk: defaultDuration,
+				},
+				next: 1,
+			},
+			c: chunk{
+				start: defaultStart.Add(defaultDuration),
+				end:   defaultStart.Add(2 * defaultDuration),
+			},
+		},
+		{
+			name: "3/3 Chunks Aligned Start",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultStart,
+					End:   defaultStart.Add(9 * defaultDuration / 4),
+					Chunk: defaultDuration,
+				},
+				next: 2,
+			},
+			c: chunk{
+				start: defaultStart.Add(2 * defaultDuration),
+				end:   defaultStart.Add(9 * defaultDuration / 4),
+			},
+		},
+		{
+			name: "1/4 Chunks Misaligned Both",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultStart.Add(defaultDuration / 2),
+					End:   defaultStart.Add(7 * defaultDuration / 2),
+					Chunk: defaultDuration,
+				},
+			},
+			c: chunk{
+				start: defaultStart.Add(defaultDuration / 2),
+				end:   defaultStart.Add(defaultDuration),
+			},
+		},
+		{
+			name: "2/4 Chunks Misaligned Both",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultStart.Add(defaultDuration / 2),
+					End:   defaultStart.Add(7 * defaultDuration / 2),
+					Chunk: defaultDuration,
+				},
+				next: 1,
+			},
+			c: chunk{
+				start: defaultStart.Add(defaultDuration),
+				end:   defaultStart.Add(2 * defaultDuration),
+			},
+		},
+		{
+			name: "3/4 Chunks Misaligned Both",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultStart.Add(defaultDuration / 2),
+					End:   defaultStart.Add(7 * defaultDuration / 2),
+					Chunk: defaultDuration,
+				},
+				next: 2,
+			},
+			c: chunk{
+				start: defaultStart.Add(2 * defaultDuration),
+				end:   defaultStart.Add(3 * defaultDuration),
+			},
+		},
+		{
+			name: "4/4 Chunks Misaligned Both",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultStart.Add(defaultDuration / 2),
+					End:   defaultStart.Add(7 * defaultDuration / 2),
+					Chunk: defaultDuration,
+				},
+				next: 3,
+			},
+			c: chunk{
+				start: defaultStart.Add(3 * defaultDuration),
+				end:   defaultStart.Add(7 * defaultDuration / 2),
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			start, end := testCase.s.nextChunkRange()
+
+			assert.Equal(t, testCase.c.start, start, "chunk start time should be %s but is %s", testCase.c.start, start)
+			assert.Equal(t, testCase.c.end, end, "chunk end time should be %s but is %s", testCase.c.end, end)
+		})
+	}
+}
