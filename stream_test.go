@@ -55,7 +55,7 @@ func TestStream_Close(t *testing.T) {
 					startCall := actions.
 						On("StartQueryWithContext", anyContext, startQueryInput(
 							text[si],
-							defaultStart.Add(time.Duration(ci)*time.Hour), defaultStart.Add(time.Duration(ci+1)*time.Hour),
+							defaultStart.Add(time.Duration(ci)*30*time.Minute), defaultStart.Add(time.Duration(ci+1)*30*time.Minute),
 							DefaultLimit, "baz"))
 					if si*testCase.streams+testCase.chunks < QueryConcurrencyQuotaLimit {
 						wg.Add(1)
@@ -93,7 +93,7 @@ func TestStream_Close(t *testing.T) {
 					Text:     text[si],
 					Groups:   []string{"baz"},
 					Start:    defaultStart,
-					End:      defaultStart.Add(time.Duration(testCase.chunks) * time.Hour),
+					End:      defaultStart.Add(time.Duration(testCase.chunks) * 30 * time.Minute),
 					Chunk:    time.Hour,
 					Priority: si,
 				})
