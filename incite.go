@@ -164,9 +164,9 @@ type QuerySpec struct {
 	// Preview must be false.
 	//
 	// When splitting is enabled and, when a time range produces
-	// MaxLimit results, the range is split into sub-chunks no larger
+	// MaxLimit results, the range is split into sub-chunks no smaller
 	// than SplitUntil. If a sub-chunk produces MaxLimit results, it is
-	// recursively split into smaller sub-sub-chunks again no larger
+	// recursively split into smaller sub-sub-chunks again no smaller
 	// than SplitUntil. The splitting process continues until either
 	// the time range cannot be split into at least two chunks no
 	// smaller than SplitUntil or the time range produces fewer than
