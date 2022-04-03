@@ -230,7 +230,7 @@ func (m *mgr) loop() {
 			return
 		}
 
-		for m.numStarting+m.numPolling < m.Parallel {
+		for m.numStarting+m.numPolling+m.numStopping < m.Parallel {
 			c := m.getReadyChunk()
 			if c == nil {
 				break
