@@ -151,6 +151,9 @@ func TestStarter_manipulate(t *testing.T) {
 				assert.Equal(t, testCase.expected, actual)
 				assert.GreaterOrEqual(t, s.lastReq.Sub(before), time.Duration(0))
 				assert.GreaterOrEqual(t, after.Sub(s.lastReq), time.Duration(0))
+				if testCase.err != nil {
+					assert.Equal(t, &StartQueryError{text, start, end, testCase.err}, c.err)
+				}
 				actions.AssertExpectations(t)
 				logger.AssertExpectations(t)
 			})

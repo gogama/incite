@@ -15,6 +15,8 @@ type poller struct {
 	worker
 }
 
+const maxTempPollingErrs = 10
+
 func newPoller(m *mgr) *poller {
 	p := &poller{
 		worker: worker{
@@ -23,7 +25,7 @@ func newPoller(m *mgr) *poller {
 			in:                m.poll,
 			out:               m.update,
 			name:              "poller",
-			maxTemporaryError: 10,
+			maxTemporaryError: maxTempPollingErrs,
 		},
 	}
 	p.manipulator = p
@@ -53,11 +55,12 @@ func (p *poller) manipulate(c *chunk) outcome {
 	output, err := p.m.Actions.GetQueryResultsWithContext(c.ctx, &input)
 	p.lastReq = time.Now()
 
-	if err != nil && isTemporary(err) {
-		p.m.logChunk(c, "temporary failure to poll", err.Error())
-		return temporaryError
-	} else if err != nil {
+	if err != nil {
 		c.err = &UnexpectedQueryError{c.queryID, c.stream.Text, err}
+		if isTemporary(err) {
+			p.m.logChunk(c, "temporary failure to poll", err.Error())
+			return temporaryError
+		}
 		return finished
 	}
 
@@ -69,8 +72,10 @@ func (p *poller) manipulate(c *chunk) outcome {
 	status := *output.Status
 	switch status {
 	case cloudwatchlogs.QueryStatusScheduled, "Unknown":
+		c.err = nil
 		return inconclusive
 	case cloudwatchlogs.QueryStatusRunning:
+		c.err = nil
 		if c.ptr == nil {
 			return inconclusive // Ignore non-previewable results.
 		}
@@ -85,6 +90,7 @@ func (p *poller) manipulate(c *chunk) outcome {
 			c.err = errSplitChunk
 			return finished
 		}
+		c.err = nil
 		c.Stats.RangeDone += c.duration()
 		if sendChunkBlock(c, output.Results) {
 			c.state = complete

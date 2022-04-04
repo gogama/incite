@@ -16,6 +16,8 @@ type starter struct {
 	worker
 }
 
+const maxTempStartingErrs = 10
+
 func newStarter(m *mgr) *starter {
 	s := &starter{
 		worker: worker{
@@ -24,7 +26,7 @@ func newStarter(m *mgr) *starter {
 			in:                m.start,
 			out:               m.update,
 			name:              "starter",
-			maxTemporaryError: 10,
+			maxTemporaryError: maxTempStartingErrs,
 		},
 	}
 	s.manipulator = s
@@ -55,13 +57,15 @@ func (s *starter) manipulate(c *chunk) outcome {
 	}
 	output, err := s.m.Actions.StartQueryWithContext(c.ctx, &input)
 	s.lastReq = time.Now()
-	if err != nil && isTemporary(err) {
-		s.m.logChunk(c, "temporary failure to start", err.Error())
-		return temporaryError
-	} else if err != nil {
+	if err != nil {
 		c.err = &StartQueryError{c.stream.Text, c.start, c.end, err}
-		s.m.logChunk(c, "permanent failure to start", "fatal error from CloudWatch Logs: "+err.Error())
-		return finished
+		if isTemporary(err) {
+			s.m.logChunk(c, "temporary failure to start", err.Error())
+			return temporaryError
+		} else {
+			s.m.logChunk(c, "permanent failure to start", "fatal error from CloudWatch Logs: "+err.Error())
+			return finished
+		}
 	}
 
 	// Save the current query ID into the chunk.
@@ -75,6 +79,7 @@ func (s *starter) manipulate(c *chunk) outcome {
 
 	// Chunk is started successfully.
 	c.state = started
+	c.err = nil
 	s.m.logChunk(c, "started", "")
 	return finished
 }

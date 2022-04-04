@@ -1866,4 +1866,70 @@ func TestQueryManager_Query(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("Query Fails with Error if Chunk Exceeds Max Temporary Errors", func(t *testing.T) {
+		text := "a query destined to exceed all maxima on temporary errors"
+		groups := []string{"grpA", "grpB"}
+		expectedErr := cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "you been limited")
+
+		testCases := []struct {
+			name  string
+			setup func(actions *mockActions)
+		}{
+			{
+				name: "InStarter",
+				setup: func(actions *mockActions) {
+					actions.
+						On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultEnd, DefaultLimit, groups...)).
+						Return(nil, expectedErr).
+						Times(maxTempStartingErrs)
+				},
+			},
+			{
+				name: "InPoller",
+				setup: func(actions *mockActions) {
+					queryID := "u-r-doomed"
+					stopSuccess := true
+					actions.
+						On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultEnd, DefaultLimit, groups...)).
+						Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryID}, nil).
+						Once()
+					actions.
+						On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
+						Return(nil, expectedErr).
+						Times(maxTempPollingErrs)
+					actions.
+						On("StopQueryWithContext", anyContext, anyStopQueryInput).
+						Return(&cloudwatchlogs.StopQueryOutput{Success: &stopSuccess}, nil).
+						Maybe()
+				},
+			},
+		}
+
+		for _, testCase := range testCases {
+			t.Run(testCase.name, func(t *testing.T) {
+				actions := newMockActions(t)
+				testCase.setup(actions)
+				m := NewQueryManager(Config{
+					Actions: actions,
+					RPS:     lotsOfRPS,
+				})
+				t.Cleanup(func() {
+					m.Close()
+				})
+				s, err := m.Query(QuerySpec{
+					Text:   text,
+					Groups: groups,
+					Start:  defaultStart,
+					End:    defaultEnd,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, s)
+
+				_, err = ReadAll(s)
+
+				assert.ErrorIs(t, err, expectedErr)
+			})
+		}
+	})
 }

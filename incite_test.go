@@ -229,6 +229,28 @@ var scenarios = []queryScenario{
 			RangeFailed:    defaultDuration,
 		},
 	},
+	{
+		note: "NoStart.ExceedMaxTemporaryErrors",
+		QuerySpec: QuerySpec{
+			Text:   "a recipient of repeated temporary trauma",
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: []string{"/impaired/group"},
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput:   startQueryInput("a recipient of repeated temporary trauma", defaultStart, defaultEnd, DefaultLimit, "/impaired/group"),
+				startQueryErrs:    repeatErr(maxTempStartingErrs, syscall.ETIMEDOUT),
+				startQuerySuccess: false,
+			},
+		},
+		err: &StartQueryError{"a recipient of repeated temporary trauma", defaultStart, defaultEnd, syscall.ETIMEDOUT},
+		stats: Stats{
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeFailed:    defaultDuration,
+		},
+	},
 
 	{
 		note: "OneChunk.OnePoll.Empty",
@@ -276,7 +298,7 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: &TerminalQueryStatusError{"scenario:3|chunk:0|OneChunk.OnePoll.Status.Cancelled", cloudwatchlogs.QueryStatusCancelled, "destined for cancellation"},
+		err: &TerminalQueryStatusError{"scenario:4|chunk:0|OneChunk.OnePoll.Status.Cancelled", cloudwatchlogs.QueryStatusCancelled, "destined for cancellation"},
 		stats: Stats{
 			RangeRequested: defaultDuration,
 			RangeStarted:   defaultDuration,
@@ -302,7 +324,7 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: &TerminalQueryStatusError{"scenario:4|chunk:0|OneChunk.OnePoll.Status.Timeout", "Timeout", "tempting a timeout"},
+		err: &TerminalQueryStatusError{"scenario:5|chunk:0|OneChunk.OnePoll.Status.Timeout", "Timeout", "tempting a timeout"},
 		stats: Stats{
 			RangeRequested: defaultDuration,
 			RangeStarted:   defaultDuration,
@@ -328,7 +350,7 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: &TerminalQueryStatusError{"scenario:5|chunk:0|OneChunk.OnePoll.Status.Unexpected", "Did you see this coming?", "expecting the unexpected...status"},
+		err: &TerminalQueryStatusError{"scenario:6|chunk:0|OneChunk.OnePoll.Status.Unexpected", "Did you see this coming?", "expecting the unexpected...status"},
 		stats: Stats{
 			RangeRequested: defaultDuration,
 			RangeStarted:   defaultDuration,
@@ -354,7 +376,7 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: &UnexpectedQueryError{"scenario:6|chunk:0|OneChunk.OnePoll.Error.Unexpected", "expecting the unexpected...error", errors.New("very bad news")},
+		err: &UnexpectedQueryError{"scenario:7|chunk:0|OneChunk.OnePoll.Error.Unexpected", "expecting the unexpected...error", errors.New("very bad news")},
 		stats: Stats{
 			RangeRequested: defaultDuration,
 			RangeStarted:   defaultDuration,
@@ -515,7 +537,7 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: &TerminalQueryStatusError{"scenario:9|chunk:0|OneChunk.Preview.Status.Failed", cloudwatchlogs.QueryStatusFailed, "fated for failure"},
+		err: &TerminalQueryStatusError{"scenario:10|chunk:0|OneChunk.Preview.Status.Failed", cloudwatchlogs.QueryStatusFailed, "fated for failure"},
 		stats: Stats{
 			RangeRequested: defaultDuration,
 			RangeStarted:   defaultDuration,
@@ -542,7 +564,7 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: &TerminalQueryStatusError{"scenario:10|chunk:0|OneChunk.Preview.Status.Cancelled", cloudwatchlogs.QueryStatusCancelled, "preview of coming cancellations"},
+		err: &TerminalQueryStatusError{"scenario:11|chunk:0|OneChunk.Preview.Status.Cancelled", cloudwatchlogs.QueryStatusCancelled, "preview of coming cancellations"},
 		stats: Stats{
 			RangeRequested: defaultDuration,
 			RangeStarted:   defaultDuration,
@@ -569,7 +591,7 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: &TerminalQueryStatusError{"scenario:11|chunk:0|OneChunk.Preview.Status.Timeout", "Timeout", "preview of coming timeouts"},
+		err: &TerminalQueryStatusError{"scenario:12|chunk:0|OneChunk.Preview.Status.Timeout", "Timeout", "preview of coming timeouts"},
 		stats: Stats{
 			RangeRequested: defaultDuration,
 			RangeStarted:   defaultDuration,
@@ -596,7 +618,7 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		err: &TerminalQueryStatusError{"scenario:12|chunk:0|OneChunk.Preview.Status.Unexpected", "I did NOT see this coming!", "preview of coming surprises..."},
+		err: &TerminalQueryStatusError{"scenario:13|chunk:0|OneChunk.Preview.Status.Unexpected", "I did NOT see this coming!", "preview of coming surprises..."},
 		stats: Stats{
 			RangeRequested: defaultDuration,
 			RangeStarted:   defaultDuration,
@@ -1976,6 +1998,14 @@ func result(ptr int) Result {
 	return Result{{"@ptr", strconv.Itoa(ptr)}}
 }
 
+func repeatErr(n int, err error) []error {
+	errs := make([]error, n)
+	for i := range errs {
+		errs[i] = err
+	}
+	return errs
+}
+
 var (
 	defaultDuration = 5 * time.Minute
 	defaultStart    = time.Date(2020, 8, 25, 3, 30, 0, 0, time.UTC)
@@ -1990,5 +2020,6 @@ var (
 	})
 	anyStartQueryInput      = mock.AnythingOfType("*cloudwatchlogs.StartQueryInput")
 	anyGetQueryResultsInput = mock.AnythingOfType("*cloudwatchlogs.GetQueryResultsInput")
+	anyStopQueryInput       = mock.AnythingOfType("*cloudwatchlogs.StopQueryInput")
 	maxLimitResults         = resultSeries(0, MaxLimit)
 )

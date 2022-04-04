@@ -91,6 +91,11 @@ func TestPoller_manipulate(t *testing.T) {
 				},
 				err:             syscall.ECONNRESET,
 				expectedOutcome: temporaryError,
+				expectedChunkErr: &UnexpectedQueryError{
+					QueryID: queryID,
+					Text:    text,
+					Cause:   syscall.ECONNRESET,
+				},
 			},
 			{
 				name: "Permanent Error",
