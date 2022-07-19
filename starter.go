@@ -44,8 +44,8 @@ func (s *starter) manipulate(c *chunk) outcome {
 	}
 
 	// Get the chunk time range in Insights' format.
-	starts := c.start.Unix()
-	ends := c.end.Add(-time.Second).Unix() // CWL uses inclusive time ranges at 1 second granularity, we use exclusive ranges.
+	starts := epochMillisecond(c.start)
+	ends := epochMillisecond(c.end.Add(-time.Millisecond)) // CWL uses inclusive time ranges, we use exclusive ranges.
 
 	// Start the chunk.
 	input := cloudwatchlogs.StartQueryInput{

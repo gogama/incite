@@ -38,8 +38,8 @@ func TestQuery(t *testing.T) {
 			On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
 				QueryString:   sp("x"),
 				LogGroupNames: []*string{sp("y")},
-				StartTime:     startTimeSeconds(defaultStart),
-				EndTime:       endTimeSeconds(defaultEnd),
+				StartTime:     startTimeMilliseconds(defaultStart),
+				EndTime:       endTimeMilliseconds(defaultEnd),
 				Limit:         int64p(DefaultLimit),
 			}).
 			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("ham")}, nil).

@@ -1954,12 +1954,12 @@ func float64p(f float64) *float64 {
 	return &f
 }
 
-func startTimeSeconds(t time.Time) *int64 {
-	return int64p(t.Unix())
+func startTimeMilliseconds(t time.Time) *int64 {
+	return int64p(epochMillisecond(t))
 }
 
-func endTimeSeconds(t time.Time) *int64 {
-	return startTimeSeconds(t.Add(-time.Second))
+func endTimeMilliseconds(t time.Time) *int64 {
+	return startTimeMilliseconds(t.Add(-time.Millisecond))
 }
 
 func startQueryInput(text string, start, end time.Time, limit int64, groups ...string) *cloudwatchlogs.StartQueryInput {
@@ -1969,8 +1969,8 @@ func startQueryInput(text string, start, end time.Time, limit int64, groups ...s
 	}
 	return &cloudwatchlogs.StartQueryInput{
 		QueryString:   &text,
-		StartTime:     startTimeSeconds(start),
-		EndTime:       endTimeSeconds(end),
+		StartTime:     startTimeMilliseconds(start),
+		EndTime:       endTimeMilliseconds(end),
 		Limit:         &limit,
 		LogGroupNames: g,
 	}

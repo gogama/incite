@@ -26,3 +26,7 @@ func hasSubSecond(t time.Time) bool {
 func hasSubSecondD(d time.Duration) bool {
 	return d%time.Second > 0
 }
+
+func epochMillisecond(t time.Time) int64 {
+	return t.Unix()*1000 + int64(t.Nanosecond())/int64(time.Millisecond)
+}

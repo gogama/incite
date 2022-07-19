@@ -68,3 +68,47 @@ func TestHasSubSecondD(t *testing.T) {
 		})
 	}
 }
+
+func TestEpochMillisecond(t *testing.T) {
+	testCases := []struct {
+		name     string
+		t        time.Time
+		expected int64
+	}{
+		{
+			name:     "Zero",
+			expected: -62135596800000,
+		},
+		{
+			name: "Epoch",
+			t:    time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name: "Slightly Sub-Millisecond",
+			t:    time.Date(1970, 1, 1, 0, 0, 0, 999*int(time.Microsecond), time.UTC),
+		},
+		{
+			name:     "One Millisecond",
+			t:        time.Date(1970, 1, 1, 0, 0, 0, 1*int(time.Millisecond), time.UTC),
+			expected: 1,
+		},
+		{
+			name:     "Slightly Super-Millisecond",
+			t:        time.Date(1970, 1, 1, 0, 0, 0, 1_001*int(time.Microsecond), time.UTC),
+			expected: 1,
+		},
+		{
+			name:     "Very Specific Date",
+			t:        time.Date(2022, 07, 18, 22, 33, 10, 123456789, time.UTC),
+			expected: 1658183590123,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			actual := epochMillisecond(testCase.t)
+
+			assert.Equal(t, testCase.expected, actual)
+		})
+	}
+}

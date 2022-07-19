@@ -1422,7 +1422,7 @@ func TestQueryManager_Query(t *testing.T) {
 				startTime := defaultStart.Add(time.Duration(j-1) * chunk)
 				actions.
 					On("StartQueryWithContext", anyContext, mock.MatchedBy(func(input *cloudwatchlogs.StartQueryInput) bool {
-						return *input.QueryString == queryString && *input.StartTime == *startTimeSeconds(startTime)
+						return *input.QueryString == queryString && *input.StartTime == *startTimeMilliseconds(startTime)
 					})).
 					Run(func(_ mock.Arguments) {
 						starts = append(starts, queryID)
@@ -1711,8 +1711,8 @@ func TestQueryManager_Query(t *testing.T) {
 							QueryString:   sp("foo"),
 							LogGroupNames: []*string{sp("bar")},
 							Limit:         int64p(maxLimit),
-							StartTime:     startTimeSeconds(defaultStart.Add(offset)),
-							EndTime:       endTimeSeconds(defaultStart.Add(offset).Add(chunk.size)),
+							StartTime:     startTimeMilliseconds(defaultStart.Add(offset)),
+							EndTime:       endTimeMilliseconds(defaultStart.Add(offset).Add(chunk.size)),
 						}).
 						Return(&cloudwatchlogs.StartQueryOutput{
 							QueryId: sp(chunkID),
@@ -1815,8 +1815,8 @@ func TestQueryManager_Query(t *testing.T) {
 				actions.
 					On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
 						QueryString:   sp("q"),
-						StartTime:     startTimeSeconds(defaultStart),
-						EndTime:       endTimeSeconds(defaultEnd),
+						StartTime:     startTimeMilliseconds(defaultStart),
+						EndTime:       endTimeMilliseconds(defaultEnd),
 						LogGroupNames: []*string{sp("a")},
 						Limit:         int64p(1),
 					}).

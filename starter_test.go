@@ -122,8 +122,8 @@ func TestStarter_manipulate(t *testing.T) {
 				actions.
 					On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
 						QueryString:   &text,
-						StartTime:     startTimeSeconds(start),
-						EndTime:       endTimeSeconds(end),
+						StartTime:     startTimeMilliseconds(start),
+						EndTime:       endTimeMilliseconds(end),
 						LogGroupNames: groups,
 						Limit:         &limit,
 					}).
