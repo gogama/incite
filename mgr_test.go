@@ -1621,15 +1621,18 @@ func TestQueryManager_Query(t *testing.T) {
 			chunks     []expectedChunk
 		}
 		testCases := []struct {
-			name   string
-			chunks []expectedChunk
+			name       string
+			splitUntil time.Duration
+			chunks     []expectedChunk
 		}{
 			{
-				name:   "Already Minimum Chunk Size",
-				chunks: []expectedChunk{{time.Second, 0, 2, nil}},
+				name:       "Already Minimum Chunk Size",
+				splitUntil: time.Second,
+				chunks:     []expectedChunk{{time.Second, 0, 2, nil}},
 			},
 			{
-				name: "One Split in Half",
+				name:       "One Split in Half",
+				splitUntil: time.Second,
 				chunks: []expectedChunk{
 					{
 						size:  2 * time.Second,
@@ -1643,7 +1646,8 @@ func TestQueryManager_Query(t *testing.T) {
 				},
 			},
 			{
-				name: "One Split in Thirds",
+				name:       "One Split in Thirds",
+				splitUntil: time.Second,
 				chunks: []expectedChunk{
 					{
 						size:  3 * time.Second,
@@ -1658,7 +1662,8 @@ func TestQueryManager_Query(t *testing.T) {
 				},
 			},
 			{
-				name: "One Split in Quarters",
+				name:       "One Split in Quarters",
+				splitUntil: time.Second,
 				chunks: []expectedChunk{
 					{
 						size:  4 * time.Second,
@@ -1674,7 +1679,8 @@ func TestQueryManager_Query(t *testing.T) {
 				},
 			},
 			{
-				name: "Odd Splits",
+				name:       "Odd Splits",
+				splitUntil: time.Second,
 				chunks: []expectedChunk{
 					{
 						size:  5 * time.Second,
@@ -1691,6 +1697,21 @@ func TestQueryManager_Query(t *testing.T) {
 								},
 							},
 							{time.Second, 3, 5, nil},
+						},
+					},
+				},
+			},
+			{
+				name:       "Split Range Cannot Go Below SplitUntil",
+				splitUntil: 50 * time.Second,
+				chunks: []expectedChunk{
+					{
+						size:  100 * time.Second,
+						start: 0,
+						end:   2,
+						chunks: []expectedChunk{
+							{50 * time.Second, 0, 1, nil},
+							{50 * time.Second, 1, 2, nil},
 						},
 					},
 				},
@@ -1778,7 +1799,7 @@ func TestQueryManager_Query(t *testing.T) {
 					End:        defaultStart.Add(offset),
 					Limit:      maxLimit,
 					Chunk:      testCase.chunks[0].size,
-					SplitUntil: time.Second,
+					SplitUntil: testCase.splitUntil,
 				})
 				require.NoError(t, err)
 				require.NotNil(t, s)

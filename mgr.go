@@ -445,7 +445,9 @@ const splitBits = 4
 
 func (m *mgr) splitChunk(c *chunk) {
 	frac := c.duration() / splitBits
-	if hasSubSecondD(frac) {
+	if frac < c.stream.SplitUntil {
+		frac = c.stream.SplitUntil
+	} else if hasSubSecondD(frac) {
 		frac = frac + time.Second/2
 		frac = frac.Round(time.Second)
 	}
