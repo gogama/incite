@@ -19,12 +19,12 @@ import "time"
 // which are returned within CloudWatch Logs Insights query results.
 const TimeLayout = "2006-01-02 15:04:05.000"
 
-func hasSubSecond(t time.Time) bool {
-	return t.Nanosecond() != 0
+func hasSubMillisecond(t time.Time) bool {
+	return t.Nanosecond()%int(time.Millisecond) != 0
 }
 
-func hasSubSecondD(d time.Duration) bool {
-	return d%time.Second > 0
+func hasSubMillisecondD(d time.Duration) bool {
+	return d%time.Millisecond > 0
 }
 
 func epochMillisecond(t time.Time) int64 {

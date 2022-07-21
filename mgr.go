@@ -133,12 +133,12 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 	}
 
 	q.Start = q.Start.UTC()
-	if hasSubSecond(q.Start) {
-		return nil, errors.New(startSubSecondMsg)
+	if hasSubMillisecond(q.Start) {
+		return nil, errors.New(startSubMillisecondMsg)
 	}
 	q.End = q.End.UTC()
-	if hasSubSecond(q.End) {
-		return nil, errors.New(endSubSecondMsg)
+	if hasSubMillisecond(q.End) {
+		return nil, errors.New(endSubMillisecondMsg)
 	}
 	if !q.End.After(q.Start) {
 		return nil, errors.New(endNotBeforeStartMsg)
@@ -155,8 +155,8 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 	d := q.End.Sub(q.Start)
 	if q.Chunk <= 0 {
 		q.Chunk = d
-	} else if hasSubSecondD(q.Chunk) {
-		return nil, errors.New(chunkSubSecondMsg)
+	} else if hasSubMillisecondD(q.Chunk) {
+		return nil, errors.New(chunkSubMillisecondMsg)
 	} else if q.Chunk > d {
 		q.Chunk = d
 	}
@@ -176,8 +176,8 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 
 	if q.SplitUntil <= 0 {
 		q.SplitUntil = q.Chunk
-	} else if hasSubSecondD(q.SplitUntil) {
-		return nil, errors.New(splitUntilSubSecondMsg)
+	} else if hasSubMillisecondD(q.SplitUntil) {
+		return nil, errors.New(splitUntilSubMillisecondMsg)
 	} else if q.Preview {
 		return nil, errors.New(splitUntilWithPreviewMsg)
 	} else if q.Limit < maxLimit {
@@ -438,18 +438,18 @@ func (m *mgr) stopChunk(c *chunk) {
 
 // splitBits is the number of child chunks into which a parent chunk
 // will be split, assuming the parent chunk range is at least splitBits
-// seconds long. The minimum chunk size is one second, so a 4-second
-// parent chunk will be split into four chunks, but a two-second child
-// chunk will only be split into two child chunks.
+// milliseconds long. The minimum chunk size is one millisecond, so a
+// four-millisecond parent chunk will be split into four chunks, but a
+// two-millisecond child chunk will only be split into two child chunks.
 const splitBits = 4
 
 func (m *mgr) splitChunk(c *chunk) {
 	frac := c.duration() / splitBits
 	if frac < c.stream.SplitUntil {
 		frac = c.stream.SplitUntil
-	} else if hasSubSecondD(frac) {
-		frac = frac + time.Second/2
-		frac = frac.Round(time.Second)
+	} else if hasSubMillisecondD(frac) {
+		frac = frac + time.Millisecond/2
+		frac = frac.Round(time.Millisecond)
 	}
 
 	children := make([]*chunk, 1, splitBits)

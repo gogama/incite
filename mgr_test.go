@@ -676,24 +676,24 @@ func TestQueryManager_Query(t *testing.T) {
 				err: noGroupsMsg,
 			},
 			{
-				name: "Start.SubSecond",
+				name: "Start.SubMillisecond",
 				QuerySpec: QuerySpec{
 					Text:   "baz",
 					Start:  time.Date(2021, 7, 15, 3, 37, 25, 123, time.UTC),
 					End:    defaultEnd,
 					Groups: []string{"baz"},
 				},
-				err: startSubSecondMsg,
+				err: startSubMillisecondMsg,
 			},
 			{
-				name: "End.SubSecond",
+				name: "End.SubMillisecond",
 				QuerySpec: QuerySpec{
 					Text:   "qux",
 					Start:  defaultStart,
 					End:    time.Date(2021, 7, 15, 3, 37, 25, 123, time.UTC),
 					Groups: []string{"qux", "jilly"},
 				},
-				err: endSubSecondMsg,
+				err: endSubMillisecondMsg,
 			},
 			{
 				name: "End.NotAfter.Start",
@@ -717,18 +717,18 @@ func TestQueryManager_Query(t *testing.T) {
 				err: exceededMaxLimitMsg,
 			},
 			{
-				name: "Chunk.SubSecond",
+				name: "Chunk.SubMillisecond",
 				QuerySpec: QuerySpec{
 					Text:   "ham",
 					Start:  defaultStart,
 					End:    defaultEnd,
 					Groups: []string{"ham"},
-					Chunk:  15 * time.Millisecond,
+					Chunk:  15 * time.Microsecond,
 				},
-				err: chunkSubSecondMsg,
+				err: chunkSubMillisecondMsg,
 			},
 			{
-				name: "SplitUntil.SubSecond",
+				name: "SplitUntil.SubMillisecond",
 				QuerySpec: QuerySpec{
 					Text:       "Whose woods are these?\nI think I know",
 					Start:      defaultStart,
@@ -737,7 +737,7 @@ func TestQueryManager_Query(t *testing.T) {
 					Limit:      MaxLimit - 1,
 					SplitUntil: time.Minute + 10*time.Microsecond,
 				},
-				err: splitUntilSubSecondMsg,
+				err: splitUntilSubMillisecondMsg,
 			},
 			{
 				name: "SplitUntil.With.Preview",
@@ -1627,76 +1627,76 @@ func TestQueryManager_Query(t *testing.T) {
 		}{
 			{
 				name:       "Already Minimum Chunk Size",
-				splitUntil: time.Second,
-				chunks:     []expectedChunk{{time.Second, 0, 2, nil}},
+				splitUntil: time.Millisecond,
+				chunks:     []expectedChunk{{time.Millisecond, 0, 2, nil}},
 			},
 			{
 				name:       "One Split in Half",
-				splitUntil: time.Second,
+				splitUntil: time.Millisecond,
 				chunks: []expectedChunk{
 					{
-						size:  2 * time.Second,
+						size:  2 * time.Millisecond,
 						start: 0,
 						end:   2,
 						chunks: []expectedChunk{
-							{time.Second, 0, 2, nil},
-							{time.Second, 2, 3, nil},
+							{time.Millisecond, 0, 2, nil},
+							{time.Millisecond, 2, 3, nil},
 						},
 					},
 				},
 			},
 			{
 				name:       "One Split in Thirds",
-				splitUntil: time.Second,
+				splitUntil: time.Millisecond,
 				chunks: []expectedChunk{
 					{
-						size:  3 * time.Second,
+						size:  3 * time.Millisecond,
 						start: 0,
 						end:   2,
 						chunks: []expectedChunk{
-							{time.Second, 0, 1, nil},
-							{time.Second, 1, 3, nil},
-							{time.Second, 3, 5, nil},
+							{time.Millisecond, 0, 1, nil},
+							{time.Millisecond, 1, 3, nil},
+							{time.Millisecond, 3, 5, nil},
 						},
 					},
 				},
 			},
 			{
 				name:       "One Split in Quarters",
-				splitUntil: time.Second,
+				splitUntil: time.Millisecond,
 				chunks: []expectedChunk{
 					{
-						size:  4 * time.Second,
+						size:  4 * time.Millisecond,
 						start: 0,
 						end:   2,
 						chunks: []expectedChunk{
-							{time.Second, 0, 1, nil},
-							{time.Second, 1, 3, nil},
-							{time.Second, 3, 5, nil},
-							{time.Second, 5, 6, nil},
+							{time.Millisecond, 0, 1, nil},
+							{time.Millisecond, 1, 3, nil},
+							{time.Millisecond, 3, 5, nil},
+							{time.Millisecond, 5, 6, nil},
 						},
 					},
 				},
 			},
 			{
 				name:       "Odd Splits",
-				splitUntil: time.Second,
+				splitUntil: time.Millisecond,
 				chunks: []expectedChunk{
 					{
-						size:  5 * time.Second,
+						size:  5 * time.Millisecond,
 						start: 0,
 						end:   2,
 						chunks: []expectedChunk{
-							{2 * time.Second, 0, 1, nil},
+							{2 * time.Millisecond, 0, 1, nil},
 							{
-								size:  2 * time.Second,
+								size:  2 * time.Millisecond,
 								start: 1, end: 3,
 								chunks: []expectedChunk{
-									{time.Second, 1, 2, nil},
-									{time.Second, 2, 3, nil},
+									{time.Millisecond, 1, 2, nil},
+									{time.Millisecond, 2, 3, nil},
 								},
 							},
-							{time.Second, 3, 5, nil},
+							{time.Millisecond, 3, 5, nil},
 						},
 					},
 				},
@@ -1728,13 +1728,13 @@ func TestQueryManager_Query(t *testing.T) {
 				var f func(string, time.Duration, expectedChunk)
 				f = func(chunkID string, offset time.Duration, chunk expectedChunk) {
 					actions.
-						On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
-							QueryString:   sp("foo"),
-							LogGroupNames: []*string{sp("bar")},
-							Limit:         int64p(maxLimit),
-							StartTime:     startTimeMilliseconds(defaultStart.Add(offset)),
-							EndTime:       endTimeMilliseconds(defaultStart.Add(offset).Add(chunk.size)),
-						}).
+						On("StartQueryWithContext", anyContext, startQueryInput(
+							"foo",
+							defaultStart.Add(offset),
+							defaultStart.Add(offset).Add(chunk.size),
+							maxLimit,
+							"bar",
+						)).
 						Return(&cloudwatchlogs.StartQueryOutput{
 							QueryId: sp(chunkID),
 						}, nil).
@@ -1936,7 +1936,7 @@ func TestQueryManager_Query(t *testing.T) {
 					RPS:     lotsOfRPS,
 				})
 				t.Cleanup(func() {
-					m.Close()
+					_ = m.Close()
 				})
 				s, err := m.Query(QuerySpec{
 					Text:   text,

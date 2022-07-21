@@ -261,12 +261,12 @@ func deleteResult(ptr string) Result {
 var maxLimit int64 = MaxLimit
 
 func (p *poller) splittable(c *chunk, n int) bool {
-	// Short circuit if the chunk isn't maxed expected.
+	// Short circuit if the chunk isn't maxed out.
 	if int64(n) < c.stream.Limit {
 		return false
 	}
 
-	// This chunk is maxed expected so record that.
+	// This chunk is maxed out so record that.
 	c.Stats.RangeMaxed += c.duration()
 
 	// Short circuit if splitting isn't required.
@@ -281,8 +281,8 @@ func (p *poller) splittable(c *chunk, n int) bool {
 	}
 
 	// At this point we know this chunk will be split. Thus, we should
-	// stop counting it as maxed expected. If the sub-chunks are later
-	// determined to be maxed expected that will be recorded later.
+	// stop counting it as maxed out. If the sub-chunks are later
+	// determined to be maxed out that will be recorded later.
 	c.Stats.RangeMaxed -= c.duration()
 	return true
 }

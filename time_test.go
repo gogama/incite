@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestHasSubSecond(t *testing.T) {
+func TestHasSubMillisecond(t *testing.T) {
 	testCases := []struct {
 		name     string
 		x        time.Time
@@ -21,26 +21,26 @@ func TestHasSubSecond(t *testing.T) {
 			name: "Zero",
 		},
 		{
-			name: "Whole Second",
-			x:    time.Unix(1, 0),
+			name: "Whole Millisecond",
+			x:    time.Unix(1, int64(time.Millisecond)),
 		},
 		{
-			name:     "Half Second",
-			x:        time.Unix(1_000_000_000, int64(500*time.Millisecond)),
+			name:     "Half Millisecond",
+			x:        time.Unix(1_000_000_000, int64(500*time.Microsecond)),
 			expected: true,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			actual := hasSubSecond(testCase.x)
+			actual := hasSubMillisecond(testCase.x)
 
 			assert.Equal(t, testCase.expected, actual)
 		})
 	}
 }
 
-func TestHasSubSecondD(t *testing.T) {
+func TestHasSubMillisecondD(t *testing.T) {
 	testCases := []struct {
 		name     string
 		d        time.Duration
@@ -50,19 +50,19 @@ func TestHasSubSecondD(t *testing.T) {
 			name: "Zero",
 		},
 		{
-			name: "Whole Second",
-			d:    time.Second,
+			name: "Whole Millisecond",
+			d:    time.Millisecond,
 		},
 		{
-			name:     "Half Second",
-			d:        500 * time.Millisecond,
+			name:     "Half Millisecond",
+			d:        500 * time.Microsecond,
 			expected: true,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			actual := hasSubSecondD(testCase.d)
+			actual := hasSubMillisecondD(testCase.d)
 
 			assert.Equal(t, testCase.expected, actual)
 		})

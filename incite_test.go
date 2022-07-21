@@ -865,15 +865,15 @@ var scenarios = []queryScenario{
 		QuerySpec: QuerySpec{
 			Text:       "fields maximum, items",
 			Start:      defaultStart,
-			End:        defaultStart.Add(2 * time.Second),
+			End:        defaultStart.Add(time.Second),
 			Limit:      MaxLimit,
 			Groups:     []string{"/a/plethora/of/logs"},
-			SplitUntil: time.Second,
+			SplitUntil: 500 * time.Millisecond,
 		},
 		chunks: []chunkPlan{
 			// Original chunk, length two seconds.
 			{
-				startQueryInput:   startQueryInput("fields maximum, items", defaultStart, defaultStart.Add(2*time.Second), MaxLimit, "/a/plethora/of/logs"),
+				startQueryInput:   startQueryInput("fields maximum, items", defaultStart, defaultStart.Add(time.Second), MaxLimit, "/a/plethora/of/logs"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -885,7 +885,7 @@ var scenarios = []queryScenario{
 			},
 			// Split chunk 1/2.
 			{
-				startQueryInput:   startQueryInput("fields maximum, items", defaultStart, defaultStart.Add(time.Second), MaxLimit, "/a/plethora/of/logs"),
+				startQueryInput:   startQueryInput("fields maximum, items", defaultStart, defaultStart.Add(500*time.Millisecond), MaxLimit, "/a/plethora/of/logs"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -897,7 +897,7 @@ var scenarios = []queryScenario{
 			},
 			// Split chunk 2/2.
 			{
-				startQueryInput:   startQueryInput("fields maximum, items", defaultStart.Add(time.Second), defaultStart.Add(2*time.Second), MaxLimit, "/a/plethora/of/logs"),
+				startQueryInput:   startQueryInput("fields maximum, items", defaultStart.Add(500*time.Millisecond), defaultStart.Add(time.Second), MaxLimit, "/a/plethora/of/logs"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -912,10 +912,10 @@ var scenarios = []queryScenario{
 			BytesScanned:   6,
 			RecordsMatched: 6,
 			RecordsScanned: 6,
-			RangeRequested: 2 * time.Second,
-			RangeStarted:   2 * time.Second,
-			RangeDone:      2 * time.Second,
-			RangeMaxed:     time.Second,
+			RangeRequested: time.Second,
+			RangeStarted:   time.Second,
+			RangeDone:      time.Second,
+			RangeMaxed:     500 * time.Millisecond,
 		},
 	},
 

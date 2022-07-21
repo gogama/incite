@@ -173,13 +173,13 @@ const (
 	nilContextMsg = "incite: nil context"
 
 	textBlankMsg                 = "incite: blank query text"
-	startSubSecondMsg            = "incite: start has sub-second granularity"
-	endSubSecondMsg              = "incite: end has sub-second granularity"
+	startSubMillisecondMsg       = "incite: start has sub-millisecond granularity"
+	endSubMillisecondMsg         = "incite: end has sub-millisecond granularity"
 	endNotBeforeStartMsg         = "incite: end not before start"
 	noGroupsMsg                  = "incite: no log groups"
 	exceededMaxLimitMsg          = "incite: exceeded MaxLimit"
-	chunkSubSecondMsg            = "incite: chunk has sub-second granularity"
-	splitUntilSubSecondMsg       = "incite: split-until has sub-second granularity"
+	chunkSubMillisecondMsg       = "incite: chunk has sub-millisecond granularity"
+	splitUntilSubMillisecondMsg  = "incite: split-until has sub-millisecond granularity"
 	splitUntilWithPreviewMsg     = "incite: split-until incompatible with preview"
 	splitUntilWithoutMaxLimitMsg = "incite: split-until requires MaxLimit"
 

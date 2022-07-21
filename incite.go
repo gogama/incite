@@ -39,14 +39,16 @@ type QuerySpec struct {
 	// inclusive of Start itself.
 	//
 	// Start must be strictly before End, and must represent a whole
-	// number of seconds (it cannot have sub-second granularity).
+	// number of milliseconds (it cannot have sub-millisecond
+	// granularity).
 	Start time.Time
 
 	// End specifies the end of the time range to query, exclusive of
 	// End itself.
 	//
 	// End must be strictly after Start, and must represent a whole
-	// number of seconds (it cannot have sub-second granularity).
+	// number of milliseconds (it cannot have sub-millisecond
+	// granularity).
 	End time.Time
 
 	// Limit optionally specifies the maximum number of results to be
@@ -73,8 +75,8 @@ type QuerySpec struct {
 	// positive and less than the difference between End and Start, the
 	// query is broken into n chunks, where n is (End-Start)/Chunk,
 	// rounded up to the nearest integer value. If Chunk is positive, it
-	// must represent a whole number of seconds (cannot have sub-second
-	// granularity).
+	// must represent a whole number of milliseconds (cannot have
+	// sub-millisecond granularity).
 	//
 	// In a chunked query, each chunk is sent to the CloudWatch Logs
 	// service as a separate Insights query. This can help large queries
@@ -157,8 +159,8 @@ type QuerySpec struct {
 	//
 	// If SplitUntil is zero or negative, then splitting is disabled.
 	// If positive, then splitting is enabled and SplitUntil must
-	// represent a whole number of seconds (cannot have sub-second
-	// granularity).
+	// represent a whole number of milliseconds (cannot have
+	// sub-millisecond granularity).
 	//
 	// To use splitting, you must also set Limit to MaxLimit and
 	// Preview must be false.
