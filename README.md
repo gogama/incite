@@ -99,7 +99,7 @@ func main() {
 	}()
 
 	// Look at the last 15 minutes.
-	end := time.Now().Truncate(time.Second)
+	end := time.Now().Truncate(time.Millisecond)
 	start := end.Add(-15*time.Minute)
 
 	// Query the results.

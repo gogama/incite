@@ -19,7 +19,7 @@ import (
 func ExampleQuery() {
 	s := session.Must(session.NewSession())
 	a := cloudwatchlogs.New(s)
-	end := time.Now().Truncate(time.Second)
+	end := time.Now().Truncate(time.Millisecond)
 	data, err := incite.Query(context.Background(), a, incite.QuerySpec{
 		Text:   "fields @timestamp, @message | filter @message =~ /foo/ | sort @timestamp desc",
 		Start:  end.Add(-15 * time.Minute),
@@ -43,7 +43,7 @@ func ExampleQueryManager() {
 	defer func() {
 		_ = m.Close()
 	}()
-	end := time.Now().Truncate(time.Second)
+	end := time.Now().Truncate(time.Millisecond)
 	str, err := m.Query(incite.QuerySpec{
 		Text:   "fields @timestamp, @message | filter @message =~ /foo/ | sort @timestamp desc",
 		Start:  end.Add(-15 * time.Minute),
