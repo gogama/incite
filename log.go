@@ -7,7 +7,7 @@ package incite
 // A Logger represents a logging object which can receive log messages
 // from a QueryManager and send them to an output sink.
 //
-// Logger is compatible with *log.Logger. Therefore you may, for
+// Logger is compatible with *log.Logger. Therefore, you may, for
 // example, use log.DefaultLogger(), or any other *log.Logger value, as
 // the Logger field of a Config structure when constructing a new
 // QueryManager using the NewQueryManager function.

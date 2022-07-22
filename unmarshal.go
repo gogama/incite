@@ -50,7 +50,7 @@ import (
 // target a struct field unmarshallable type, an InvalidUnmarshalError
 // is returned.
 //
-// • A struct field with a "json" tag receives the the value of the
+// • A struct field with a "json" tag receives the value of the
 // ResultField field named in the tag using the json.Unmarshal function
 // from the encoding/json package with the ResultField value as the
 // input JSON and the struct field address as the target. If the tag is
@@ -62,7 +62,7 @@ import (
 // • A struct field with no "incite" or "json" tag receives the value
 // of the ResultField field sharing the same case-sensitive name as the
 // struct field, but only if the field type ultimately targets a
-// struct field unmarshallable type. Otherwise the field is ignored.
+// struct field unmarshallable type. Otherwise, the field is ignored.
 //
 // The following types are considered struct field unmarshallable types:
 //
@@ -88,7 +88,7 @@ import (
 // InvalidUnmarshalError.
 //
 // If a result field value cannot be decoded, Unmarshal continues
-// decoding the remaining input data on a best effort basis, and after
+// decoding the remaining input data on a best-effort basis, and after
 // processing all the data, returns an UnmarshalResultFieldValueError
 // describing the first such decoding problem encountered.
 //
@@ -571,7 +571,7 @@ func copyResult(r Result) Result {
 }
 
 // An InvalidUnmarshalError occurs when a value with an invalid type
-// is passed to to Unmarshal.
+// is passed to Unmarshal.
 type InvalidUnmarshalError struct {
 	Type      reflect.Type
 	RowType   reflect.Type

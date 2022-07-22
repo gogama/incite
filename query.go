@@ -6,7 +6,7 @@ package incite
 
 import "context"
 
-// Query is sweet sweet sugar to perform a synchronous CloudWatch Logs
+// Query is sweet, sweet sugar to perform a synchronous CloudWatch Logs
 // Insights query and get back all the results without needing to
 // construct a QueryManager. Query runs the query indicated by q, using
 // the CloudWatch Logs actions provided by a, and returns all the

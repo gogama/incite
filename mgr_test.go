@@ -1718,7 +1718,7 @@ func TestQueryManager_Query(t *testing.T) {
 			},
 		}
 
-		// Run the sub-tests.
+		// Run the subtests.
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {
 				// ARRANGE.

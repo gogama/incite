@@ -88,7 +88,7 @@ func ExampleUnmarshal_mapStringInterface() {
 	// As a special case, the data are unmarshalled fuzzily if the target
 	// is a map[string]interface{}. If a value is valid JSON it is
 	// unmarshalled as JSON, otherwise it is kept as a string. Here the
-	// Object and QuotedString fields are contain valid JSON so they
+	// Object and QuotedString fields contain valid JSON so they
 	// unmarshal as a map and string, respectively. UnquotedString is
 	// not valid JSON and stays as a string.
 	data := []incite.Result{

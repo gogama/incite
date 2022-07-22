@@ -54,7 +54,7 @@ const (
 )
 
 // RPSQuotaLimits contains the CloudWatch Logs service quota limits for
-// number of requests per second for each CloudWatch Logs API act
+// number of requests per second for each CloudWatch Logs API action
 // before the request fails due to a throttling error as documented in
 // the AWS service limits system.
 //

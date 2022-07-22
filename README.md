@@ -13,7 +13,7 @@ cloud!
 
 Incite is a native GoLang library that streamlines your interactions with the
 CloudWatch Logs Insights API using minimalist, native Go, paradigms. Incite gets
-the API out of the way so you can focus on app development.
+the API out of the way, so you can focus on app development.
 
 Features
 ========
@@ -80,14 +80,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/gogama/incite"
 )
 
 func main() {
 	// Use the AWS SDK for Go to get the CloudWatch API actions Incite needs.
-	// For simplicity we assume that the correct AWS region and credentials are
+	// For simplicity, we assume that the correct AWS region and credentials are
 	// already set in the environment.
 	a := cloudwatchlogs.New(session.Must(session.NewSession()))
 
