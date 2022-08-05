@@ -66,12 +66,12 @@ import (
 //
 // The following types are considered struct field unmarshallable types:
 //
-//  bool
-//  int, int8, int16, int32, int64
-//  uint, uint8, uint16, uint32, uint64
-//  float32, float64
-//  interface{}
-//  Any map, struct, slice, or array type
+//	bool
+//	int, int8, int16, int32, int64
+//	uint, uint8, uint16, uint32, uint64
+//	float32, float64
+//	interface{}
+//	Any map, struct, slice, or array type
 //
 // A struct field targeting interface{} or any map, struct, slice, or
 // array type is assumed to contain valid JSON and unmarshalled using
@@ -164,12 +164,13 @@ func array(data []Result, rv, a reflect.Value) error {
 // (if the input type is not a pointer type) or the value type obtained
 // by traversing all the pointer types otherwise.
 //
-// Examples
-// 	intType := reflect.TypeOf(int(0))
-// 	dig(intType) -> (intType, 0)
+// Examples:
 //
-// 	intPtrType := reflect.PtrTo(intType)
-// 	dig(intPtrType) -> (intType, 1)
+//	intType := reflect.TypeOf(int(0))
+//	dig(intType) -> (intType, 0)
+//
+//	intPtrType := reflect.PtrTo(intType)
+//	dig(intPtrType) -> (intType, 1)
 func dig(t reflect.Type) (ultimateType reflect.Type, depth int) {
 	for t.Kind() == reflect.Ptr {
 		depth++

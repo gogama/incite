@@ -21,15 +21,16 @@ import (
 // CloudWatch Logs act capabilities.
 //
 // For example:
-// 	import (
-// 		"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
-// 		"github.com/aws/aws-sdk-go/aws/session"
-// 	)
 //
-// 	var myActions incite.CloudWatchLogsActions = cloudwatchlogs.New(session.Must(session.NewSession()))
+//	import (
+//		"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+//		"github.com/aws/aws-sdk-go/aws/session"
+//	)
 //
-// 	// Now you can use myActions with NewQueryManager to construct a new
-// 	// QueryManager.
+//	var myActions incite.CloudWatchLogsActions = cloudwatchlogs.New(session.Must(session.NewSession()))
+//
+//	// Now you can use myActions with NewQueryManager to construct a new
+//	// QueryManager.
 type CloudWatchLogsActions interface {
 	StartQueryWithContext(context.Context, *cloudwatchlogs.StartQueryInput, ...request.Option) (*cloudwatchlogs.StartQueryOutput, error)
 	StopQueryWithContext(context.Context, *cloudwatchlogs.StopQueryInput, ...request.Option) (*cloudwatchlogs.StopQueryOutput, error)

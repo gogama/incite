@@ -12,7 +12,7 @@ import "time"
 //
 // TimeLayout defines the format by showing how the Go reference time of
 //
-// 	Mon Jan 2 15:04:05 -0700 MST 2006
+//	Mon Jan 2 15:04:05 -0700 MST 2006
 //
 // would be formatted if it were the value. TimeLayout can be used with
 // time.Parse to parse timestamp fields, such as @timestamp and @ingestionTime,
