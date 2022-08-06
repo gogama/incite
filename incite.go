@@ -70,39 +70,44 @@ type QuerySpec struct {
 	// Chunk optionally requests a chunked query and indicates the chunk
 	// size.
 	//
+	// In a chunked query, the query time range is subdivided into
+	// smaller time chunks of duration Chunk, and each chunk is sent to
+	// the CloudWatch Logs service as a separate Insights query. This
+	// can help large queries complete before the CloudWatch Logs query
+	// timeout of 15 minutes, and can increase performance, because
+	// multiple chunks can be run in parallel.
+	//
 	// If Chunk is zero, negative, or greater than the difference
 	// between End and Start, the query is not chunked. If Chunk is
 	// positive and less than the difference between End and Start, the
-	// query is broken into n chunks, where n is (End-Start)/Chunk,
-	// rounded up to the nearest integer value. If Chunk is positive, it
-	// must represent a whole number of milliseconds (cannot have
-	// sub-millisecond granularity).
+	// query is broken into n or n+1 chunks, where n is
+	// (End-Start)/Chunk, rounded up to the nearest integer value. If
+	// Chunk is positive, it must represent a whole number of
+	// milliseconds (cannot have sub-millisecond granularity).
 	//
-	// In a chunked query, each chunk is sent to the CloudWatch Logs
-	// service as a separate Insights query. This can help large queries
-	// complete before the CloudWatch Logs query timeout of 15 minutes,
-	// and can increase performance because chunks can be run in parallel.
-	// However, the following considerations should be taken into account:
+	// For chunked queries, the following special considerations apply:
 	//
 	// • In a chunked query, Limit applies separately to each chunk. So
-	// a query with 50 chunks and a limit of 50 could produce up to 2500
-	// final results.
+	// a query with 50 chunks and a limit of 1,000 could produce up to
+	// 50,000 final results.
 	//
 	// • If Text contains a sort command, the sort will only apply
 	// within each individual chunk. If the QuerySpec is executed by a
 	// QueryManager configured with a parallelism factor above 1, then
-	// the results may appear be expected of order since the order of
-	// completion of chunks is not guaranteed.
+	// the results may appear to be out of order since the order of
+	// chunk completion is not guaranteed.
 	//
 	// • If Text contains a stats command, the statistical aggregation
-	// will be applied to each chunk in a chunked query, meaning up to n
-	// versions of each aggregate data point may be returned, one per
-	// chunk, necessitating further aggregation in your application
-	// logic.
+	// will be applied separately to each chunk in a chunked query,
+	// meaning up to n+1 versions of each aggregate data point may be
+	// returned, one per chunk, potentially necessitating further
+	// aggregation in your application logic.
 	//
 	// • In general if you use chunking with query text which implies
-	// any kind of server-side aggregation, you may need to perform
-	// custom post-processing on the results.
+	// any kind of server-side post-processing, of which sorting and
+	// statistical aggregation are two examples, you may need to perform
+	// custom post-processing within your application to put the results
+	// into the final form you expect.
 	Chunk time.Duration
 
 	// Preview optionally requests preview results from a running query.
