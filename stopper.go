@@ -8,6 +8,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 )
 
@@ -37,7 +38,7 @@ func (s *stopper) context(_ *chunk) context.Context {
 func (s *stopper) manipulate(c *chunk) outcome {
 	output, err := s.m.Actions.StopQueryWithContext(context.Background(), &cloudwatchlogs.StopQueryInput{
 		QueryId: &c.queryID,
-	})
+	}, request.WithAppendUserAgent(version()))
 	s.lastReq = time.Now()
 	if err != nil && isTemporary(err) {
 		return temporaryError

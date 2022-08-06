@@ -8,6 +8,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 )
 
@@ -52,7 +53,7 @@ func (p *poller) manipulate(c *chunk) outcome {
 	input := cloudwatchlogs.GetQueryResultsInput{
 		QueryId: &c.queryID,
 	}
-	output, err := p.m.Actions.GetQueryResultsWithContext(c.ctx, &input)
+	output, err := p.m.Actions.GetQueryResultsWithContext(c.ctx, &input, request.WithAppendUserAgent(version()))
 	p.lastReq = time.Now()
 
 	if err != nil {

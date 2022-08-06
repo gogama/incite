@@ -9,6 +9,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 )
 
@@ -55,7 +56,7 @@ func (s *starter) manipulate(c *chunk) outcome {
 		LogGroupNames: c.stream.groups,
 		Limit:         &c.stream.Limit,
 	}
-	output, err := s.m.Actions.StartQueryWithContext(c.ctx, &input)
+	output, err := s.m.Actions.StartQueryWithContext(c.ctx, &input, request.WithAppendUserAgent(version()))
 	s.lastReq = time.Now()
 	if err != nil {
 		c.err = &StartQueryError{c.stream.Text, c.start, c.end, err}
