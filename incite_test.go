@@ -1665,9 +1665,153 @@ var scenarios = []queryScenario{
 					},
 				},
 			},
-			// CHUNK 10 [before split].
+			// CHUNK 10.
 			{
-				startQueryInput:   startQueryInput("vikings", defaultStart.Add(570*time.Minute), defaultStart.Add(600*time.Minute), MaxLimit, "/frihed/februar/første"),
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(570*time.Minute), defaultStart.Add(630*time.Minute), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				startQueryErrs:    []error{issue13Error("foo", 429), io.EOF, cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "pending", issue13Error("bar", 502))},
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusScheduled,
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+					},
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 11.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(630*time.Minute), defaultStart.Add(690*time.Minute), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						results: resultSeries(MaxLimit+11, 1),
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 12.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(690*time.Minute), defaultStart.Add(750*time.Minute), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 13.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(750*time.Minute), defaultStart.Add(810*time.Minute), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						results: resultSeries(MaxLimit+13, 1),
+						status:  cloudwatchlogs.QueryStatusRunning,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+					{
+						results: resultSeries(MaxLimit+13, 1),
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 14.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(810*time.Minute), defaultStart.Add(870*time.Minute), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+					},
+				},
+			},
+			// CHUNK 15.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(870*time.Minute), defaultStart.Add(930*time.Minute), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				startQueryErrs:    []error{awserr.New("connection reset", "reset that connection", syscall.ECONNRESET)},
+				pollOutputs: []chunkPollOutput{
+					{
+						results: resultSeries(MaxLimit+15, 1),
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 16.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(930*time.Minute), defaultStart.Add(990*time.Minute), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusScheduled,
+						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusScheduled,
+						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
+					},
+					{
+						status: cloudwatchlogs.QueryStatusRunning,
+					},
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 17.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(990*time.Minute), defaultStart.Add(1_050*time.Minute), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						results: resultSeries(MaxLimit+17, 1),
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 18.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(1_050*time.Minute), defaultStart.Add(1_110*time.Minute), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+					},
+				},
+			},
+			// CHUNK 19.
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(1_110*time.Minute), defaultStart.Add(1_170*time.Minute), MaxLimit, "/frihed/februar/første"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusScheduled,
+					},
+					{
+						results: resultSeries(MaxLimit+19, 1),
+						status:  cloudwatchlogs.QueryStatusComplete,
+						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 20 [before split].
+			{
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(1_170*time.Minute), defaultStart.Add(1_200*time.Minute), MaxLimit, "/frihed/februar/første"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1677,9 +1821,9 @@ var scenarios = []queryScenario{
 					},
 				},
 			},
-			// CHUNK 10 [split sub-chunk 1/4].
+			// CHUNK 20 [split sub-chunk 1/4].
 			{
-				startQueryInput:   startQueryInput("vikings", defaultStart.Add(570*time.Minute), defaultStart.Add(570*time.Minute+450*time.Second), MaxLimit, "/frihed/februar/første"),
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(1_170*time.Minute), defaultStart.Add(1_170*time.Minute+450*time.Second), MaxLimit, "/frihed/februar/første"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1689,9 +1833,9 @@ var scenarios = []queryScenario{
 					},
 				},
 			},
-			// CHUNK 10 [split sub-chunk 2/4].
+			// CHUNK 20 [split sub-chunk 2/4].
 			{
-				startQueryInput:   startQueryInput("vikings", defaultStart.Add(570*time.Minute+450*time.Second), defaultStart.Add(570*time.Minute+900*time.Second), MaxLimit, "/frihed/februar/første"),
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(1_170*time.Minute+450*time.Second), defaultStart.Add(1_170*time.Minute+900*time.Second), MaxLimit, "/frihed/februar/første"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1701,9 +1845,9 @@ var scenarios = []queryScenario{
 					},
 				},
 			},
-			// CHUNK 10 [split sub-chunk 3/4].
+			// CHUNK 20 [split sub-chunk 3/4].
 			{
-				startQueryInput:   startQueryInput("vikings", defaultStart.Add(570*time.Minute+900*time.Second), defaultStart.Add(570*time.Minute+1350*time.Second), MaxLimit, "/frihed/februar/første"),
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(1_170*time.Minute+900*time.Second), defaultStart.Add(1_170*time.Minute+1350*time.Second), MaxLimit, "/frihed/februar/første"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1713,9 +1857,9 @@ var scenarios = []queryScenario{
 					},
 				},
 			},
-			// CHUNK 10 [split sub-chunk 4/4].
+			// CHUNK 20 [split sub-chunk 4/4].
 			{
-				startQueryInput:   startQueryInput("vikings", defaultStart.Add(570*time.Minute+1350*time.Second), defaultStart.Add(10*time.Hour), MaxLimit, "/frihed/februar/første"),
+				startQueryInput:   startQueryInput("vikings", defaultStart.Add(1_170*time.Minute+1350*time.Second), defaultStart.Add(20*time.Hour), MaxLimit, "/frihed/februar/første"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1726,7 +1870,8 @@ var scenarios = []queryScenario{
 				},
 			},
 		},
-		results: append(maxLimitResults, result(MaxLimit+1), result(MaxLimit+3), result(MaxLimit+5), result(MaxLimit+7), result(MaxLimit+9)),
+		results: append(maxLimitResults, result(MaxLimit+1), result(MaxLimit+3), result(MaxLimit+5), result(MaxLimit+7), result(MaxLimit+9),
+			result(MaxLimit+11), result(MaxLimit+13), result(MaxLimit+15), result(MaxLimit+17), result(MaxLimit+19)),
 		postprocess: func(r []Result) {
 			sort.Slice(r, func(i, j int) bool {
 				a, _ := strconv.Atoi(r[i].get("@ptr"))
@@ -1735,9 +1880,9 @@ var scenarios = []queryScenario{
 			})
 		},
 		stats: Stats{
-			BytesScanned:   9 + MaxLimit,
-			RecordsMatched: 9 + MaxLimit,
-			RecordsScanned: 9 + MaxLimit,
+			BytesScanned:   14 + MaxLimit,
+			RecordsMatched: 14 + MaxLimit,
+			RecordsScanned: 14 + MaxLimit,
 			RangeRequested: QueryConcurrencyQuotaLimit * time.Hour,
 			RangeStarted:   QueryConcurrencyQuotaLimit * time.Hour,
 			RangeDone:      QueryConcurrencyQuotaLimit * time.Hour,

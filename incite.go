@@ -399,7 +399,7 @@ const (
 	//
 	// The documented service quota may increase over time, in which case
 	// this value should be updated to match the documentation.
-	QueryConcurrencyQuotaLimit = 10
+	QueryConcurrencyQuotaLimit = 20
 
 	// DefaultParallel is the default maximum number of parallel
 	// CloudWatch Logs Insights queries a QueryManager will attempt to
