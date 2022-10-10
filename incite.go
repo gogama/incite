@@ -73,9 +73,11 @@ type QuerySpec struct {
 	// In a chunked query, the query time range is subdivided into
 	// smaller time chunks of duration Chunk, and each chunk is sent to
 	// the CloudWatch Logs service as a separate Insights query. This
-	// can help large queries complete before the CloudWatch Logs query
-	// timeout of 15 minutes, and can increase performance, because
-	// multiple chunks can be run in parallel.
+	// can help large queries avoid the CloudWatch Logs Insights
+	// result size limit, MaxLimit; help queries complete before the
+	// CloudWatch Logs Insights query timeout of 15 minutes; and can
+	// increase performance, because multiple chunks can be run in
+	// parallel.
 	//
 	// If Chunk is zero, negative, or greater than the difference
 	// between End and Start, the query is not chunked. If Chunk is
