@@ -1,31 +1,23 @@
-Incite! - CloudWatch Insights queries made (very) easy
-======================================================
+A native Go library to streamline and supercharge your interactions with the AWS
+CloudWatch Logs Insights service using minimalist, native Go, paradigms.
 
-[![Build Status](https://travis-ci.org/gogama/incite.svg)](https://travis-ci.com/gogama/incite) [![Go Report Card](https://goreportcard.com/badge/github.com/gogama/incite)](https://goreportcard.com/report/github.com/gogama/incite) [![PkgGoDev](https://pkg.go.dev/badge/github.com/gogama/incite)](https://pkg.go.dev/github.com/gogama/incite)
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/gogama/incite)](https://pkg.go.dev/github.com/gogama/incite)  [![Go Report Card](https://goreportcard.com/badge/github.com/gogama/incite)](https://goreportcard.com/report/github.com/gogama/incite) [![Build Status](https://travis-ci.org/gogama/incite.svg)](https://travis-ci.com/gogama/incite)
 
-What is Incite!?
-================
-
-With AWS CloudWatch Logs's Insights service, you can query your application logs
-like a database, allowing you to discover rich debugging, operational, and
-business  insights from your massive troves of log data distributed across the
-cloud!
-
-Incite is a native GoLang library that streamlines your interactions with the
-CloudWatch Logs Insights API using minimalist, native Go, paradigms. Incite gets
-the API out of the way, so you can focus on app development.
+Incite makes it easier to write code to query your logs using AWS CloudWatch
+Logs Insights, and makes it possible to use Insights to query massive,
+arbitrary, amounts of log data reliably.
 
 Features
 ========
 
-- **Streaming**. The CloudWatch Logs Insights API makes you poll your queries
-  until they are done, requiring boilerplate code that is hard to write efficiently.
-  Incite does the polling for you and gives you your query results as a stream!
-- **Auto-Chunking**. Each AWS CloudWatch Logs Insights query is limited to 10,000
-  results and AWS recommends you chunk your queries into smaller time ranges if
-  your query exceeds 10K results. Incite does this chunking automatically and
-  merges the results of all chunks into one convenient stream. Use the `Chunk`
-  field in `QuerySpec` to enable chunking.
+- **Streaming**. AWS CloudWatch Logs Insights makes you poll your queries,
+  requiring boilerplate code that is hard to write efficiently. Incite does the
+  polling for you and lets you simply read your query results from a stream.
+- **Auto-Chunking**. Every CloudWatch Logs Insights query is limited to 10,000
+  results. If your query exceeds 10K results, AWS advises you to break it into
+  smaller time ranges. Incite does this chunking automatically and merges the
+  results of all chunks into one convenient stream. Use the `Chunk` field in
+  `QuerySpec` to enable chunking.
 - **Dynamic Splitting**. Since v1.2.0, Incite can dynamically detect when a query
   chunk exceeds the 10K result limit, split that chunk into sub-chunks, and
   re-query the chunks, all automatically and without intervention. Use the
@@ -33,12 +25,8 @@ Features
 - **Multiplexing**. Incite efficiently runs multiple queries at the same time
   and is smart enough to do this without getting throttled or going over your
   CloudWatch Logs service quota limits.
-- **Previewing**. AWS CloudWatch Logs Insights can give you intermediate results
-  before the query is done. Incite supports an optional previewing mode to give
-  you these early results as soon as they are available, increasing your app's
-  responsiveness.
 - **Unmarshalling**. The CloudWatch Logs Insights API can only give you
-  unstructured key/value string pairs, so you have to write more boilerplate code
+  unstructured key/value string pairs, requiring you to write boilerplate code
   to put your results into a useful structure for analysis. Incite lets you
   unmarshal your results into maps or structs using a single function call.
   Incite supports tag-based field mapping just like `encoding/json`. (And it
@@ -47,9 +35,6 @@ Features
 - **Go Native**. Incite gives you a more Go-friendly coding experience than the
   AWS SDK for Go, including getting rid of unnecessary pointers and using
   standard types like `time.Time`.
-- **Optional Logging**. If your app needs to provide real-time diagnostic
-  information about how Incite is interacting with CloudWatch Logs, Incite lets
-  you plug in a logger to listen for interesting events.
 
 Getting Started
 ===============
@@ -148,6 +133,11 @@ Official AWS documentation: [Analyzing log data with CloudWatch Logs Insights](h
 Find Insights' query syntax documentation [here](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/CWL_QuerySyntax.html)
 and the API reference [here](https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/API_Operations.html) (look
 for `StartQuery`, `GetQueryResults`, and `StopQuery`).
+
+License
+=======
+
+This project is licensed under the terms of the MIT License.
 
 Acknowledgements
 ================
