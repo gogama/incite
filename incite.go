@@ -395,12 +395,12 @@ type Stream interface {
 }
 
 const (
-	// QueryConcurrencyQuotaLimit contains the CloudWatch Logs Query
-	// Concurrency service quota limit as documented at
+	// QueryConcurrencyQuotaLimit contains the default CloudWatch Logs
+	// query concurrency service limit as documented at
 	// https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/cloudwatch_limits_cwl.html.
 	//
-	// The documented service quota may increase over time, in which case
-	// this value should be updated to match the documentation.
+	// The documented service quota may increase over time, in which
+	// case this value should be updated to match the documentation.
 	QueryConcurrencyQuotaLimit = 20
 
 	// DefaultParallel is the default maximum number of parallel
@@ -453,11 +453,9 @@ type Config struct {
 	// because the QueryManager simply doesn't need all the parallel
 	// capacity.
 	//
-	// Note that an Insights query is not necessarily one-to-one with a
-	// Query operation on a QueryManager. If the Query operation is
-	// chunked, the QueryManager may create Insights multiple queries in
-	// the CloudWatch Logs web service to fulfil the chunked Query
-	// operation.
+	// Do not set Parallel above QueryConcurrencyQuotaLimit unless you
+	// have received a query concurrency limit increase from AWS
+	// CloudWatch Logs Insights.
 	Parallel int
 
 	// RPS optionally specifies the maximum number of requests to the

@@ -85,18 +85,6 @@ func TestNewQueryManager(t *testing.T) {
 					},
 				},
 				{
-					name: "Parallel.AboveLimit",
-					before: Config{
-						Actions:  actions,
-						Parallel: QueryConcurrencyQuotaLimit + 1,
-					},
-					after: Config{
-						Actions:  actions,
-						Parallel: QueryConcurrencyQuotaLimit,
-						Logger:   NopLogger,
-					},
-				},
-				{
 					name: "RPS.SameAsDefault",
 					before: Config{
 						Actions: actions,
@@ -441,6 +429,31 @@ func TestNewQueryManager(t *testing.T) {
 			require.IsType(t, &mgr{}, m)
 			m2 := m.(*mgr)
 			assert.Same(t, logger, m2.Logger)
+		})
+
+		t.Run("Parallel Exceeds Default Service Quota Limit", func(t *testing.T) {
+			logger := newMockLogger(t)
+			logger.ExpectPrintf("incite: QueryManager(%s) warning: "+
+				"parallel %d exceeds default service quota concurrency "+
+				"limit %d", t.Name(), QueryConcurrencyQuotaLimit+1, QueryConcurrencyQuotaLimit).
+				Once()
+			logger.On("Printf", mock.AnythingOfType("string"), mock.Anything).Maybe()
+			m := NewQueryManager(Config{
+				Actions:  actions,
+				Parallel: QueryConcurrencyQuotaLimit + 1,
+				Logger:   logger,
+				Name:     t.Name(),
+			})
+			require.NotNil(t, m)
+			defer func() {
+				err := m.Close()
+				assert.NoError(t, err)
+			}()
+
+			require.IsType(t, &mgr{}, m)
+			m2 := m.(*mgr)
+			assert.Equal(t, QueryConcurrencyQuotaLimit+1, m2.Parallel)
+			logger.AssertExpectations(t)
 		})
 	})
 }

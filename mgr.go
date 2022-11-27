@@ -58,8 +58,6 @@ func NewQueryManager(cfg Config) QueryManager {
 	}
 	if cfg.Parallel <= 0 {
 		cfg.Parallel = DefaultParallel
-	} else if cfg.Parallel > QueryConcurrencyQuotaLimit {
-		cfg.Parallel = QueryConcurrencyQuotaLimit
 	}
 	minDelay := make(map[CloudWatchLogsAction]time.Duration, numActions)
 	for action, defaultRPS := range RPSDefaults {
@@ -92,6 +90,16 @@ func NewQueryManager(cfg Config) QueryManager {
 
 	if m.Name == "" {
 		m.Name = fmt.Sprintf("%p", m)
+	}
+
+	// Warn if more parallelism is requested than CloudWatch Logs
+	// Insights supports by default. We don't prohibit exceeding the
+	// default concurrency limit because CloudWatch Logs may allow its
+	// customers to request limit increases above the default.
+	if m.Parallel > QueryConcurrencyQuotaLimit {
+		m.Logger.Printf("incite: QueryManager(%s) warning: "+
+			"parallel %d exceeds default service quota concurrency "+
+			"limit %d", m.Name, m.Parallel, QueryConcurrencyQuotaLimit)
 	}
 
 	go m.loop()
