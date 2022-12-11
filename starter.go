@@ -23,7 +23,7 @@ func newStarter(m *mgr) *starter {
 	s := &starter{
 		worker: worker{
 			m:                 m,
-			regulator:         makeRegulator(m.close, m.RPS[StartQuery], RPSDefaults[StopQuery]),
+			regulator:         makeRegulator(m.close, m.RPS[StartQuery], RPSDefaults[StartQuery]),
 			in:                m.start,
 			out:               m.update,
 			name:              "starter",
