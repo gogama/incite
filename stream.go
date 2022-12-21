@@ -135,5 +135,8 @@ func (s *stream) nextChunkRange() (start, end time.Time) {
 	if start.Before(s.Start) {
 		start = s.Start
 	}
+	if start.Equal(s.End) || end.Before(start) {
+		start = s.End.Add(-1 * time.Second)
+	}
 	return
 }

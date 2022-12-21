@@ -397,6 +397,21 @@ func TestStream_NextChunkRange(t *testing.T) {
 				end:   defaultStart.Add(7 * defaultDuration / 2),
 			},
 		},
+		{
+			name: "Start/End cannot be the same",
+			s: stream{
+				QuerySpec: QuerySpec{
+					Start: defaultEnd.Add(-3 * time.Hour),
+					End:   defaultEnd,
+					Chunk: time.Minute * 1,
+				},
+				next: 180,
+			},
+			c: chunk{
+				start: defaultEnd.Add(-1 * time.Second),
+				end:   defaultEnd,
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
