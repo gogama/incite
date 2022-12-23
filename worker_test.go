@@ -73,7 +73,7 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 			d := <-out
 			out2 <- d
 		}()
-		l.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", w.m.Name)
+		l.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", w.m.Name)
 		m.On("context", c).Return(context.Background()).Once()
 		m.On("manipulate", c).
 			Run(func(_ mock.Arguments) {
@@ -312,7 +312,7 @@ func (m *mockManipulator) release(c *chunk) {
 }
 
 func (w *worker) expectLoopLogs(m *mockLogger) {
-	m.ExpectPrintf("incite: QueryManager(%s) %s %s", w.m.Name, w.name, "started").Once()
-	m.ExpectPrintf("incite: QueryManager(%s) %s %s", w.m.Name, w.name, "stopping...").Once()
-	m.ExpectPrintf("incite: QueryManager(%s) %s %s", w.m.Name, w.name, "stopped").Once()
+	m.expectPrintf("incite: QueryManager(%s) %s %s", w.m.Name, w.name, "started").Once()
+	m.expectPrintf("incite: QueryManager(%s) %s %s", w.m.Name, w.name, "stopping...").Once()
+	m.expectPrintf("incite: QueryManager(%s) %s %s", w.m.Name, w.name, "stopped").Once()
 }

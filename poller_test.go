@@ -86,7 +86,7 @@ func TestPoller_manipulate(t *testing.T) {
 			{
 				name: "Temporary Error",
 				setup: func(t *testing.T, logger *mockLogger, c *chunk) {
-					logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(),
+					logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(),
 						"temporary failure to poll", logID, text, start, end, "connection reset by peer")
 				},
 				err:             syscall.ECONNRESET,
@@ -418,7 +418,7 @@ func TestPoller_manipulate(t *testing.T) {
 
 func TestPoller_release(t *testing.T) {
 	p, actions, logger := newTestablePoller(t, 5_000_000)
-	logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(),
+	logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(),
 		"releasing pollable", "wee sleekit cowrin(timrous beastie)", "oh what a panic", time.Time{}, time.Time{})
 
 	p.release(&chunk{

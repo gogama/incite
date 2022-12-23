@@ -39,7 +39,7 @@ func (m *mockLogger) Printf(format string, v ...interface{}) {
 	m.Called(format, v)
 }
 
-func (m *mockLogger) ExpectPrintf(format string, v ...interface{}) *mock.Call {
+func (m *mockLogger) expectPrintf(format string, v ...interface{}) *mock.Call {
 	nPct := strings.Count(format, "%")
 	if len(v) > nPct {
 		panic("more arguments given than percent signs in the format string!")

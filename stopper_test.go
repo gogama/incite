@@ -70,7 +70,7 @@ var stopperManipulateCases = []struct {
 				}).
 				Return(nil, cwlErr(cloudwatchlogs.ErrCodeInvalidParameterException, "baz", errors.New("qux"))).
 				Once()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
+			logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
 				t.Name(), "failed to stop", "foo(bar)", "", mock.Anything, mock.Anything, mock.Anything)
 		},
 	},
@@ -83,7 +83,7 @@ var stopperManipulateCases = []struct {
 				}).
 				Return(&cloudwatchlogs.StopQueryOutput{}, nil).
 				Once()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
+			logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
 				t.Name(), "failed to stop", "foo(bar)", "", mock.Anything, mock.Anything, "CloudWatch Logs did not indicate success")
 		},
 	},
@@ -99,7 +99,7 @@ var stopperManipulateCases = []struct {
 					Success: &success,
 				}, nil).
 				Once()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
+			logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
 				t.Name(), "failed to stop", "foo(bar)", "", mock.Anything, mock.Anything, "CloudWatch Logs did not indicate success")
 		},
 	},
@@ -115,7 +115,7 @@ var stopperManipulateCases = []struct {
 					Success: &success,
 				}, nil).
 				Once()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)",
+			logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)",
 				t.Name(), "stopped", "foo(bar)", "", mock.Anything, mock.Anything)
 		},
 	},

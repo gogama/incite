@@ -89,7 +89,7 @@ func TestStarter_manipulate(t *testing.T) {
 			{
 				name: "Permanent Error",
 				setup: func(t *testing.T, logger *mockLogger) {
-					logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(),
+					logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(),
 						"permanent failure to start", chunkID, text, start, end, "fatal error from CloudWatch Logs: what do you imagine you can design")
 				},
 				err: errors.New("what do you imagine you can design"),
@@ -97,7 +97,7 @@ func TestStarter_manipulate(t *testing.T) {
 			{
 				name: "Nil Query IDs",
 				setup: func(t *testing.T, logger *mockLogger) {
-					logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(),
+					logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(),
 						"nil query ID from CloudWatch Logs for", chunkID, text, start, end)
 				},
 				output: &cloudwatchlogs.StartQueryOutput{},
@@ -105,7 +105,7 @@ func TestStarter_manipulate(t *testing.T) {
 			{
 				name: "Successful Start",
 				setup: func(t *testing.T, logger *mockLogger) {
-					logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(),
+					logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(),
 						"started", chunkID+"("+queryID+")", text, start, end)
 				},
 				output: &cloudwatchlogs.StartQueryOutput{
@@ -163,7 +163,7 @@ func TestStarter_manipulate(t *testing.T) {
 
 func TestStarter_release(t *testing.T) {
 	s, actions, logger := newTestableStarter(t, 1_000_000)
-	logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(),
+	logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(),
 		"releasing startable", "hello(world)", "bonjour monde!", time.Time{}, time.Time{})
 
 	s.release(&chunk{

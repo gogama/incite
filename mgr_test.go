@@ -403,18 +403,18 @@ func TestNewQueryManager(t *testing.T) {
 
 		t.Run("Custom Logger", func(t *testing.T) {
 			logger := newMockLogger(t)
-			logger.ExpectPrintf("incite: QueryManager(%s) %s", t.Name(), "started").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s", t.Name(), "stopping...").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s", t.Name(), "stopped").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "started").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "stopping...").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "stopped").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "started").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "stopping...").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "stopped").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "started").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "stopping...").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "stopped").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s", t.Name(), "started").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s", t.Name(), "stopping...").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s", t.Name(), "stopped").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "started").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "stopping...").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "stopped").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "started").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "stopping...").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "stopped").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "started").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "stopping...").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "stopped").Maybe()
 			m := NewQueryManager(Config{
 				Actions: actions,
 				Logger:  logger,
@@ -433,7 +433,7 @@ func TestNewQueryManager(t *testing.T) {
 
 		t.Run("Parallel Exceeds Default Service Quota Limit", func(t *testing.T) {
 			logger := newMockLogger(t)
-			logger.ExpectPrintf("incite: QueryManager(%s) warning: "+
+			logger.expectPrintf("incite: QueryManager(%s) warning: "+
 				"parallel %d exceeds default service quota concurrency "+
 				"limit %d", t.Name(), QueryConcurrencyQuotaLimit+1, QueryConcurrencyQuotaLimit).
 				Once()
@@ -1512,18 +1512,18 @@ func TestQueryManager_Query(t *testing.T) {
 
 			// ARRANGE.
 			logger := newMockLogger(t)
-			logger.ExpectPrintf("incite: QueryManager(%s) %s", t.Name(), "started").Once()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s", t.Name(), "stopping...").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s", t.Name(), "stopped").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "started").Once()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "stopping...").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "stopped").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "started").Once()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "stopping...").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "stopped").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "started").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "stopping...").Maybe()
-			logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "stopped").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s", t.Name(), "started").Once()
+			logger.expectPrintf("incite: QueryManager(%s) %s", t.Name(), "stopping...").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s", t.Name(), "stopped").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "started").Once()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "stopping...").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "stopped").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "started").Once()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "stopping...").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "stopped").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "started").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "stopping...").Maybe()
+			logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "stopped").Maybe()
 			actions := newMockActions(t)
 			text := "a query in two chunks which generates logs"
 			// CHUNK 1.
@@ -1533,14 +1533,14 @@ func TestQueryManager_Query(t *testing.T) {
 				Return(nil, cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "foo")).
 				Once()
 			logger.
-				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "temporary failure to start", "0", text, defaultStart, defaultStart.Add(time.Second), "ServiceUnavailableException: foo").
+				expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "temporary failure to start", "0", text, defaultStart, defaultStart.Add(time.Second), "ServiceUnavailableException: foo").
 				Once()
 			actions.
 				On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultStart.Add(time.Second), DefaultLimit, "grp")).
 				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryIDChunk1}, nil).
 				Once()
 			logger.
-				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", "0(foo)").
+				expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", "0(foo)").
 				Once()
 			actions.
 				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk1}).
@@ -1550,7 +1550,7 @@ func TestQueryManager_Query(t *testing.T) {
 				}, nil).
 				Once()
 			logger.
-				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "completed", "0(foo)").
+				expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "completed", "0(foo)").
 				Once()
 			// CHUNK 2.
 			queryIDChunk2 := []string{"bar.try1", "bar.try2"}
@@ -1559,7 +1559,7 @@ func TestQueryManager_Query(t *testing.T) {
 				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryIDChunk2[0]}, nil).
 				Once()
 			logger.
-				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", "1(bar.try1)").
+				expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", "1(bar.try1)").
 				Once()
 			actions.
 				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk2[0]}).
@@ -1573,7 +1573,7 @@ func TestQueryManager_Query(t *testing.T) {
 				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryIDChunk2[1]}, nil).
 				Once()
 			logger.
-				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", "1R(bar.try2)").
+				expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", "1R(bar.try2)").
 				Once()
 			actions.
 				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk2[1]}).
@@ -1583,7 +1583,7 @@ func TestQueryManager_Query(t *testing.T) {
 				}, nil).
 				Once()
 			logger.
-				ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "completed", "1R(bar.try2)", text, mock.Anything, mock.Anything).
+				expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "completed", "1R(bar.try2)", text, mock.Anything, mock.Anything).
 				Once()
 			// START QUERY.
 			m := NewQueryManager(Config{
@@ -1762,17 +1762,17 @@ func TestQueryManager_Query(t *testing.T) {
 							Status:  sp(cloudwatchlogs.QueryStatusComplete),
 						}, nil).Once()
 					logger.
-						ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", chunkID+"("+chunkID+")", "foo").
+						expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", chunkID+"("+chunkID+")", "foo").
 						Once()
 					logger.
-						ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "completed", chunkID+"("+chunkID+")", "foo").
+						expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "completed", chunkID+"("+chunkID+")", "foo").
 						Maybe()
 					if len(chunk.chunks) == 0 {
 						expectedResults = append(expectedResults, chunkResults...)
 						return
 					}
 					logger.
-						ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "split", chunkID+"("+chunkID+")", "foo").
+						expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "split", chunkID+"("+chunkID+")", "foo").
 						Once()
 					for j := range chunk.chunks {
 						f(chunkID+"s"+strconv.Itoa(j), offset, chunk.chunks[j])
@@ -1784,18 +1784,18 @@ func TestQueryManager_Query(t *testing.T) {
 					f(strconv.Itoa(i), offset, testCase.chunks[i])
 					offset += testCase.chunks[i].size
 				}
-				logger.ExpectPrintf("incite: QueryManager(%s) %s", t.Name(), "started").Once()
-				logger.ExpectPrintf("incite: QueryManager(%s) %s", t.Name(), "stopping...").Maybe()
-				logger.ExpectPrintf("incite: QueryManager(%s) %s", t.Name(), "stopped").Maybe()
-				logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "started").Once()
-				logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "stopping...").Maybe()
-				logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "stopped").Maybe()
-				logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "started").Once()
-				logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "stopping...").Maybe()
-				logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "stopped").Maybe()
-				logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "started").Maybe()
-				logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "stopping...").Maybe()
-				logger.ExpectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "stopped").Maybe()
+				logger.expectPrintf("incite: QueryManager(%s) %s", t.Name(), "started").Once()
+				logger.expectPrintf("incite: QueryManager(%s) %s", t.Name(), "stopping...").Maybe()
+				logger.expectPrintf("incite: QueryManager(%s) %s", t.Name(), "stopped").Maybe()
+				logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "started").Once()
+				logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "stopping...").Maybe()
+				logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "starter", "stopped").Maybe()
+				logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "started").Once()
+				logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "stopping...").Maybe()
+				logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "poller", "stopped").Maybe()
+				logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "started").Maybe()
+				logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "stopping...").Maybe()
+				logger.expectPrintf("incite: QueryManager(%s) %s %s", t.Name(), "stopper", "stopped").Maybe()
 				m := NewQueryManager(Config{
 					Actions: actions,
 					RPS:     lotsOfRPS,
