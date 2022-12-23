@@ -80,7 +80,7 @@ func TestStarter_manipulate(t *testing.T) {
 			{
 				name: "Temporary Error",
 				setup: func(t *testing.T, logger *mockLogger) {
-					logger.ExpectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(),
+					logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(),
 						"temporary failure to start", chunkID, text, start, end, "connection refused")
 				},
 				err:      syscall.ECONNREFUSED,
