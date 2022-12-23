@@ -19,17 +19,39 @@ type regulator struct {
 	lastReq  time.Time       // Time of last event
 	timer    *time.Timer     // Timer for rate limiting
 	ding     bool            // Flag indicating whether timer channel has been read
+	rps      adapter         // RPS adapter whose current value is current RPS
 }
 
-func makeRegulator(close <-chan struct{}, rps, defaultRPS int) regulator {
+const (
+	rpsMin      = 1.0
+	rpsDownStep = 1.0
+	rpsUpPerS   = 0.5
+)
+
+func makeRegulator(close <-chan struct{}, rps, defaultRPS int, adapt bool) regulator {
 	if rps <= 0 {
 		rps = defaultRPS
 	}
-	return regulator{
-		close:    close,
-		minDelay: time.Second / time.Duration(rps),
-		timer:    time.NewTimer(1<<63 - 1),
+	var rpsAdapter adapter
+	if adapt {
+		rpsAdapter = &standardAdapter{
+			val:      float64(rps),
+			max:      float64(rps),
+			upPerS:   rpsUpPerS,
+			min:      rpsMin,
+			downStep: rpsDownStep,
+			last:     time.Now(),
+		}
+	} else {
+		rpsAdapter = disabledAdapter(rps)
 	}
+	r := regulator{
+		close: close,
+		timer: time.NewTimer(1<<63 - 1),
+		rps:   rpsAdapter,
+	}
+	r.setMinDelay()
+	return r
 }
 
 func (r *regulator) wait(ctx context.Context) error {
@@ -71,4 +93,24 @@ func (r *regulator) setTimerRPS() bool {
 		return false
 	}
 	return r.setTimer(delayRem)
+}
+
+func (r *regulator) setMinDelay() {
+	r.minDelay = time.Second / time.Duration(r.rps.value())
+}
+
+func (r *regulator) throttled() bool {
+	if r.rps.decrease() {
+		r.setMinDelay()
+		return true
+	}
+	return false
+}
+
+func (r *regulator) notThrottled() bool {
+	if r.rps.increase() {
+		r.setMinDelay()
+		return true
+	}
+	return false
 }

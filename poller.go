@@ -22,7 +22,7 @@ func newPoller(m *mgr) *poller {
 	p := &poller{
 		worker: worker{
 			m:                 m,
-			regulator:         makeRegulator(m.close, m.RPS[GetQueryResults], RPSDefaults[GetQueryResults]),
+			regulator:         makeRegulator(m.close, m.RPS[GetQueryResults], RPSDefaults[GetQueryResults], !m.DisableAdaptation),
 			in:                m.poll,
 			out:               m.update,
 			name:              "poller",
@@ -46,7 +46,7 @@ func (p *poller) manipulate(c *chunk) outcome {
 	// If the owning stream has died, send chunk back for cancellation.
 	if !c.stream.alive() {
 		c.err = errStopChunk
-		return finished
+		return nothing
 	}
 
 	// Poll the chunk.
@@ -58,11 +58,15 @@ func (p *poller) manipulate(c *chunk) outcome {
 
 	if err != nil {
 		c.err = &UnexpectedQueryError{c.queryID, c.stream.Text, err}
-		if isTemporary(err) {
-			p.m.logChunk(c, "temporary failure to poll", err.Error())
+		switch classifyError(err) {
+		case throttlingClass:
+			return throttlingError
+		case temporaryClass, limitExceededClass:
 			return temporaryError
+		default:
+			p.m.logChunk(c, "non-retryable failure to poll", "error from CloudWatch Logs: "+err.Error())
+			return finished
 		}
-		return finished
 	}
 
 	if output.Status == nil {

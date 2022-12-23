@@ -106,39 +106,9 @@ func TestErrNoValue(t *testing.T) {
 	assert.EqualError(t, err, `incite: result field missing value for key "foo"`)
 }
 
-func TestIsTemporary(t *testing.T) {
-	t.Run("True Cases", func(t *testing.T) {
-		trueCases := []error{
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 429, "too-many-requests"),
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 502, "bad-gateway"),
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 503, "service-unavailable"),
-			awserr.NewRequestFailure(awserr.New("a", "b", nil), 504, "gateway-timeout"),
-			awserr.New("there was no availability of service", "unavailable", awserr.NewRequestFailure(awserr.New("a", "b", nil), 503, "my request")),
-			cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "stay under that limit"),
-			cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "stand by for more great service"),
-			cwlErr("tttthroTTLED!", "simmer down"),
-			io.EOF,
-			wrapErr{io.EOF},
-			cwlErr("i am at the end of my file", "the end I say", io.EOF),
-			syscall.ETIMEDOUT,
-			wrapErr{syscall.ETIMEDOUT},
-			cwlErr("my time has run expected", "the end I say", syscall.ETIMEDOUT),
-			syscall.ECONNREFUSED,
-			wrapErr{syscall.ECONNREFUSED},
-			cwlErr("let there be no connection", "for it has been refused", syscall.ECONNREFUSED),
-			syscall.ECONNRESET,
-			wrapErr{syscall.ECONNRESET},
-			cwlErr("Reset that conn!", "Reset, reset!", syscall.ECONNRESET),
-		}
-		for i, trueCase := range trueCases {
-			t.Run(fmt.Sprintf("trueCase[%d]=%s", i, trueCase), func(t *testing.T) {
-				assert.True(t, isTemporary(trueCase))
-			})
-		}
-	})
-
-	t.Run("False Cases", func(t *testing.T) {
-		falseCases := []error{
+func TestClassifyError(t *testing.T) {
+	t.Run("Permanent Errors", func(t *testing.T) {
+		permanentCases := []error{
 			nil,
 			errors.New("bif"),
 			awserr.NewRequestFailure(awserr.New("a", "b", nil), 400, "very, very, bad request"),
@@ -152,9 +122,59 @@ func TestIsTemporary(t *testing.T) {
 			wrapErr{syscall.ENETDOWN},
 			cwlErr("Ain't no network", "It's down", syscall.ENETDOWN),
 		}
-		for i, falseCase := range falseCases {
-			t.Run(fmt.Sprintf("trueCase[%d]=%s", i, falseCase), func(t *testing.T) {
-				assert.False(t, isTemporary(falseCase))
+		for i, permanentCase := range permanentCases {
+			t.Run(fmt.Sprintf("permanentCase[%d]=%s", i, permanentCase), func(t *testing.T) {
+				assert.Equal(t, permanentClass, classifyError(permanentCase))
+			})
+		}
+	})
+
+	t.Run("Throttling Cases", func(t *testing.T) {
+		throttlingCases := []error{
+			awserr.NewRequestFailure(awserr.New("a", "b", nil), 429, "too-many-requests"),
+			cwlErr("tttthroTTLED!", "simmer down"),
+		}
+		for i, throttlingCase := range throttlingCases {
+			t.Run(fmt.Sprintf("throttlingCase[%d]=%s", i, throttlingCase), func(t *testing.T) {
+				assert.Equal(t, throttlingClass, classifyError(throttlingCase))
+			})
+		}
+	})
+
+	t.Run("Limit Exceeded Cases", func(t *testing.T) {
+		limitExceededCases := []error{
+			cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "stay under that limit"),
+		}
+		for i, limitExceededCase := range limitExceededCases {
+			t.Run(fmt.Sprintf("limitExceededCase[%d]=%s", i, limitExceededCase), func(t *testing.T) {
+				assert.Equal(t, limitExceededClass, classifyError(limitExceededCase))
+			})
+		}
+	})
+
+	t.Run("Temporary Cases", func(t *testing.T) {
+		temporaryCases := []error{
+			awserr.NewRequestFailure(awserr.New("a", "b", nil), 502, "bad-gateway"),
+			awserr.NewRequestFailure(awserr.New("a", "b", nil), 503, "service-unavailable"),
+			awserr.NewRequestFailure(awserr.New("a", "b", nil), 504, "gateway-timeout"),
+			awserr.New("there was no availability of service", "unavailable", awserr.NewRequestFailure(awserr.New("a", "b", nil), 503, "my request")),
+			cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "stand by for more great service"),
+			io.EOF,
+			wrapErr{io.EOF},
+			cwlErr("i am at the end of my file", "the end I say", io.EOF),
+			syscall.ETIMEDOUT,
+			wrapErr{syscall.ETIMEDOUT},
+			cwlErr("my time has run expected", "the end I say", syscall.ETIMEDOUT),
+			syscall.ECONNREFUSED,
+			wrapErr{syscall.ECONNREFUSED},
+			cwlErr("let there be no connection", "for it has been refused", syscall.ECONNREFUSED),
+			syscall.ECONNRESET,
+			wrapErr{syscall.ECONNRESET},
+			cwlErr("Reset that conn!", "Reset, reset!", syscall.ECONNRESET),
+		}
+		for i, temporaryCase := range temporaryCases {
+			t.Run(fmt.Sprintf("temporaryCase[%d]=%s", i, temporaryCase), func(t *testing.T) {
+				assert.Equal(t, temporaryClass, classifyError(temporaryCase))
 			})
 		}
 	})
@@ -162,7 +182,7 @@ func TestIsTemporary(t *testing.T) {
 	t.Run("Special Cases", func(t *testing.T) {
 		t.Run("Issue #13 - Retry API calls when the CWL API response payload can't be deserialized", func(t *testing.T) {
 			// Regression test for: https://github.com/gogama/incite/issues/13
-			assert.True(t, isTemporary(issue13Error(t.Name(), 503)))
+			assert.Equal(t, temporaryClass, classifyError(issue13Error(t.Name(), 503)))
 		})
 	})
 }

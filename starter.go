@@ -23,7 +23,7 @@ func newStarter(m *mgr) *starter {
 	s := &starter{
 		worker: worker{
 			m:                 m,
-			regulator:         makeRegulator(m.close, m.RPS[StartQuery], RPSDefaults[StartQuery]),
+			regulator:         makeRegulator(m.close, m.RPS[StartQuery], RPSDefaults[StartQuery], !m.DisableAdaptation),
 			in:                m.start,
 			out:               m.update,
 			name:              "starter",
@@ -41,7 +41,7 @@ func (s *starter) context(c *chunk) context.Context {
 func (s *starter) manipulate(c *chunk) outcome {
 	// Discard chunk if the owning stream is dead.
 	if !c.stream.alive() {
-		return finished
+		return nothing
 	}
 
 	// Get the chunk time range in Insights' format.
@@ -60,10 +60,16 @@ func (s *starter) manipulate(c *chunk) outcome {
 	s.lastReq = time.Now()
 	if err != nil {
 		c.err = &StartQueryError{c.stream.Text, c.start, c.end, err}
-		if isTemporary(err) {
-			s.m.logChunk(c, "temporary failure to start", err.Error())
+		switch classifyError(err) {
+		case throttlingClass:
+			return throttlingError
+		case limitExceededClass:
+			// TODO: Pass this information up to mgr.
+			// TODO: Log.
+			fallthrough
+		case temporaryClass:
 			return temporaryError
-		} else {
+		default:
 			s.m.logChunk(c, "permanent failure to start", "fatal error from CloudWatch Logs: "+err.Error())
 			return finished
 		}

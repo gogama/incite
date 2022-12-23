@@ -7,6 +7,8 @@ package incite
 import (
 	"container/ring"
 	"context"
+	"errors"
+	"fmt"
 	"strconv"
 )
 
@@ -15,15 +17,22 @@ import (
 type outcome int
 
 const (
+	// nothing indicates that the chunk manipulation had no work to do
+	// and the chunk should be sent back down the worker's out channel.
+	nothing outcome = iota
 	// finished indicates that the chunk manipulation is finished and
 	// the chunk should be sent back down the worker's out channel.
-	finished outcome = iota
+	finished
 	// inconclusive indicates that the manipulation did not obtain a
 	// final result and the manipulation should be retried.
 	inconclusive
+	// throttlingError indicates that the manipulation attempted a
+	// service call which was throttled due to service RPS limits and
+	// should be retried up to the worker's maximum try limit.
+	throttlingError
 	// temporaryError indicates that the manipulation encountered a
-	// temporary error which should be retried up to the worker's
-	// maximum try limit.
+	// non-throttling temporary error which should be retried up to the
+	// worker's maximum try limit.
 	temporaryError
 )
 
@@ -80,12 +89,24 @@ func (w *worker) loop() {
 			return // mgr is closing, so stop working
 		}
 		o := w.manipulator.manipulate(c)
+		if o == throttlingError {
+			var detail string
+			if w.throttled() {
+				detail = fmt.Sprintf("reduced RPS to %.4f", w.rps.value())
+			}
+			w.m.logChunk(c, w.name+" throttled", detail)
+		} else if o != nothing && w.notThrottled() {
+			w.m.logChunk(c, fmt.Sprintf(w.name+" increased RPS to %.4f", w.rps.value()), "")
+		}
 		switch o {
-		case finished:
+		case nothing, finished:
 			w.out <- c
 		case inconclusive:
 			w.push(c)
 		case temporaryError:
+			w.m.logChunk(c, w.name+" temporary error", errors.Unwrap(c.err).Error())
+			fallthrough
+		case throttlingError:
 			c.tmp++
 			if c.tmp < w.maxTemporaryError {
 				w.push(c)

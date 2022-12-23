@@ -51,10 +51,23 @@ func (m *mockLogger) expectPrintf(format string, v ...interface{}) *mock.Call {
 			return false
 		}
 		for i := range w {
-			if x[i] != w[i] && w[i] != mock.Anything {
+			if x[i] == w[i] || w[i] == mock.Anything {
+				continue
+			}
+			xsi, ok := x[i].(string)
+			if !ok {
 				return false
 			}
+			if w[i] == mock.AnythingOfType("string") {
+				continue
+			}
+			if wpi, ok := w[i].(stringPrefix); ok && len(xsi) >= len(wpi) && string(wpi) == xsi[0:len(wpi)] {
+				continue
+			}
+			return false
 		}
 		return true
 	})).Return()
 }
+
+type stringPrefix string

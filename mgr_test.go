@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -1533,7 +1534,7 @@ func TestQueryManager_Query(t *testing.T) {
 				Return(nil, cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "foo")).
 				Once()
 			logger.
-				expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "temporary failure to start", "0", text, defaultStart, defaultStart.Add(time.Second), "ServiceUnavailableException: foo").
+				expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "starter temporary error", "0", text, defaultStart, defaultStart.Add(time.Second), "ServiceUnavailableException: foo").
 				Once()
 			actions.
 				On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultStart.Add(time.Second), DefaultLimit, "grp")).
@@ -1965,5 +1966,139 @@ func TestQueryManager_Query(t *testing.T) {
 				assert.ErrorIs(t, err, expectedErr)
 			})
 		}
+	})
+
+	t.Run("RPS Adapts in Response to Throttling", func(t *testing.T) {
+		// IDEA:
+		// - Run a single one-chunk query.
+		// - Have it never succeed, and cancel it by closing the stream so the
+		//   stopper gets called.
+		// - Call start twice (throttled once, succeed once), and verify that
+		//   starter RPS is -0.75 from start.
+		// - Call poll twice++ (throttled once, indeterminate once), and after
+		//   the first two polls
+		//     + Have it keep polling and getting indeterminate results.
+		//     + Cancel the query.
+		// - Call stop twice (throttled once, succeed once), and verify that
+		//   stopper RPS is -0.75 from start.
+		text := "what do my logs say?"
+		groups := []string{"/log/group"}
+		queryID := "qid"
+		errThrottled := awserr.New("throttled", "throttled", nil)
+
+		actions := newMockActions(t)
+		m := NewQueryManager(Config{
+			Actions: actions,
+			RPS:     lotsOfRPS,
+			Name:    t.Name(),
+		})
+		t.Cleanup(func() {
+			_ = m.Close()
+		})
+
+		// Replace the starer and stopper RPS adapters with mocks.
+		startAdapter := newMockAdapter(t)
+		stopAdapter := newMockAdapter(t)
+		m2 := m.(*mgr)
+		m2.starter.rps = startAdapter
+		m2.stopper.rps = stopAdapter
+
+		// Allow StartQuery to be called twice, with the first call
+		// being throttled and the second one succeeding.
+		actions.
+			On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultEnd, DefaultLimit, groups...)).
+			Return(nil, errThrottled).
+			Once()
+		actions.
+			On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultEnd, DefaultLimit, groups...)).
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryID}, nil).
+			Once()
+		startAdapter.
+			On("decrease").
+			Return(true).
+			Once()
+		startAdapter.
+			On("value").
+			Return(99_999.0).
+			Times(2) // Calculate minDelay after RPS decrease, print decrease RPS log.
+		startAdapter.
+			On("increase").
+			Return(true).
+			Once()
+		startAdapter.
+			On("value").
+			Return(99_999.5).
+			Times(2) // Calculate minDelay after RPS increase, print increase RPS log.
+		// Allow GetQueryResults to be called AT LEAST twice, with all
+		// calls being throttled. The second call to GetQueryResults
+		// unblocks the test, allowing it to close the stream and
+		// trigger the StopQuery calls.
+		var donePolling sync.WaitGroup
+		donePolling.Add(2)
+		actions.
+			On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
+			Run(func(_ mock.Arguments) { donePolling.Done() }).
+			Return(nil, errThrottled).
+			Times(2)
+		actions.
+			On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
+			Return(nil, errThrottled).
+			Maybe()
+		// Allow StopQuery to be called twice, with the first call
+		// being throttled and the second one succeeding. The second
+		// call to StopQuery unblocks the test, allowing it to proceed
+		// to assertions.
+		var doneStopping sync.WaitGroup
+		doneStopping.Add(2)
+		actions.
+			On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
+			Run(func(_ mock.Arguments) { doneStopping.Done() }).
+			Return(nil, errThrottled).
+			Once()
+		trueValue := true
+		actions.
+			On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
+			Run(func(_ mock.Arguments) { doneStopping.Done() }).
+			Return(&cloudwatchlogs.StopQueryOutput{Success: &trueValue}, nil).
+			Once()
+		stopAdapter.
+			On("decrease").
+			Return(true).
+			Once()
+		stopAdapter.
+			On("value").
+			Return(99_999.0).
+			Times(2) // Calculate minDelay after RPS decrease, print decrease RPS log.
+		stopAdapter.
+			On("increase").
+			Return(true).
+			Once()
+		stopAdapter.
+			On("value").
+			Return(99_999.5).
+			Once() // Calculate minDelay after RPS increase.
+		stopAdapter.
+			On("value").
+			Return(99_999.5).
+			Maybe() // Print increase RPS log. (May happen after test ends.)
+
+		// Run query and cancel it as soon as we have polled at least twice.
+		s, err := m.Query(QuerySpec{
+			Text:   text,
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: groups,
+		})
+		require.NoError(t, err)
+		donePolling.Wait()
+		err = s.Close()
+		assert.NoError(t, err)
+
+		// Assert expectations.
+		doneStopping.Wait()
+		actions.AssertExpectations(t)
+		startAdapter.AssertExpectations(t)
+		stopAdapter.AssertExpectations(t)
+		assert.LessOrEqual(t, m2.poller.rps.value(), float64(lotsOfRPS[GetQueryResults])-2*rpsDownStep)
 	})
 }

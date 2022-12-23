@@ -117,20 +117,33 @@ func errNoValue(key string) error {
 	return fmt.Errorf("incite: result field missing value for key %q", key)
 }
 
-func isTemporary(err error) bool {
+type errorClass int
+
+const (
+	permanentClass errorClass = iota
+	throttlingClass
+	limitExceededClass
+	temporaryClass
+)
+
+func classifyError(err error) errorClass {
 	if x, ok := err.(awserr.Error); ok {
 		// Short-circuit if the HTTP status code indicates retryability.
 		if f, ok := err.(awserr.RequestFailure); ok {
 			status := f.StatusCode()
-			if status == 429 || status == 502 || status == 503 || status == 504 {
-				return true
+			if status == 429 {
+				return throttlingClass
+			} else if status == 502 || status == 503 || status == 504 {
+				return temporaryClass
 			}
 		}
 
 		// Check for known CloudWatch Logs retryability codes.
 		switch x.Code() {
-		case cloudwatchlogs.ErrCodeLimitExceededException, cloudwatchlogs.ErrCodeServiceUnavailableException:
-			return true
+		case cloudwatchlogs.ErrCodeLimitExceededException:
+			return limitExceededClass
+		case cloudwatchlogs.ErrCodeServiceUnavailableException:
+			return temporaryClass
 		}
 
 		// Check for throttling using common AWS service patterns for indicating
@@ -138,33 +151,34 @@ func isTemporary(err error) bool {
 		// Throttled and Throttling.
 		if strings.Contains(strings.ToLower(x.Code()), "throttl") ||
 			strings.Contains(strings.ToLower(x.Message()), "rate exceeded") {
-			return true
+			return throttlingClass
 		}
 
 		// Recursively examine the cause error, if any.
-		return isTemporary(x.OrigErr())
+		return classifyError(x.OrigErr())
 	}
 
+	// TODO: We may also want to check for io.ErrUnexpectedEOF.
 	if errors.Is(err, io.EOF) {
-		return true
+		return temporaryClass
 	}
 
 	var maybeTimeout interface{ Timeout() bool }
 	if errors.As(err, &maybeTimeout) && maybeTimeout.Timeout() {
-		return true
+		return temporaryClass
 	}
 
 	var errno syscall.Errno
 	if errors.As(err, &errno) {
 		switch errno {
 		case syscall.ECONNREFUSED, syscall.ECONNRESET:
-			return true
+			return temporaryClass
 		default:
-			return false
+			return permanentClass
 		}
 	}
 
-	return false
+	return permanentClass
 }
 
 const (

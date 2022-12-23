@@ -20,7 +20,7 @@ func newStopper(m *mgr) *stopper {
 	s := &stopper{
 		worker: worker{
 			m:                 m,
-			regulator:         makeRegulator(m.close, m.RPS[StopQuery], RPSDefaults[StopQuery]),
+			regulator:         makeRegulator(m.close, m.RPS[StopQuery], RPSDefaults[StopQuery], !m.DisableAdaptation),
 			in:                m.stop,
 			out:               m.update,
 			name:              "stopper",
@@ -40,11 +40,16 @@ func (s *stopper) manipulate(c *chunk) outcome {
 		QueryId: &c.queryID,
 	}, request.WithAppendUserAgent(version()))
 	s.lastReq = time.Now()
-	if err != nil && isTemporary(err) {
-		return temporaryError
-	} else if err != nil {
-		s.m.logChunk(c, "failed to stop", "error from CloudWatch Logs: "+err.Error())
-		return finished
+	if err != nil {
+		switch classifyError(err) {
+		case throttlingClass:
+			return throttlingError
+		case temporaryClass, limitExceededClass:
+			return temporaryError
+		default:
+			s.m.logChunk(c, "failed to stop", "error from CloudWatch Logs: "+err.Error())
+			return finished
+		}
 	} else if output.Success == nil || !*output.Success {
 		s.m.logChunk(c, "failed to stop", "CloudWatch Logs did not indicate success")
 		return finished

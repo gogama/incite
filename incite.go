@@ -489,4 +489,20 @@ type Config struct {
 	// Other than being used in logging, this field has no effect on the
 	// QueryManager's behavior.
 	Name string
+
+	// DisableAdaptation, if true, turns off the QueryManager's adaptive
+	// capacity utilization behavior. Most users will want to leave this
+	// flag at the zero value, i.e. false.
+	//
+	// Adaptive capacity utilization makes the QueryManager more
+	// resilient to temporary capacity problems reported by the
+	// CloudWatch Logs Insights service. The QueryManager achieves this
+	// resilience by temporarily reducing its usage of CloudWatch Logs
+	// Insights resources in response to detected limit issues. For
+	// example, it may temporarily reduce the number of parallel queries
+	// in flight below Parallel, or it may temporarily reduce its
+	// service requests per second below RPS. Any temporary reductions
+	// are phased out when the QueryManager stops getting resource limit
+	// errors from the Insights service.
+	DisableAdaptation bool
 }

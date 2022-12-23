@@ -238,6 +238,8 @@ func (m *mgr) loop() {
 			return
 		}
 
+		// TODO: We need to find a way to feed back start query errors
+		//       from starter and dynamically change m.Parallel.
 		for m.numStarting+m.numPolling+m.numStopping < m.Parallel {
 			c := m.getReadyChunk()
 			if c == nil {

@@ -50,6 +50,18 @@ var stopperManipulateCases = []struct {
 	expected outcome
 }{
 	{
+		name: "Throttling Error",
+		setup: func(_ *testing.T, actions *mockActions, logger *mockLogger) {
+			actions.
+				On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{
+					QueryId: sp("bar"),
+				}).
+				Return(nil, cwlErr("throttling has occurred", "baz", errors.New("qux"))).
+				Once()
+		},
+		expected: throttlingError,
+	},
+	{
 		name: "Temporary Error",
 		setup: func(_ *testing.T, actions *mockActions, logger *mockLogger) {
 			actions.
@@ -73,6 +85,7 @@ var stopperManipulateCases = []struct {
 			logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
 				t.Name(), "failed to stop", "foo(bar)", "", mock.Anything, mock.Anything, mock.Anything)
 		},
+		expected: finished,
 	},
 	{
 		name: "Nil Success",
@@ -86,6 +99,7 @@ var stopperManipulateCases = []struct {
 			logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
 				t.Name(), "failed to stop", "foo(bar)", "", mock.Anything, mock.Anything, "CloudWatch Logs did not indicate success")
 		},
+		expected: finished,
 	},
 	{
 		name: "False Success",
@@ -102,6 +116,7 @@ var stopperManipulateCases = []struct {
 			logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
 				t.Name(), "failed to stop", "foo(bar)", "", mock.Anything, mock.Anything, "CloudWatch Logs did not indicate success")
 		},
+		expected: finished,
 	},
 	{
 		name: "True Success",
@@ -118,6 +133,7 @@ var stopperManipulateCases = []struct {
 			logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)",
 				t.Name(), "stopped", "foo(bar)", "", mock.Anything, mock.Anything)
 		},
+		expected: finished,
 	},
 }
 

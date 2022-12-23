@@ -162,9 +162,10 @@ func TestScenariosParallel(t *testing.T) {
 		t.Run(fmt.Sprintf("Parallel=%d", parallel), func(t *testing.T) {
 			actions := newMockActions(t)
 			m := NewQueryManager(Config{
-				Actions:  actions,
-				Parallel: parallel,
-				RPS:      lotsOfRPS,
+				Actions:           actions,
+				Parallel:          parallel,
+				RPS:               lotsOfRPS,
+				DisableAdaptation: p%2 == 0,
 			})
 			require.NotNil(t, m)
 			t.Cleanup(func() {

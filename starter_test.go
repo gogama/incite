@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,7 +59,7 @@ func TestStarter_manipulate(t *testing.T) {
 
 		o := s.manipulate(c)
 
-		assert.Equal(t, finished, o)
+		assert.Equal(t, nothing, o)
 		actions.AssertExpectations(t)
 		logger.AssertExpectations(t)
 	})
@@ -78,11 +79,17 @@ func TestStarter_manipulate(t *testing.T) {
 			expected outcome
 		}{
 			{
-				name: "Temporary Error",
-				setup: func(t *testing.T, logger *mockLogger) {
-					logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(),
-						"temporary failure to start", chunkID, text, start, end, "connection refused")
-				},
+				name:     "Throttling Error",
+				err:      awserr.New("foo", "rate exceeded", nil),
+				expected: throttlingError,
+			},
+			{
+				name:     "Limit Exceeded Error",
+				err:      awserr.New(cloudwatchlogs.ErrCodeLimitExceededException, "too many queries!", nil),
+				expected: temporaryError,
+			},
+			{
+				name:     "Temporary Error",
 				err:      syscall.ECONNREFUSED,
 				expected: temporaryError,
 			},
@@ -92,7 +99,8 @@ func TestStarter_manipulate(t *testing.T) {
 					logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(),
 						"permanent failure to start", chunkID, text, start, end, "fatal error from CloudWatch Logs: what do you imagine you can design")
 				},
-				err: errors.New("what do you imagine you can design"),
+				err:      errors.New("what do you imagine you can design"),
+				expected: finished,
 			},
 			{
 				name: "Nil Query IDs",
@@ -100,7 +108,8 @@ func TestStarter_manipulate(t *testing.T) {
 					logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(),
 						"nil query ID from CloudWatch Logs for", chunkID, text, start, end)
 				},
-				output: &cloudwatchlogs.StartQueryOutput{},
+				output:   &cloudwatchlogs.StartQueryOutput{},
+				expected: finished,
 			},
 			{
 				name: "Successful Start",
@@ -111,6 +120,7 @@ func TestStarter_manipulate(t *testing.T) {
 				output: &cloudwatchlogs.StartQueryOutput{
 					QueryId: sp("eggs"),
 				},
+				expected: finished,
 			},
 		}
 
@@ -129,7 +139,9 @@ func TestStarter_manipulate(t *testing.T) {
 					}).
 					Return(testCase.output, testCase.err).
 					Once()
-				testCase.setup(t, logger)
+				if testCase.setup != nil {
+					testCase.setup(t, logger)
+				}
 				c := &chunk{
 					stream: &stream{
 						QuerySpec: QuerySpec{

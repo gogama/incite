@@ -6,6 +6,8 @@ package incite
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strconv"
 	"sync"
 	"testing"
@@ -18,7 +20,7 @@ import (
 
 func TestWorker_LoopAndShutdown(t *testing.T) {
 	t.Run("Loop Exits When In Channel Is Closed", func(t *testing.T) {
-		w, l, m, in, _, _ := newTestableWorker(t, 1, 1)
+		w, l, m, in, _, _ := newTestableWorker(t, 1, 1, false)
 		w.expectLoopLogs(l)
 		close(in)
 
@@ -28,8 +30,8 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 		m.AssertExpectations(t)
 	})
 
-	t.Run("Chunk Is Pushed When Manipulate Fails and Retries Not Exceeded", func(t *testing.T) {
-		w, l, m, in, out, _ := newTestableWorker(t, 100_000, 2)
+	t.Run("Chunk Is Pushed When Manipulate Has Inconclusive Outcome", func(t *testing.T) {
+		w, l, m, in, out, _ := newTestableWorker(t, 500_000, 0, false)
 		out2 := make(chan *chunk)
 		w.expectLoopLogs(l)
 		c := &chunk{}
@@ -41,6 +43,41 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 			d := <-out
 			out2 <- d
 		}()
+		m.On("context", c).Return(context.Background()).Once()
+		m.On("manipulate", c).
+			Run(func(_ mock.Arguments) {
+				close(in)
+			}).
+			Return(inconclusive).
+			Once()
+		m.On("release", c).Once()
+
+		w.loop()
+		d := <-out2
+
+		l.AssertExpectations(t)
+		m.AssertExpectations(t)
+		assert.Same(t, c, d)
+	})
+
+	t.Run("Chunk Is Pushed When Manipulate Has Temporary Error and Retries Not Exceeded", func(t *testing.T) {
+		w, l, m, in, out, _ := newTestableWorker(t, 100_000, 2, false)
+		out2 := make(chan *chunk)
+		w.expectLoopLogs(l)
+		c := &chunk{
+			stream:  &stream{},
+			chunkID: "foo chunk",
+			err:     &UnexpectedQueryError{Cause: errors.New("test error")},
+		}
+
+		go func() {
+			in <- c
+		}()
+		go func() {
+			d := <-out
+			out2 <- d
+		}()
+		l.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", w.m.Name, "worker:"+t.Name()+" temporary error", "foo chunk", "", time.Time{}, time.Time{}, "test error")
 		m.On("context", c).Return(context.Background()).Once()
 		m.On("manipulate", c).
 			Run(func(_ mock.Arguments) {
@@ -58,12 +95,13 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 		assert.Same(t, c, d)
 	})
 
-	t.Run("Chunk Is Sent to Out Channel When Manipulate Fails and Retries Exceeded", func(t *testing.T) {
-		w, l, m, in, out, _ := newTestableWorker(t, 100_000, 1)
+	t.Run("Chunk Is Sent to Out Channel When Manipulate Has Temporary Error and Retries Exceeded", func(t *testing.T) {
+		w, l, m, in, out, _ := newTestableWorker(t, 100_000, 1, false)
 		out2 := make(chan *chunk)
 		w.expectLoopLogs(l)
 		c := &chunk{
 			stream: &stream{},
+			err:    &UnexpectedQueryError{Cause: errors.New("a very problematic error")},
 		}
 
 		go func() {
@@ -90,8 +128,157 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 		assert.Same(t, c, d)
 	})
 
+	t.Run("RPS Are Reduced When Adaptation Is Enabled And Manipulate Has Throttling Error", func(t *testing.T) {
+		w, l, m, in, out, _ := newTestableWorker(t, 100_000, 2, true)
+		w.expectLoopLogs(l)
+		c := &chunk{
+			stream: &stream{},
+			err:    &UnexpectedQueryError{Cause: errors.New("simmer down there")},
+		}
+
+		go func() {
+			in <- c
+		}()
+		go func() {
+			<-out
+		}()
+		l.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", w.m.Name, "worker:"+t.Name()+" throttled", "", "", time.Time{}, time.Time{}, "reduced RPS to 99999.0000")
+		m.On("context", c).Return(context.Background()).Once()
+		m.On("manipulate", c).
+			Run(func(_ mock.Arguments) {
+				close(in)
+			}).
+			Return(throttlingError).
+			Once()
+		m.On("release", c).Once()
+
+		w.loop()
+
+		l.AssertExpectations(t)
+		m.AssertExpectations(t)
+		assert.Equal(t, 99_999.0, w.regulator.rps.value())
+	})
+
+	t.Run("RPS Are Increased When Adaptation Is Enabled And Manipulate Has a Non-Throttled Outcome", func(t *testing.T) {
+		for _, o := range []outcome{finished, inconclusive, temporaryError} {
+			t.Run(o.String(), func(t *testing.T) {
+				w, l, m, in, out, _ := newTestableWorker(t, 100_000, 2, true)
+				w.regulator.rps.decrease() // Decrease RPS by 1 unit to 99,999.
+				require.Equal(t, 99_999.0, w.regulator.rps.value())
+				lastBefore := standardAdapterLast(t, w.regulator.rps)
+				w.expectLoopLogs(l)
+				c := &chunk{
+					stream: &stream{},
+					err:    &UnexpectedQueryError{Cause: errors.New("reduce speed")},
+				}
+
+				go func() {
+					in <- c
+				}()
+				go func() {
+					<-out
+				}()
+				if o == temporaryError {
+					l.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", w.m.Name)
+				}
+				l.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", w.m.Name, stringPrefix("worker:"+t.Name()+" increased RPS to 99999."), "", "", time.Time{}, time.Time{})
+				m.On("context", c).Return(context.Background()).Once()
+				m.On("manipulate", c).
+					Run(func(_ mock.Arguments) {
+						close(in)
+					}).
+					Return(o).
+					Once()
+				if o != finished {
+					m.On("release", c).Once()
+				}
+
+				w.loop()
+
+				l.AssertExpectations(t)
+				m.AssertExpectations(t)
+				lastAfter := standardAdapterLast(t, w.regulator.rps)
+				assert.False(t, lastAfter.Before(lastBefore))
+				expectedRPS := 99_999.0 + float64(lastAfter.Sub(lastBefore))/float64(time.Second)*rpsUpPerS
+				assert.Equal(t, expectedRPS, w.regulator.rps.value())
+				assert.Equal(t, time.Duration(float64(time.Second)/expectedRPS), w.regulator.minDelay)
+			})
+		}
+	})
+
+	t.Run("Chunk Is Pushed When Manipulate Has Throttling Error and Retries Not Exceeded", func(t *testing.T) {
+		w, l, m, in, out, _ := newTestableWorker(t, 100_000, 2, false)
+		out2 := make(chan *chunk)
+		w.expectLoopLogs(l)
+		c := &chunk{
+			stream:  &stream{},
+			chunkID: "bar chunk",
+			err:     &UnexpectedQueryError{Cause: errors.New("throttling error")},
+		}
+
+		go func() {
+			in <- c
+		}()
+		go func() {
+			d := <-out
+			out2 <- d
+		}()
+		l.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", w.m.Name, "worker:"+t.Name()+" throttled", "bar chunk", "", time.Time{}, time.Time{})
+		m.On("context", c).Return(context.Background()).Once()
+		m.On("manipulate", c).
+			Run(func(_ mock.Arguments) {
+				close(in)
+			}).
+			Return(throttlingError).
+			Once()
+		m.On("release", c).Once()
+
+		w.loop()
+		d := <-out2
+
+		l.AssertExpectations(t)
+		m.AssertExpectations(t)
+		assert.Same(t, c, d)
+		assert.Equal(t, 100_000.0, w.regulator.rps.value())
+	})
+
+	t.Run("Chunk Is Sent to Out Channel When Manipulate Has Throttling Error and Retries Exceeded", func(t *testing.T) {
+		w, l, m, in, out, _ := newTestableWorker(t, 100_000, 1, false)
+		out2 := make(chan *chunk)
+		w.expectLoopLogs(l)
+		c := &chunk{
+			stream: &stream{},
+			err:    &UnexpectedQueryError{Cause: errors.New("please slow it right down")},
+		}
+
+		go func() {
+			in <- c
+		}()
+		go func() {
+			d := <-out
+			out2 <- d
+		}()
+		l.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", w.m.Name, "worker:"+t.Name()+" throttled", "", "", time.Time{}, time.Time{})
+		l.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", w.m.Name, "worker:"+t.Name()+" exceeded max tries for", "", "", time.Time{}, time.Time{}, "1")
+		m.On("context", c).Return(context.Background()).Once()
+		m.On("manipulate", c).
+			Run(func(_ mock.Arguments) {
+				close(in)
+			}).
+			Return(throttlingError).
+			Once()
+
+		w.loop()
+		d := <-out2
+
+		l.AssertExpectations(t)
+		m.AssertExpectations(t)
+		assert.Same(t, c, d)
+		assert.Equal(t, 100_000.0, w.regulator.rps.value())
+	})
+
 	t.Run("Chunk Is Sent to Out Channel When Manipulate Succeeds", func(t *testing.T) {
-		w, l, m, in, out, _ := newTestableWorker(t, 100_000, 1)
+		w, l, m, in, out, _ := newTestableWorker(t, 100_000, 1, false)
 		out2 := make(chan *chunk)
 		w.expectLoopLogs(l)
 		c := &chunk{}
@@ -120,7 +307,7 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 	})
 
 	t.Run("Leftover Chunks in Channel are Released In Shutdown", func(t *testing.T) {
-		w, l, m, in, out, closer := newTestableWorker(t, 1, 1)
+		w, l, m, in, out, closer := newTestableWorker(t, 1, 1, false)
 		w.expectLoopLogs(l)
 		n := 15
 		readFromOut := make(map[int]bool, n)
@@ -188,7 +375,7 @@ func TestWorker_LoopAndShutdown(t *testing.T) {
 
 func TestWorker_PushAndPop(t *testing.T) {
 	t.Run("Empty Pop, Not Closed", func(t *testing.T) {
-		w, _, _, in, _, _ := newTestableWorker(t, 1, 1)
+		w, _, _, in, _, _ := newTestableWorker(t, 1, 1, false)
 		expected := &chunk{}
 		go func() {
 			in <- expected
@@ -200,7 +387,7 @@ func TestWorker_PushAndPop(t *testing.T) {
 	})
 
 	t.Run("Empty Pop, Closed", func(t *testing.T) {
-		w, _, _, in, _, _ := newTestableWorker(t, 1, 1)
+		w, _, _, in, _, _ := newTestableWorker(t, 1, 1, false)
 		close(in)
 
 		actual := w.pop()
@@ -209,7 +396,7 @@ func TestWorker_PushAndPop(t *testing.T) {
 	})
 
 	t.Run("Single Push, Pop without Receive", func(t *testing.T) {
-		w, _, _, _, _, _ := newTestableWorker(t, 1, 1)
+		w, _, _, _, _, _ := newTestableWorker(t, 1, 1, false)
 		expected := &chunk{}
 
 		t.Run("Push", func(t *testing.T) {
@@ -227,7 +414,7 @@ func TestWorker_PushAndPop(t *testing.T) {
 	})
 
 	t.Run("Single Push, Pop with Receive, Pop without Receive", func(t *testing.T) {
-		w, _, _, in, _, _ := newTestableWorker(t, 1, 1)
+		w, _, _, in, _, _ := newTestableWorker(t, 1, 1, false)
 		first, second := &chunk{}, &chunk{}
 		var x, y *chunk
 
@@ -263,7 +450,7 @@ func TestWorker_PushAndPop(t *testing.T) {
 	})
 }
 
-func newTestableWorker(t *testing.T, rps, tmp int) (w *worker, l *mockLogger, m *mockManipulator, in, out chan *chunk, closer chan struct{}) {
+func newTestableWorker(t *testing.T, rps, tmp int, adapt bool) (w *worker, l *mockLogger, m *mockManipulator, in, out chan *chunk, closer chan struct{}) {
 	closer = make(chan struct{})
 	l = newMockLogger(t)
 	m = newMockManipulator(t)
@@ -277,7 +464,7 @@ func newTestableWorker(t *testing.T, rps, tmp int) (w *worker, l *mockLogger, m 
 			},
 			close: closer,
 		},
-		regulator:         makeRegulator(closer, rps, 0),
+		regulator:         makeRegulator(closer, rps, 0, adapt),
 		in:                in,
 		out:               out,
 		name:              "worker:" + t.Name(),
@@ -315,4 +502,19 @@ func (w *worker) expectLoopLogs(m *mockLogger) {
 	m.expectPrintf("incite: QueryManager(%s) %s %s", w.m.Name, w.name, "started").Once()
 	m.expectPrintf("incite: QueryManager(%s) %s %s", w.m.Name, w.name, "stopping...").Once()
 	m.expectPrintf("incite: QueryManager(%s) %s %s", w.m.Name, w.name, "stopped").Once()
+}
+
+func (o outcome) String() string {
+	switch o {
+	case finished:
+		return "finished"
+	case inconclusive:
+		return "inconclusive"
+	case throttlingError:
+		return "throttlingError"
+	case temporaryError:
+		return "temporaryError"
+	default:
+		panic(fmt.Sprintf("unknown outcome: %d", int(o)))
+	}
 }
