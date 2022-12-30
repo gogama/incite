@@ -716,7 +716,7 @@ func TestQueryManager_Query(t *testing.T) {
 					End:    defaultStart,
 					Groups: []string{"ham"},
 				},
-				err: endNotBeforeStartMsg,
+				err: endNotAfterStartMsg,
 			},
 			{
 				name: "MaxLimit.Exceeded",

@@ -149,7 +149,7 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 		return nil, errors.New(endSubMillisecondMsg)
 	}
 	if !q.End.After(q.Start) {
-		return nil, errors.New(endNotBeforeStartMsg)
+		return nil, errors.New(endNotAfterStartMsg)
 	}
 
 	if len(q.Groups) == 0 {

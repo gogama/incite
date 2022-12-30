@@ -175,7 +175,7 @@ const (
 	textBlankMsg                 = "incite: blank query text"
 	startSubMillisecondMsg       = "incite: start has sub-millisecond granularity"
 	endSubMillisecondMsg         = "incite: end has sub-millisecond granularity"
-	endNotBeforeStartMsg         = "incite: end not before start"
+	endNotAfterStartMsg          = "incite: end not after start"
 	noGroupsMsg                  = "incite: no log groups"
 	exceededMaxLimitMsg          = "incite: exceeded MaxLimit"
 	chunkSubMillisecondMsg       = "incite: chunk has sub-millisecond granularity"
