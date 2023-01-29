@@ -16,12 +16,13 @@ type stream struct {
 	// Immutable fields.
 	ctx    context.Context    // Stream context used to parent chunk contexts
 	cancel context.CancelFunc // Cancels ctx when the stream is closed
-	n      int64              // Number of total chunks
+	n0     int64              // Number of generation 0 chunks
 	groups []*string          // Preprocessed slice for StartQuery
 
 	// Mutable fields only read/written by mgr loop goroutine.
-	next int64 // Next chunk to create
-	m    int64 // Number of chunks completed
+	next int64 // Next generation 0 chunk to create
+	m    int64 // Number of chunks completed so far
+	n    int64 // Number of chunks (may grow beyond n0 due to splitting)
 
 	// Lock controlling access to the below mutable fields.
 	lock sync.RWMutex
@@ -121,7 +122,7 @@ func (s *stream) alive() bool {
 func (s *stream) nextChunkRange() (start, end time.Time) {
 	// For a single-chunk query, the chunk range is always the query
 	// range.
-	if s.n == 1 && s.Chunk == s.End.Sub(s.Start) {
+	if s.n0 == 1 && s.Chunk == s.End.Sub(s.Start) {
 		start, end = s.Start, s.End
 		return
 	}

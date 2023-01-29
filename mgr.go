@@ -199,8 +199,9 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 
 		ctx:    ctx,
 		cancel: cancel,
-		n:      n,
+		n0:     n,
 		groups: groups,
+		n:      n,
 		stats: Stats{
 			RangeRequested: d,
 		},
@@ -409,7 +410,7 @@ func (m *mgr) getReadyChunk() *chunk {
 		start, end := s.nextChunkRange()
 		chunkID := strconv.Itoa(int(s.next))
 		s.next++
-		if s.next < s.n {
+		if s.next < s.n0 {
 			heap.Push(&m.pq, s)
 		}
 

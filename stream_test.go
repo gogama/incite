@@ -228,7 +228,7 @@ func TestStream_NextChunkRange(t *testing.T) {
 					End:   defaultEnd.Add(time.Hour),
 					Chunk: 2*time.Hour + defaultDuration,
 				},
-				n:    1,
+				n0:   1,
 				next: 0,
 			},
 			c: chunk{
