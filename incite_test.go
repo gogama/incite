@@ -1500,6 +1500,134 @@ var scenarios = []queryScenario{
 		},
 	},
 
+	// This scenario aims to regression test https://github.com/gogama/incite/issues/25.
+	// There are four generation zero chunks. Three chunks (0, 2, 3) have empty
+	// results. One chunk (1) comes back with MaxLimit results, necessitating
+	// splitting.
+	{
+		note: "MultiChunk.Issue25Regression",
+		QuerySpec: QuerySpec{
+			Text:       "lineage",
+			Groups:     []string{"/menger/böhm-bawerk/mises/hakek/rothbard"},
+			Start:      defaultStart,
+			End:        defaultStart.Add(40 * time.Minute),
+			Limit:      MaxLimit,
+			Chunk:      10 * time.Minute,
+			SplitUntil: time.Millisecond,
+		},
+		chunks: []chunkPlan{
+			// CHUNK 0.
+			{
+				startQueryInput:   startQueryInput("lineage", defaultStart, defaultStart.Add(10*time.Minute), MaxLimit, "/menger/böhm-bawerk/mises/hakek/rothbard"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						stats:  &Stats{100, 0, 10, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 1.
+			{
+				startQueryInput:   startQueryInput("lineage", defaultStart.Add(10*time.Minute), defaultStart.Add(20*time.Minute), MaxLimit, "/menger/böhm-bawerk/mises/hakek/rothbard"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status:  cloudwatchlogs.QueryStatusComplete,
+						results: maxLimitResults,
+						stats:   &Stats{1_000_000, MaxLimit, 2 * MaxLimit, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 2.
+			{
+				startQueryInput:   startQueryInput("lineage", defaultStart.Add(20*time.Minute), defaultStart.Add(30*time.Minute), MaxLimit, "/menger/böhm-bawerk/mises/hakek/rothbard"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						stats:  &Stats{100, 0, 10, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// CHUNK 3.
+			{
+				startQueryInput:   startQueryInput("lineage", defaultStart.Add(30*time.Minute), defaultStart.Add(40*time.Minute), MaxLimit, "/menger/böhm-bawerk/mises/hakek/rothbard"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						stats:  &Stats{100, 0, 10, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// SUB-CHUNK 1/0.
+			{
+				startQueryInput:   startQueryInput("lineage", defaultStart.Add(10*time.Minute), defaultStart.Add(10*time.Minute+150*time.Second), MaxLimit, "/menger/böhm-bawerk/mises/hakek/rothbard"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status:  cloudwatchlogs.QueryStatusComplete,
+						results: maxLimitResults[0 : MaxLimit/4],
+						stats:   &Stats{250_000, MaxLimit / 4, MaxLimit / 2, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// SUB-CHUNK 1/1.
+			{
+				startQueryInput:   startQueryInput("lineage", defaultStart.Add(10*time.Minute+150*time.Second), defaultStart.Add(10*time.Minute+300*time.Second), MaxLimit, "/menger/böhm-bawerk/mises/hakek/rothbard"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status:  cloudwatchlogs.QueryStatusComplete,
+						results: maxLimitResults[MaxLimit/4 : MaxLimit/2],
+						stats:   &Stats{250_000, MaxLimit / 4, MaxLimit / 2, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// SUB-CHUNK 1/2.
+			{
+				startQueryInput:   startQueryInput("lineage", defaultStart.Add(10*time.Minute+300*time.Second), defaultStart.Add(10*time.Minute+450*time.Second), MaxLimit, "/menger/böhm-bawerk/mises/hakek/rothbard"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status:  cloudwatchlogs.QueryStatusComplete,
+						results: maxLimitResults[MaxLimit/2 : 3*MaxLimit/4],
+						stats:   &Stats{250_000, MaxLimit / 4, MaxLimit / 2, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			// SUB-CHUNK 1/3.
+			{
+				startQueryInput:   startQueryInput("lineage", defaultStart.Add(10*time.Minute+450*time.Second), defaultStart.Add(20*time.Minute), MaxLimit, "/menger/böhm-bawerk/mises/hakek/rothbard"),
+				startQuerySuccess: true,
+				pollOutputs: []chunkPollOutput{
+					{
+						status:  cloudwatchlogs.QueryStatusComplete,
+						results: maxLimitResults[3*MaxLimit/4:],
+						stats:   &Stats{250_000, MaxLimit / 4, MaxLimit / 2, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+		},
+		results: maxLimitResults,
+		postprocess: func(r []Result) {
+			sort.Slice(r, func(i, j int) bool {
+				a, _ := strconv.Atoi(r[i].get("@ptr"))
+				b, _ := strconv.Atoi(r[j].get("@ptr"))
+				return a < b
+			})
+		},
+		stats: Stats{
+			BytesScanned:   2_000_300,
+			RecordsMatched: 2 * MaxLimit,
+			RecordsScanned: 4*MaxLimit + 30,
+			RangeRequested: 40 * time.Minute,
+			RangeStarted:   40 * time.Minute,
+			RangeDone:      40 * time.Minute,
+		},
+	},
+
 	// This is the last scenario, and it is meant to be a super test case that,
 	// by itself, runs more chunks than the QueryManager can run in parallel.
 	//
@@ -2120,6 +2248,31 @@ func startQueryInput(text string, start, end time.Time, limit int64, groups ...s
 		Limit:         &limit,
 		LogGroupNames: g,
 	}
+}
+
+func startQueryOutput(queryID string) *cloudwatchlogs.StartQueryOutput {
+	return &cloudwatchlogs.StartQueryOutput{
+		QueryId: &queryID,
+	}
+}
+
+func getQueryResultsInput(queryID string) *cloudwatchlogs.GetQueryResultsInput {
+	return &cloudwatchlogs.GetQueryResultsInput{
+		QueryId: &queryID,
+	}
+}
+
+func getQueryResultsOutput(r []Result, status string, stats *Stats) *cloudwatchlogs.GetQueryResultsOutput {
+	o := &cloudwatchlogs.GetQueryResultsOutput{
+		Results: backOut(r),
+	}
+	if status != "" {
+		o.Status = &status
+	}
+	if stats != nil {
+		o.Statistics = stats.backOut()
+	}
+	return o
 }
 
 func (r Result) get(k string) (v string) {

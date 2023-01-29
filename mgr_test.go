@@ -1834,6 +1834,120 @@ func TestQueryManager_Query(t *testing.T) {
 		}
 	})
 
+	t.Run("Issue #25 - Chunk Splitting Does Not Cause Empty Time Range", func(t *testing.T) {
+		// Regression test for: https://github.com/gogama/incite/issues/25
+		//
+		// This test creates the following scenario:
+		//    1. Parallelism of 2 so mgr can run maximum two chunks at a time.
+		//    1. Chunk splitting on for the query.
+		//    2. Three original generation 0 chunks.
+		//    3. First chunk gets split into only two sub-chunks, both of which
+		//       are started before the third generation 0 chunks can be
+		//       started.
+		//    4. Third generation 0 chunk starts and ends before one of the
+		//       split sub-chunks ends.
+		//
+		// The above scenario tests that the mgr correctly detects that there
+		// are no more generation 0 chunks to create and does not end up
+		// creating an empty chunk whose start and end are the same.
+		firstGen1ChunkStarting := make(chan time.Time)
+		thirdGen0ChunkStarting := make(chan time.Time)
+		actions := newMockActions(t)
+		m := NewQueryManager(Config{
+			Actions:  actions,
+			Parallel: 2,
+			RPS:      lotsOfRPS,
+		})
+		t.Cleanup(func() {
+			maxLimit = MaxLimit
+			_ = m.Close()
+			close(firstGen1ChunkStarting)
+			close(thirdGen0ChunkStarting)
+		})
+		maxLimit = 2
+		text := "It's the ABC train, papa!"
+		groups := []string{"regression/test/for", "https://github.com/gogama/incite/issues/25"}
+		start := time.Date(2023, 1, 28, 16, 48, 13, 0, time.UTC)
+		numChunks := 3
+		chunkSize := 2 * time.Millisecond
+		end := start.Add(time.Duration(numChunks) * chunkSize)
+
+		// First chunk (generation 0).
+		actions.
+			On("StartQueryWithContext", anyContext, startQueryInput(text, start, start.Add(1*chunkSize), maxLimit, groups...)).
+			Return(startQueryOutput("0"), nil).
+			Once()
+		actions.
+			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("0")).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "0/0"}}, {{"@ptr", "0/1"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			Once()
+		// Second chunk (generation 0).
+		actions.
+			On("StartQueryWithContext", anyContext, startQueryInput(text, start.Add(1*chunkSize), start.Add(2*chunkSize), maxLimit, groups...)).
+			Return(startQueryOutput("1"), nil).
+			Once()
+		actions.
+			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("1")).
+			WaitUntil(firstGen1ChunkStarting).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "1/0"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			Once()
+		// First chunk half 1 (generation 1).
+		actions.
+			On("StartQueryWithContext", anyContext, startQueryInput(text, start, start.Add(chunkSize/2), maxLimit, groups...)).
+			Run(func(_ mock.Arguments) {
+				firstGen1ChunkStarting <- time.Now()
+			}).
+			Return(startQueryOutput("0/0"), nil).
+			Once()
+		actions.
+			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("0/0")).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "0/0"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			Once()
+		// First chunk half 2 (generation 1).
+		actions.
+			On("StartQueryWithContext", anyContext, startQueryInput(text, start.Add(chunkSize/2), start.Add(chunkSize), maxLimit, groups...)).
+			Return(startQueryOutput("0/1"), nil).
+			Once()
+		actions.
+			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("0/1")).
+			WaitUntil(thirdGen0ChunkStarting).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "1/1"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			Once()
+		// Third chunk (generation 1).
+		actions.
+			On("StartQueryWithContext", anyContext, startQueryInput(text, start.Add(2*chunkSize), end, maxLimit, groups...)).
+			Run(func(_ mock.Arguments) {
+				thirdGen0ChunkStarting <- time.Now()
+			}).
+			Return(startQueryOutput("2"), nil).
+			Once()
+		actions.
+			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("2")).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "2/0"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			Once()
+		s, err := m.Query(QuerySpec{
+			Text:       text,
+			Groups:     groups,
+			Start:      start,
+			End:        end,
+			Limit:      maxLimit,
+			Chunk:      chunkSize,
+			SplitUntil: time.Millisecond,
+		})
+		require.NoError(t, err)
+
+		var actualResults []Result
+		actualResults, err = ReadAll(s)
+
+		require.NoError(t, err)
+		actions.AssertExpectations(t)
+		sort.Slice(actualResults, func(i, j int) bool {
+			return actualResults[i].get("@ptr") < actualResults[j].get("@ptr")
+		})
+		expectedResults := []Result{{{"@ptr", "0/0"}}, {{"@ptr", "1/0"}}, {{"@ptr", "1/1"}}, {{"@ptr", "2/0"}}}
+		assert.Equal(t, expectedResults, actualResults)
+	})
+
 	t.Run("Maxed Chunks are Correctly Recorded", func(t *testing.T) {
 		testCases := []struct {
 			name    string
