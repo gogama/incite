@@ -2186,11 +2186,11 @@ func TestQueryManager_Query(t *testing.T) {
 		stopAdapter.
 			On("increase").
 			Return(true).
-			Once()
+			Maybe() // Increase RPS after second StopQuery. (May happen after test ends.)
 		stopAdapter.
 			On("value").
 			Return(99_999.5).
-			Once() // Calculate minDelay after RPS increase.
+			Maybe() // Calculate minDelay after RPS increase. (May happen after test ends.)
 		stopAdapter.
 			On("value").
 			Return(99_999.5).
