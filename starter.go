@@ -64,9 +64,9 @@ func (s *starter) manipulate(c *chunk) outcome {
 		case throttlingClass:
 			return throttlingError
 		case limitExceededClass:
-			// TODO: Pass this information up to mgr.
-			// TODO: Log.
-			fallthrough
+			s.m.logChunk(c, "exceeded query concurrency limit", "temporary error from CloudWatch Logs: "+err.Error())
+			c.err = errReduceParallel
+			return finished
 		case temporaryClass:
 			return temporaryError
 		default:

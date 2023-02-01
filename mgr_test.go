@@ -2019,7 +2019,7 @@ func TestQueryManager_Query(t *testing.T) {
 	t.Run("Query Fails with Error if Chunk Exceeds Max Temporary Errors", func(t *testing.T) {
 		text := "a query destined to exceed all maxima on temporary errors"
 		groups := []string{"grpA", "grpB"}
-		expectedErr := cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "you been limited")
+		expectedErr := cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "we lacking service")
 
 		testCases := []struct {
 			name  string

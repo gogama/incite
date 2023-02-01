@@ -1628,6 +1628,71 @@ var scenarios = []queryScenario{
 		},
 	},
 
+	// This scenario involves two chunks, both of which ultimately
+	// succeed, but which both hit the query concurrency quota limit
+	// several times before being successfully started.
+	{
+		note: "MultiChunk.RepeatedConcurrencyLimitError",
+		QuerySpec: QuerySpec{
+			Text:   "truckin'",
+			Start:  defaultStart,
+			End:    defaultEnd,
+			Groups: []string{"/grateful/dead", "/american/beauty"},
+			Chunk:  defaultDuration / 2,
+		},
+		chunks: []chunkPlan{
+			{
+				startQueryInput:   startQueryInput("truckin'", defaultStart, defaultStart.Add(defaultDuration/2), DefaultLimit, "/grateful/dead", "/american/beauty"),
+				startQuerySuccess: true,
+				startQueryErrs: []error{
+					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "truckin', got my chips cashed in", nil),
+					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "like the do-dah man", nil),
+					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "together, more or less in line", nil),
+					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "just keep truckin' on", nil),
+				},
+				pollOutputs: []chunkPollOutput{
+					{
+						status: cloudwatchlogs.QueryStatusComplete,
+						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+			{
+				startQueryInput:   startQueryInput("truckin'", defaultStart.Add(defaultDuration/2), defaultEnd, DefaultLimit, "/grateful/dead", "/american/beauty"),
+				startQuerySuccess: true,
+				startQueryErrs: []error{
+					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "arrows of neon and flashing marquees out on main street", nil),
+					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "chicago, new york, detroit", nil),
+					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "and it's all on the same street", nil),
+					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "your typical city involved in a typical day dream", nil),
+					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "hang it up and see what tomorrow brings", nil),
+				},
+				pollOutputs: []chunkPollOutput{
+					{
+						results: []Result{
+							{{"@ptr", "dallas, got a soft machine"}, {"@message", "houston, too close to new orleans"}},
+							{{"@ptr", "new york's got the ways and means"}, {"@message", "but it just won't let you go, oh no"}},
+						},
+						status: cloudwatchlogs.QueryStatusComplete,
+						stats:  &Stats{10, 2, 3, 0, 0, 0, 0, 0},
+					},
+				},
+			},
+		},
+		results: []Result{
+			{{"@ptr", "dallas, got a soft machine"}, {"@message", "houston, too close to new orleans"}},
+			{{"@ptr", "new york's got the ways and means"}, {"@message", "but it just won't let you go, oh no"}},
+		},
+		stats: Stats{
+			BytesScanned:   10,
+			RecordsMatched: 2,
+			RecordsScanned: 3,
+			RangeRequested: defaultDuration,
+			RangeStarted:   defaultDuration,
+			RangeDone:      defaultDuration,
+		},
+	},
+
 	// This is the last scenario, and it is meant to be a super test case that,
 	// by itself, runs more chunks than the QueryManager can run in parallel.
 	//
@@ -1953,6 +2018,7 @@ var scenarios = []queryScenario{
 			// CHUNK 20 [split sub-chunk 1/4].
 			{
 				startQueryInput:   startQueryInput("vikings", defaultStart.Add(1_170*time.Minute), defaultStart.Add(1_170*time.Minute+450*time.Second), MaxLimit, "/frihed/februar/første"),
+				startQueryErrs:    []error{cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "y'all have too many dang queries goin' on..., nil")},
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{

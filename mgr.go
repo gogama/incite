@@ -24,6 +24,7 @@ type mgr struct {
 	close       chan struct{} // Receives notification on Close()
 	pq          streamHeap    // Written by Query, written by mgr loop goroutine
 	ready       ring.Ring     // Chunks ready to start
+	parallel    adapter       // Parallelism: parallelMin <= parallel.value() <= Config.Parallel
 	numReady    int           // Number of chunks ready to start
 	numStarting int           // Number of chunks handed off to starter
 	numPolling  int           // Number of chunks handed off to poller
@@ -50,6 +51,12 @@ type mgr struct {
 	stopper *stopper
 }
 
+const (
+	parallelUpPerS   = 0.5
+	parallelDownStep = 1.0
+	parallelMin      = 1.0
+)
+
 // NewQueryManager returns a new query manager with the given
 // configuration.
 func NewQueryManager(cfg Config) QueryManager {
@@ -73,6 +80,15 @@ func NewQueryManager(cfg Config) QueryManager {
 
 	m := &mgr{
 		Config: cfg,
+
+		parallel: &standardAdapter{
+			val:      float64(cfg.Parallel),
+			max:      float64(cfg.Parallel),
+			upPerS:   parallelUpPerS,
+			min:      parallelMin,
+			downStep: parallelDownStep,
+			last:     time.Now(),
+		},
 
 		close: make(chan struct{}),
 		query: make(chan *stream),
@@ -239,9 +255,7 @@ func (m *mgr) loop() {
 			return
 		}
 
-		// TODO: We need to find a way to feed back start query errors
-		//       from starter and dynamically change m.Parallel.
-		for m.numStarting+m.numPolling+m.numStopping < m.Parallel {
+		for m.numStarting+m.numPolling+m.numStopping < int(m.parallel.value()) {
 			c := m.getReadyChunk()
 			if c == nil {
 				break
@@ -314,14 +328,11 @@ func (m *mgr) handleChunk(c *chunk) {
 	switch c.state {
 	case starting:
 		m.numStarting--
-		c.started()
-		m.killStream(c)
+		m.handleStartingError(c)
 	case started:
 		m.numStarting--
 		m.numPolling++
-		c.started()
-		c.state = polling
-		m.poll <- c
+		m.handleChunkStarted(c)
 	case polling:
 		m.numPolling--
 		m.handlePollingError(c)
@@ -340,6 +351,29 @@ func (m *mgr) makeReady(c *chunk) {
 	r.Value = c
 	m.ready.Prev().Link(r)
 	m.numReady++
+}
+
+func (m *mgr) handleStartingError(c *chunk) {
+	if c.err == errReduceParallel {
+		if m.parallel.decrease() {
+			m.logChunk(c, fmt.Sprintf("reduced parallelism to: %.4f", m.parallel.value()), "")
+		}
+		m.makeReady(c)
+		return
+	}
+
+	c.started()
+	m.killStream(c)
+}
+
+func (m *mgr) handleChunkStarted(c *chunk) {
+	c.started()
+	c.state = polling
+	m.poll <- c
+
+	if m.parallel.increase() {
+		m.logChunk(c, fmt.Sprintf("increased parallelism to: %.4f", m.parallel.value()), "")
+	}
 }
 
 func (m *mgr) handlePollingError(c *chunk) {

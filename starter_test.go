@@ -72,11 +72,12 @@ func TestStarter_manipulate(t *testing.T) {
 		queryID := "eggs"
 
 		testCases := []struct {
-			name     string
-			setup    func(t *testing.T, logger *mockLogger)
-			output   *cloudwatchlogs.StartQueryOutput
-			err      error
-			expected outcome
+			name        string
+			setup       func(t *testing.T, logger *mockLogger)
+			output      *cloudwatchlogs.StartQueryOutput
+			err         error
+			expectedErr error
+			expected    outcome
 		}{
 			{
 				name:     "Throttling Error",
@@ -84,9 +85,14 @@ func TestStarter_manipulate(t *testing.T) {
 				expected: throttlingError,
 			},
 			{
-				name:     "Limit Exceeded Error",
-				err:      awserr.New(cloudwatchlogs.ErrCodeLimitExceededException, "too many queries!", nil),
-				expected: temporaryError,
+				name: "Limit Exceeded Error",
+				setup: func(t *testing.T, logger *mockLogger) {
+					logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(),
+						"exceeded query concurrency limit", chunkID, text, start, end, "temporary error from CloudWatch Logs: LimitExceededException: too many queries!")
+				},
+				err:         awserr.New(cloudwatchlogs.ErrCodeLimitExceededException, "too many queries!", nil),
+				expectedErr: errReduceParallel,
+				expected:    finished,
 			},
 			{
 				name:     "Temporary Error",
@@ -142,6 +148,9 @@ func TestStarter_manipulate(t *testing.T) {
 				if testCase.setup != nil {
 					testCase.setup(t, logger)
 				}
+				if testCase.err != nil && testCase.expectedErr == nil {
+					testCase.expectedErr = &StartQueryError{text, start, end, testCase.err}
+				}
 				c := &chunk{
 					stream: &stream{
 						QuerySpec: QuerySpec{
@@ -163,8 +172,8 @@ func TestStarter_manipulate(t *testing.T) {
 				assert.Equal(t, testCase.expected, actual)
 				assert.GreaterOrEqual(t, s.lastReq.Sub(before), time.Duration(0))
 				assert.GreaterOrEqual(t, after.Sub(s.lastReq), time.Duration(0))
-				if testCase.err != nil {
-					assert.Equal(t, &StartQueryError{text, start, end, testCase.err}, c.err)
+				if testCase.expectedErr != nil {
+					assert.Equal(t, testCase.expectedErr, c.err)
 				}
 				actions.AssertExpectations(t)
 				logger.AssertExpectations(t)
