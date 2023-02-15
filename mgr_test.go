@@ -588,6 +588,75 @@ func TestQueryManager_Close(t *testing.T) {
 		actions.AssertExpectations(t)
 	})
 
+	t.Run("Close Cancels Many Queries", func(t *testing.T) {
+		// ARRANGE.
+		numQueries := QueryConcurrencyQuotaLimit / 2
+		numChunks := QueryConcurrencyQuotaLimit / 4
+		numChunksToStartBeforeClosing := int(1.5 * float64(numChunks))
+		actions := newMockActions(t)
+		text := func(q int) string {
+			return fmt.Sprintf("long-running query %d of %d", q+1, numQueries)
+		}
+		ch := make(chan time.Time, numQueries*numChunks)
+		for q := 0; q < numQueries; q++ {
+			for c := 0; c < numChunks; c++ {
+				queryID := fmt.Sprintf("%s[q=%d][c=%d]", t.Name(), q, c)
+				actions.
+					On("StartQueryWithContext", anyContext, startQueryInput(
+						text(q),
+						defaultStart.Add(time.Duration(c)*time.Minute), defaultStart.Add(time.Duration(c+1)*time.Minute),
+						DefaultLimit, "baz",
+					)).
+					Run(func(_ mock.Arguments) { ch <- time.Now() }).
+					Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryID}, nil).
+					Maybe()
+				actions.
+					On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
+					Return(&cloudwatchlogs.GetQueryResultsOutput{Status: sp(cloudwatchlogs.QueryStatusRunning)}, nil).
+					Maybe()
+				actions.
+					On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
+					Return(&cloudwatchlogs.StopQueryOutput{}, nil).
+					Maybe()
+			}
+		}
+		m := NewQueryManager(Config{
+			Actions:  actions,
+			Parallel: QueryConcurrencyQuotaLimit,
+			RPS:      lotsOfRPS,
+		})
+		require.NotNil(t, m)
+		streams := make([]Stream, numQueries)
+		var err error
+		for q := 0; q < numQueries; q++ {
+			streams[q], err = m.Query(QuerySpec{
+				Text:   text(q),
+				Groups: []string{"baz"},
+				Start:  defaultStart,
+				End:    defaultStart.Add(time.Duration(numChunks) * time.Minute),
+				Chunk:  time.Minute,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, streams[q])
+		}
+		for i := 0; i < numChunksToStartBeforeClosing; i++ {
+			<-ch
+		}
+
+		// ACT.
+		err = m.Close()
+
+		// ASSERT.
+		assert.NoError(t, err)
+		for q := 0; q < numQueries; q++ {
+			var n int
+			n, err = streams[q].Read(make([]Result, 1))
+			assert.Equal(t, 0, n)
+			assert.Same(t, ErrClosed, err)
+		}
+		actions.AssertExpectations(t)
+	})
+
 	t.Run("Close Resilient to Failure to Cancel Query", func(t *testing.T) {
 		actions := newMockActions(t)
 		actions.
