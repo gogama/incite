@@ -12,8 +12,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	"github.com/aws/smithy-go"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 var (
@@ -101,14 +103,6 @@ func (err *UnexpectedQueryError) Unwrap() error {
 	return err.Cause
 }
 
-func errNilStatus() error {
-	return errors.New(outputMissingStatusMsg)
-}
-
-func errNilResultField(i int) error {
-	return fmt.Errorf("incite: result field [%d] is nil", i)
-}
-
 func errNoKey() error {
 	return errors.New(fieldMissingKeyMsg)
 }
@@ -127,35 +121,49 @@ const (
 )
 
 func classifyError(err error) errorClass {
-	if x, ok := err.(awserr.Error); ok {
-		// Short-circuit if the HTTP status code indicates retryability.
-		if f, ok := err.(awserr.RequestFailure); ok {
-			status := f.StatusCode()
-			if status == 429 {
-				return throttlingClass
-			} else if status == 502 || status == 503 || status == 504 {
-				return temporaryClass
-			}
+	if opErr, ok := err.(*smithy.OperationError); ok {
+		if unwrappedErr := opErr.Unwrap(); unwrappedErr != nil {
+			return classifyError(unwrappedErr)
 		}
+	}
 
-		// Check for known CloudWatch Logs retryability codes.
-		switch x.Code() {
-		case cloudwatchlogs.ErrCodeLimitExceededException:
-			return limitExceededClass
-		case cloudwatchlogs.ErrCodeServiceUnavailableException:
+	if httpErr, ok := err.(*awshttp.ResponseError); ok {
+		return classifyError(httpErr.ResponseError)
+	}
+
+	if httpErr, ok := err.(*smithyhttp.ResponseError); ok {
+		switch httpErr.HTTPStatusCode() {
+		case 429:
+			return throttlingClass
+		case 502, 503, 504:
 			return temporaryClass
 		}
 
+		if unwrappedErr := httpErr.Unwrap(); unwrappedErr != nil {
+			return classifyError(unwrappedErr)
+		}
+	}
+
+	if apiErr, ok := err.(smithy.APIError); ok {
 		// Check for throttling using common AWS service patterns for indicating
 		// throttling via exception. Omit 'e' suffix on 'throttl' to match
 		// Throttled and Throttling.
-		if strings.Contains(strings.ToLower(x.Code()), "throttl") ||
-			strings.Contains(strings.ToLower(x.Message()), "rate exceeded") {
+		if strings.Contains(strings.ToLower(apiErr.ErrorCode()), "throttl") ||
+			strings.Contains(strings.ToLower(apiErr.ErrorMessage()), "rate exceeded") {
 			return throttlingClass
 		}
 
-		// Recursively examine the cause error, if any.
-		return classifyError(x.OrigErr())
+		switch apiErr.(type) {
+		case *types.ThrottlingException:
+			return throttlingClass
+		case *types.ServiceUnavailableException:
+			return temporaryClass
+		case *types.LimitExceededException,
+			*types.ServiceQuotaExceededException:
+			return limitExceededClass
+		default:
+			return permanentClass
+		}
 	}
 
 	// TODO: We may also want to check for io.ErrUnexpectedEOF.
@@ -176,6 +184,10 @@ func classifyError(err error) errorClass {
 		default:
 			return permanentClass
 		}
+	}
+
+	if unwrappedErr := errors.Unwrap(err); unwrappedErr != nil {
+		return classifyError(unwrappedErr)
 	}
 
 	return permanentClass

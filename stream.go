@@ -17,7 +17,7 @@ type stream struct {
 	ctx    context.Context    // Stream context used to parent chunk contexts
 	cancel context.CancelFunc // Cancels ctx when the stream is closed
 	n0     int64              // Number of generation 0 chunks
-	groups []*string          // Preprocessed slice for StartQuery
+	groups []string           // Preprocessed slice for StartQuery
 
 	// Mutable fields only read/written by mgr loop goroutine.
 	next int64 // Next generation 0 chunk to create

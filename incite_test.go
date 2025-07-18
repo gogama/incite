@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
-
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -196,12 +196,12 @@ var scenarios = []queryScenario{
 			{
 				startQueryInput: startQueryInput("a poorly written query", defaultStart, defaultEnd, 50, "/my/group/1", "/my/group/2"),
 				startQueryErrs: []error{
-					cwlErr(cloudwatchlogs.ErrCodeInvalidParameterException, "terrible query writing there bud"),
+					&types.InvalidParameterException{Message: aws.String("terrible query writing there bud")},
 				},
 				startQuerySuccess: false,
 			},
 		},
-		err: &StartQueryError{"a poorly written query", defaultStart, defaultEnd, cwlErr(cloudwatchlogs.ErrCodeInvalidParameterException, "terrible query writing there bud")},
+		err: &StartQueryError{"a poorly written query", defaultStart, defaultEnd, &types.InvalidParameterException{Message: aws.String("terrible query writing there bud")}},
 		stats: Stats{
 			RangeRequested: defaultDuration,
 			RangeStarted:   defaultDuration,
@@ -267,7 +267,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 					},
 				},
 			},
@@ -294,12 +294,12 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusCancelled,
+						status: string(types.QueryStatusCancelled),
 					},
 				},
 			},
 		},
-		err: &TerminalQueryStatusError{"scenario:4|chunk:0|OneChunk.OnePoll.Status.Cancelled", cloudwatchlogs.QueryStatusCancelled, "destined for cancellation"},
+		err: &TerminalQueryStatusError{"scenario:4|chunk:0|OneChunk.OnePoll.Status.Cancelled", string(types.QueryStatusCancelled), "destined for cancellation"},
 		stats: Stats{
 			RangeRequested: defaultDuration,
 			RangeStarted:   defaultDuration,
@@ -400,7 +400,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{
 								{"@ptr", "123"},
@@ -448,28 +448,28 @@ var scenarios = []queryScenario{
 			{
 				startQueryInput: startQueryInput("many happy results", defaultStart, defaultEnd, DefaultLimit, "/thomas/gray", "/thomas/aquinas"),
 				startQueryErrs: []error{
-					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "use less"),
-					cwlErr("Throttling", "slow down"),
-					cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "wait for it..."),
+					&types.LimitExceededException{Message: aws.String("use less")},
+					&types.ThrottlingException{Message: aws.String("slow down")},
+					&types.ServiceUnavailableException{Message: aws.String("wait for it...")},
 					io.EOF,
 				},
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusScheduled,
+						status: string(types.QueryStatusScheduled),
 					},
 					{
 						err: io.EOF,
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						stats:  &Stats{3, 0, 1, 0, 0, 0, 0, 0},
 					},
 					{
-						err: cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "a blip in service"),
+						err: &types.ServiceUnavailableException{Message: aws.String("a blip in service")},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						results: []Result{
 							{
 								{"@ptr", "789"},
@@ -479,10 +479,10 @@ var scenarios = []queryScenario{
 						stats: &Stats{99, 98, 97, 0, 0, 0, 0, 0},
 					},
 					{
-						err: cwlErr("throttling has occurred", "and you were the recipient of the throttling"),
+						err: &types.ThrottlingException{Message: aws.String("and you were the recipient of the throttling")},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{
 								{"@ptr", "101"},
@@ -533,12 +533,12 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusFailed,
+						status: string(types.QueryStatusFailed),
 					},
 				},
 			},
 		},
-		err: &TerminalQueryStatusError{"scenario:10|chunk:0|OneChunk.Preview.Status.Failed", cloudwatchlogs.QueryStatusFailed, "fated for failure"},
+		err: &TerminalQueryStatusError{"scenario:10|chunk:0|OneChunk.Preview.Status.Failed", string(types.QueryStatusFailed), "fated for failure"},
 		stats: Stats{
 			RangeRequested: defaultDuration,
 			RangeStarted:   defaultDuration,
@@ -560,12 +560,12 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusCancelled,
+						status: string(types.QueryStatusCancelled),
 					},
 				},
 			},
 		},
-		err: &TerminalQueryStatusError{"scenario:11|chunk:0|OneChunk.Preview.Status.Cancelled", cloudwatchlogs.QueryStatusCancelled, "preview of coming cancellations"},
+		err: &TerminalQueryStatusError{"scenario:11|chunk:0|OneChunk.Preview.Status.Cancelled", string(types.QueryStatusCancelled), "preview of coming cancellations"},
 		stats: Stats{
 			RangeRequested: defaultDuration,
 			RangeStarted:   defaultDuration,
@@ -642,18 +642,18 @@ var scenarios = []queryScenario{
 				startQueryInput:   startQueryInput("fields Foo, Bar", defaultStart, defaultEnd, MaxLimit, "/normal/log/group"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
-					{status: cloudwatchlogs.QueryStatusScheduled},
-					{status: cloudwatchlogs.QueryStatusRunning},
-					{status: cloudwatchlogs.QueryStatusRunning},
+					{status: string(types.QueryStatusScheduled)},
+					{status: string(types.QueryStatusRunning)},
+					{status: string(types.QueryStatusRunning)},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						results: []Result{
 							{{"Foo", "Foo.0.0"}, {"Bar", "Bar.0.0"}, {"@ptr", "0"}},
 						},
 						stats: &Stats{1, 2, 3, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						results: []Result{
 							{{"Foo", "Foo.0.0"}, {"Bar", "Bar.0.0"}, {"@ptr", "0"}},
 							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
@@ -661,14 +661,14 @@ var scenarios = []queryScenario{
 						stats: &Stats{2, 4, 6, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						results: []Result{
 							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
 						},
 						stats: &Stats{3, 6, 9, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						results: []Result{
 							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
 							{{"Foo", "Foo.2.0"}, {"Bar", "Bar.2.0"}, {"@ptr", "2"}},
@@ -676,7 +676,7 @@ var scenarios = []queryScenario{
 						stats: &Stats{4, 8, 12, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						results: []Result{
 							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
 							{{"Foo", "Foo.2.0"}, {"Bar", "Bar.2.0"}, {"@ptr", "2"}},
@@ -685,7 +685,7 @@ var scenarios = []queryScenario{
 						stats: &Stats{5, 10, 15, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{"Foo", "Foo.0.0"}, {"Bar", "Bar.0.0"}, {"@ptr", "0"}},
 							{{"Foo", "Foo.1.0"}, {"Bar", "Bar.1.0"}, {"@ptr", "1"}},
@@ -730,17 +730,17 @@ var scenarios = []queryScenario{
 				startQueryInput:   startQueryInput("stats count_distinct(Foo) by bar", defaultStart.Add(-time.Hour), defaultEnd.Add(time.Hour), DefaultLimit, "/trove/of/data"),
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
-					{status: cloudwatchlogs.QueryStatusScheduled},
-					{status: cloudwatchlogs.QueryStatusRunning},
+					{status: string(types.QueryStatusScheduled)},
+					{status: string(types.QueryStatusRunning)},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						results: []Result{
 							{{"count_distinct(Foo)", "100"}, {"bar", "ham"}},
 						},
 						stats: &Stats{1, 2, 3, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						results: []Result{
 							{{"count_distinct(Foo)", "37"}, {"bar", "eggs"}},
 							{{"count_distinct(Foo)", "100"}, {"bar", "ham"}},
@@ -748,7 +748,7 @@ var scenarios = []queryScenario{
 						stats: &Stats{2, 4, 6, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{"count_distinct(Foo)", "200"}, {"bar", "ham"}},
 							{{"count_distinct(Foo)", "41"}, {"bar", "eggs"}},
@@ -795,7 +795,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						results: maxLimitResults,
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
@@ -807,7 +807,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						results: maxLimitResults[0 : MaxLimit/4],
 						stats:   &Stats{2, 2, 2, 0, 0, 0, 0, 0},
 					},
@@ -819,7 +819,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						results: maxLimitResults[MaxLimit/4 : MaxLimit/2],
 						stats:   &Stats{3, 3, 3, 0, 0, 0, 0, 0},
 					},
@@ -831,7 +831,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						results: maxLimitResults[MaxLimit/2 : 3*MaxLimit/4],
 						stats:   &Stats{4, 4, 4, 0, 0, 0, 0, 0},
 					},
@@ -843,7 +843,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						results: maxLimitResults[3*MaxLimit/4 : MaxLimit],
 						stats:   &Stats{5, 5, 5, 0, 0, 0, 0, 0},
 					},
@@ -878,7 +878,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						results: maxLimitResults,
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
@@ -890,7 +890,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						results: maxLimitResults,
 						stats:   &Stats{2, 2, 2, 0, 0, 0, 0, 0},
 					},
@@ -902,7 +902,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						stats:  &Stats{3, 3, 3, 0, 0, 0, 0, 0},
 					},
 				},
@@ -935,7 +935,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{"how_many_results_are_there", "too many!"}},
 						},
@@ -969,7 +969,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{"EggCount", "1"}, {"Spam", "true"}},
 							{{"EggCount", "2"}, {"Span", "false"}},
@@ -1011,17 +1011,17 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusScheduled,
+						status: string(types.QueryStatusScheduled),
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						results: []Result{
 							{{"ignore", "me"}},
 						},
 						stats: &Stats{-1, -2, -12, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{"@ptr", "1111"}, {"Something", "wicked this way comes"}},
 							{{"@ptr", "2222"}, {"Something", "else"}},
@@ -1060,7 +1060,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{"@ptr", "aaaa"}, {"@timestamp", "2021-08-05 15:26:000.123"}},
 							{{"@ptr", "bbbb"}, {"@timestamp", "2021-08-05 15:26:000.125"}},
@@ -1074,7 +1074,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{"@ptr", "dddd"}, {"@timestamp", "2021-08-05 15:26:000.126"}},
 							{{"@ptr", "cccc"}, {"@timestamp", "2021-08-05 15:26:000.124"}},
@@ -1121,15 +1121,15 @@ var scenarios = []queryScenario{
 					defaultStart, defaultStart.Add(2*time.Minute), DefaultLimit, "forest",
 				),
 				startQueryErrs: []error{
-					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "use less"),
+					&types.LimitExceededException{Message: aws.String("use less")},
 				},
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusScheduled,
+						status: string(types.QueryStatusScheduled),
 					},
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{Field: "@ptr", Value: "1"}},
 							{{Field: "@ptr", Value: "2"}},
@@ -1146,11 +1146,11 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						stats:  &Stats{3, 2, 3, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{Field: "@ptr", Value: "3"}},
 							{{Field: "@ptr", Value: "4"}},
@@ -1199,7 +1199,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{Field: "@ptr", Value: "1"}},
 						},
@@ -1215,7 +1215,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{Field: "@ptr", Value: "2"}},
 							{{Field: "@ptr", Value: "3"}},
@@ -1232,7 +1232,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{Field: "@ptr", Value: "4"}},
 						},
@@ -1279,19 +1279,19 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusScheduled,
+						status: string(types.QueryStatusScheduled),
 					},
 					{
-						status: cloudwatchlogs.QueryStatusScheduled,
+						status: string(types.QueryStatusScheduled),
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						results: []Result{
 							{{"@ptr", "1"}, {"instance", "1"}},
 						},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{"@ptr", "1"}, {"instance", "1"}},
 						},
@@ -1304,13 +1304,13 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						results: []Result{
 							{{"@ptr", "2"}, {"instance", "1"}},
 						},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{"@ptr", "3"}, {"instance", "1"}},
 						},
@@ -1320,26 +1320,26 @@ var scenarios = []queryScenario{
 			{
 				startQueryInput: startQueryInput("QuerySpec indicates a previewed query in three chunks", defaultStart.Add(4*time.Minute), defaultEnd, 5, "fireplace"),
 				startQueryErrs: []error{
-					cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "wait for it..."),
-					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "use less"),
+					&types.ServiceUnavailableException{Message: aws.String("wait for it...")},
+					&types.LimitExceededException{Message: aws.String("use less")},
 				},
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						results: []Result{
 							{{"@ptr", "4"}, {"instance", "1"}},
 						},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						results: []Result{
 							{{"@ptr", "5"}, {"instance", "1"}},
 							{{"@ptr", "6"}, {"instance", "1"}},
 						},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{"@ptr", "4"}, {"instance", "2"}},
 							{{"@ptr", "6"}, {"instance", "1"}},
@@ -1400,7 +1400,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						stats:  &Stats{1, 0, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1413,7 +1413,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{"@ptr", "cccc"}, {"@timestamp", "2021-08-05 15:26:000.124"}},
 						},
@@ -1455,7 +1455,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{"@ptr", "AAAAAA"}, {"@timestamp", "2021-08-05 15:26:000.123"}},
 						},
@@ -1471,7 +1471,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						results: []Result{
 							{{"@ptr", "BBBBBB"}, {"@timestamp", "2021-08-05 15:26:000.124"}},
 						},
@@ -1522,7 +1522,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						stats:  &Stats{100, 0, 10, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1533,7 +1533,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						results: maxLimitResults,
 						stats:   &Stats{1_000_000, MaxLimit, 2 * MaxLimit, 0, 0, 0, 0, 0},
 					},
@@ -1545,7 +1545,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						stats:  &Stats{100, 0, 10, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1556,7 +1556,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						stats:  &Stats{100, 0, 10, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1567,7 +1567,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						results: maxLimitResults[0 : MaxLimit/4],
 						stats:   &Stats{250_000, MaxLimit / 4, MaxLimit / 2, 0, 0, 0, 0, 0},
 					},
@@ -1579,7 +1579,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						results: maxLimitResults[MaxLimit/4 : MaxLimit/2],
 						stats:   &Stats{250_000, MaxLimit / 4, MaxLimit / 2, 0, 0, 0, 0, 0},
 					},
@@ -1591,7 +1591,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						results: maxLimitResults[MaxLimit/2 : 3*MaxLimit/4],
 						stats:   &Stats{250_000, MaxLimit / 4, MaxLimit / 2, 0, 0, 0, 0, 0},
 					},
@@ -1603,7 +1603,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						results: maxLimitResults[3*MaxLimit/4:],
 						stats:   &Stats{250_000, MaxLimit / 4, MaxLimit / 2, 0, 0, 0, 0, 0},
 					},
@@ -1645,14 +1645,14 @@ var scenarios = []queryScenario{
 				startQueryInput:   startQueryInput("truckin'", defaultStart, defaultStart.Add(defaultDuration/2), DefaultLimit, "/grateful/dead", "/american/beauty"),
 				startQuerySuccess: true,
 				startQueryErrs: []error{
-					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "truckin', got my chips cashed in", nil),
-					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "like the do-dah man", nil),
-					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "together, more or less in line", nil),
-					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "just keep truckin' on", nil),
+					&types.LimitExceededException{Message: aws.String("truckin', got my chips cashed in")},
+					&types.LimitExceededException{Message: aws.String("like the do-dah man")},
+					&types.LimitExceededException{Message: aws.String("together, more or less in line")},
+					&types.LimitExceededException{Message: aws.String("just keep truckin' on")},
 				},
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(string(types.QueryStatusComplete)),
 						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1661,11 +1661,11 @@ var scenarios = []queryScenario{
 				startQueryInput:   startQueryInput("truckin'", defaultStart.Add(defaultDuration/2), defaultEnd, DefaultLimit, "/grateful/dead", "/american/beauty"),
 				startQuerySuccess: true,
 				startQueryErrs: []error{
-					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "arrows of neon and flashing marquees out on main street", nil),
-					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "chicago, new york, detroit", nil),
-					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "and it's all on the same street", nil),
-					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "your typical city involved in a typical day dream", nil),
-					cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "hang it up and see what tomorrow brings", nil),
+					&types.LimitExceededException{Message: aws.String("arrows of neon and flashing marquees out on main street")},
+					&types.LimitExceededException{Message: aws.String("chicago, new york, detroit")},
+					&types.LimitExceededException{Message: aws.String("and it's all on the same street")},
+					&types.LimitExceededException{Message: aws.String("your typical city involved in a typical day dream")},
+					&types.LimitExceededException{Message: aws.String("hang it up and see what tomorrow brings")},
 				},
 				pollOutputs: []chunkPollOutput{
 					{
@@ -1673,7 +1673,7 @@ var scenarios = []queryScenario{
 							{{"@ptr", "dallas, got a soft machine"}, {"@message", "houston, too close to new orleans"}},
 							{{"@ptr", "new york's got the ways and means"}, {"@message", "but it just won't let you go, oh no"}},
 						},
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						stats:  &Stats{10, 2, 3, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1719,16 +1719,16 @@ var scenarios = []queryScenario{
 			{
 				startQueryInput:   startQueryInput("vikings", defaultStart, defaultStart.Add(30*time.Minute), MaxLimit, "/frihed/februar/første"),
 				startQuerySuccess: true,
-				startQueryErrs:    []error{issue13Error("foo", 429), io.EOF, cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "pending", issue13Error("bar", 502))},
+				startQueryErrs:    []error{issue13Error("foo", 429), io.EOF, &types.ServiceUnavailableException{Message: aws.String("pending")}},
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusScheduled,
+						status: string(types.QueryStatusScheduled),
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 					},
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1740,7 +1740,7 @@ var scenarios = []queryScenario{
 				pollOutputs: []chunkPollOutput{
 					{
 						results: resultSeries(MaxLimit+1, 1),
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1751,7 +1751,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1763,12 +1763,12 @@ var scenarios = []queryScenario{
 				pollOutputs: []chunkPollOutput{
 					{
 						results: resultSeries(MaxLimit+3, 1),
-						status:  cloudwatchlogs.QueryStatusRunning,
+						status:  string(types.QueryStatusRunning),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 					{
 						results: resultSeries(MaxLimit+3, 1),
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1779,7 +1779,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 					},
 				},
 			},
@@ -1787,11 +1787,11 @@ var scenarios = []queryScenario{
 			{
 				startQueryInput:   startQueryInput("vikings", defaultStart.Add(270*time.Minute), defaultStart.Add(330*time.Minute), MaxLimit, "/frihed/februar/første"),
 				startQuerySuccess: true,
-				startQueryErrs:    []error{awserr.New("connection reset", "reset that connection", syscall.ECONNRESET)},
+				startQueryErrs:    []error{syscall.ECONNRESET},
 				pollOutputs: []chunkPollOutput{
 					{
 						results: resultSeries(MaxLimit+5, 1),
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1802,22 +1802,22 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusScheduled,
+						status: string(types.QueryStatusScheduled),
 						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusScheduled,
+						status: string(types.QueryStatusScheduled),
 						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 					},
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1829,7 +1829,7 @@ var scenarios = []queryScenario{
 				pollOutputs: []chunkPollOutput{
 					{
 						results: resultSeries(MaxLimit+7, 1),
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1840,7 +1840,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 					},
 				},
 			},
@@ -1850,11 +1850,11 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusScheduled,
+						status: string(types.QueryStatusScheduled),
 					},
 					{
 						results: resultSeries(MaxLimit+9, 1),
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1863,16 +1863,16 @@ var scenarios = []queryScenario{
 			{
 				startQueryInput:   startQueryInput("vikings", defaultStart.Add(570*time.Minute), defaultStart.Add(630*time.Minute), MaxLimit, "/frihed/februar/første"),
 				startQuerySuccess: true,
-				startQueryErrs:    []error{issue13Error("foo", 429), io.EOF, cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "pending", issue13Error("bar", 502))},
+				startQueryErrs:    []error{issue13Error("foo", 429), io.EOF, &types.ServiceUnavailableException{Message: aws.String("pending")}},
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusScheduled,
+						status: string(types.QueryStatusScheduled),
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 					},
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1884,7 +1884,7 @@ var scenarios = []queryScenario{
 				pollOutputs: []chunkPollOutput{
 					{
 						results: resultSeries(MaxLimit+11, 1),
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1895,7 +1895,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1907,12 +1907,12 @@ var scenarios = []queryScenario{
 				pollOutputs: []chunkPollOutput{
 					{
 						results: resultSeries(MaxLimit+13, 1),
-						status:  cloudwatchlogs.QueryStatusRunning,
+						status:  string(types.QueryStatusRunning),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 					{
 						results: resultSeries(MaxLimit+13, 1),
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1923,7 +1923,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 					},
 				},
 			},
@@ -1931,11 +1931,11 @@ var scenarios = []queryScenario{
 			{
 				startQueryInput:   startQueryInput("vikings", defaultStart.Add(870*time.Minute), defaultStart.Add(930*time.Minute), MaxLimit, "/frihed/februar/første"),
 				startQuerySuccess: true,
-				startQueryErrs:    []error{awserr.New("connection reset", "reset that connection", syscall.ECONNRESET)},
+				startQueryErrs:    []error{syscall.ECONNRESET},
 				pollOutputs: []chunkPollOutput{
 					{
 						results: resultSeries(MaxLimit+15, 1),
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1946,22 +1946,22 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusScheduled,
+						status: string(types.QueryStatusScheduled),
 						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusScheduled,
+						status: string(types.QueryStatusScheduled),
 						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
 					},
 					{
-						status: cloudwatchlogs.QueryStatusRunning,
+						status: string(types.QueryStatusRunning),
 					},
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 						stats:  &Stats{0, 0, 0, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1973,7 +1973,7 @@ var scenarios = []queryScenario{
 				pollOutputs: []chunkPollOutput{
 					{
 						results: resultSeries(MaxLimit+17, 1),
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -1984,7 +1984,7 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusComplete,
+						status: string(types.QueryStatusComplete),
 					},
 				},
 			},
@@ -1994,11 +1994,11 @@ var scenarios = []queryScenario{
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
-						status: cloudwatchlogs.QueryStatusScheduled,
+						status: string(types.QueryStatusScheduled),
 					},
 					{
 						results: resultSeries(MaxLimit+19, 1),
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -2010,7 +2010,7 @@ var scenarios = []queryScenario{
 				pollOutputs: []chunkPollOutput{
 					{
 						results: maxLimitResults,
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{MaxLimit, MaxLimit, MaxLimit, 0, 0, 0, 0, 0},
 					},
 				},
@@ -2018,12 +2018,12 @@ var scenarios = []queryScenario{
 			// CHUNK 20 [split sub-chunk 1/4].
 			{
 				startQueryInput:   startQueryInput("vikings", defaultStart.Add(1_170*time.Minute), defaultStart.Add(1_170*time.Minute+450*time.Second), MaxLimit, "/frihed/februar/første"),
-				startQueryErrs:    []error{cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "y'all have too many dang queries goin' on..., nil")},
+				startQueryErrs:    []error{&types.LimitExceededException{Message: aws.String("y'all have too many dang queries goin' on..., nil")}},
 				startQuerySuccess: true,
 				pollOutputs: []chunkPollOutput{
 					{
 						results: maxLimitResults[0 : MaxLimit/4],
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -2035,7 +2035,7 @@ var scenarios = []queryScenario{
 				pollOutputs: []chunkPollOutput{
 					{
 						results: maxLimitResults[MaxLimit/4 : MaxLimit/2],
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -2047,7 +2047,7 @@ var scenarios = []queryScenario{
 				pollOutputs: []chunkPollOutput{
 					{
 						results: maxLimitResults[MaxLimit/2 : 3*MaxLimit/4],
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -2059,7 +2059,7 @@ var scenarios = []queryScenario{
 				pollOutputs: []chunkPollOutput{
 					{
 						results: maxLimitResults[3*MaxLimit/4 : MaxLimit],
-						status:  cloudwatchlogs.QueryStatusComplete,
+						status:  string(types.QueryStatusComplete),
 						stats:   &Stats{1, 1, 1, 0, 0, 0, 0, 0},
 					},
 				},
@@ -2173,7 +2173,7 @@ func (cp *chunkPlan) setup(i, j int, note string, cancelChunk bool, actions *moc
 
 	for k := range cp.startQueryErrs {
 		actions.
-			On("StartQueryWithContext", anyContext, cp.startQueryInput).
+			On("StartQuery", anyContext, cp.startQueryInput).
 			Return(nil, cp.startQueryErrs[k]).
 			Once()
 	}
@@ -2187,7 +2187,7 @@ func (cp *chunkPlan) setup(i, j int, note string, cancelChunk bool, actions *moc
 		queryID += "|" + note
 	}
 	actions.
-		On("StartQueryWithContext", anyContext, cp.startQueryInput).
+		On("StartQuery", anyContext, cp.startQueryInput).
 		Return(&cloudwatchlogs.StartQueryOutput{
 			QueryId: &queryID,
 		}, nil)
@@ -2200,12 +2200,12 @@ func (cp *chunkPlan) setup(i, j int, note string, cancelChunk bool, actions *moc
 		var call *mock.Call
 		if pollOutput.err != nil {
 			call = actions.
-				On("GetQueryResultsWithContext", anyContext, input).
+				On("GetQueryResults", anyContext, input).
 				Return(nil, pollOutput.err)
 		} else {
 			output := &cloudwatchlogs.GetQueryResultsOutput{}
 			if pollOutput.status != "" {
-				output.Status = &pollOutput.status
+				output.Status = types.QueryStatus(pollOutput.status)
 			}
 			if pollOutput.results != nil {
 				output.Results = backOut(pollOutput.results)
@@ -2214,7 +2214,7 @@ func (cp *chunkPlan) setup(i, j int, note string, cancelChunk bool, actions *moc
 				output.Statistics = pollOutput.stats.backOut()
 			}
 			call = actions.
-				On("GetQueryResultsWithContext", anyContext, input).
+				On("GetQueryResults", anyContext, input).
 				Return(output, nil)
 		}
 		call.Once()
@@ -2225,7 +2225,7 @@ func (cp *chunkPlan) setup(i, j int, note string, cancelChunk bool, actions *moc
 			QueryId: &queryID,
 		}
 		call := actions.
-			On("StopQueryWithContext", anyContext, input).
+			On("StopQuery", anyContext, input).
 			Return(&cloudwatchlogs.StopQueryOutput{}, nil)
 		if cancelChunk {
 			call.Once()
@@ -2235,32 +2235,32 @@ func (cp *chunkPlan) setup(i, j int, note string, cancelChunk bool, actions *moc
 	}
 }
 
-func backOut(r []Result) (cwl [][]*cloudwatchlogs.ResultField) {
+func backOut(r []Result) (cwl [][]types.ResultField) {
 	for _, rr := range r {
 		cwl = append(cwl, rr.backOut())
 	}
 	return // Will return nil if r is nil
 }
 
-func (r Result) backOut() (cwl []*cloudwatchlogs.ResultField) {
+func (r Result) backOut() (cwl []types.ResultField) {
 	for _, ff := range r {
 		cwl = append(cwl, ff.backOut())
 	}
 	return // Will return nil if r is nil
 }
 
-func (f ResultField) backOut() *cloudwatchlogs.ResultField {
-	return &cloudwatchlogs.ResultField{
+func (f ResultField) backOut() types.ResultField {
+	return types.ResultField{
 		Field: &f.Field,
 		Value: &f.Value,
 	}
 }
 
-func (s *Stats) backOut() *cloudwatchlogs.QueryStatistics {
-	return &cloudwatchlogs.QueryStatistics{
-		BytesScanned:   &s.BytesScanned,
-		RecordsMatched: &s.RecordsMatched,
-		RecordsScanned: &s.RecordsScanned,
+func (s *Stats) backOut() *types.QueryStatistics {
+	return &types.QueryStatistics{
+		BytesScanned:   s.BytesScanned,
+		RecordsMatched: s.RecordsMatched,
+		RecordsScanned: s.RecordsScanned,
 	}
 }
 
@@ -2302,17 +2302,13 @@ func endTimeMilliseconds(t time.Time) *int64 {
 	return startTimeMilliseconds(t.Add(-time.Millisecond))
 }
 
-func startQueryInput(text string, start, end time.Time, limit int64, groups ...string) *cloudwatchlogs.StartQueryInput {
-	g := make([]*string, len(groups))
-	for i := range groups {
-		g[i] = &groups[i]
-	}
+func startQueryInput(text string, start, end time.Time, limit int32, groups ...string) *cloudwatchlogs.StartQueryInput {
 	return &cloudwatchlogs.StartQueryInput{
 		QueryString:   &text,
 		StartTime:     startTimeMilliseconds(start),
 		EndTime:       endTimeMilliseconds(end),
-		Limit:         &limit,
-		LogGroupNames: g,
+		Limit:         aws.Int32(limit),
+		LogGroupNames: groups,
 	}
 }
 
@@ -2328,12 +2324,12 @@ func getQueryResultsInput(queryID string) *cloudwatchlogs.GetQueryResultsInput {
 	}
 }
 
-func getQueryResultsOutput(r []Result, status string, stats *Stats) *cloudwatchlogs.GetQueryResultsOutput {
+func getQueryResultsOutput(r []Result, status types.QueryStatus, stats *Stats) *cloudwatchlogs.GetQueryResultsOutput {
 	o := &cloudwatchlogs.GetQueryResultsOutput{
 		Results: backOut(r),
 	}
 	if status != "" {
-		o.Status = &status
+		o.Status = status
 	}
 	if stats != nil {
 		o.Statistics = stats.backOut()
@@ -2373,9 +2369,10 @@ func repeatErr(n int, err error) []error {
 
 var (
 	defaultDuration = 5 * time.Minute
-	defaultStart    = time.Date(2020, 8, 25, 3, 30, 0, 0, time.UTC)
-	defaultEnd      = defaultStart.Add(defaultDuration)
-	lotsOfRPS       = map[CloudWatchLogsAction]int{
+
+	defaultStart = time.Date(2020, 8, 25, 3, 30, 0, 0, time.UTC)
+	defaultEnd   = defaultStart.Add(defaultDuration)
+	lotsOfRPS    = map[CloudWatchLogsAction]int{
 		StartQuery:      100_000,
 		GetQueryResults: 100_000,
 		StopQuery:       100_000,

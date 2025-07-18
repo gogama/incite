@@ -171,10 +171,6 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 	if len(q.Groups) == 0 {
 		return nil, errors.New(noGroupsMsg)
 	}
-	groups := make([]*string, len(q.Groups))
-	for i := range q.Groups {
-		groups[i] = &q.Groups[i]
-	}
 
 	d := q.End.Sub(q.Start)
 	if q.Chunk <= 0 {
@@ -216,7 +212,7 @@ func (m *mgr) Query(q QuerySpec) (s Stream, err error) {
 		ctx:    ctx,
 		cancel: cancel,
 		n0:     n,
-		groups: groups,
+		groups: q.Groups,
 		n:      n,
 		stats: Stats{
 			RangeRequested: d,

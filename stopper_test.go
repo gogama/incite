@@ -6,11 +6,12 @@ package incite
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -39,7 +40,7 @@ func TestStopper_context(t *testing.T) {
 
 	ctx := s.context(&chunk{})
 
-	assert.Same(t, context.Background(), ctx)
+	assert.Equal(t, context.Background(), ctx)
 	l.AssertExpectations(t)
 	a.AssertExpectations(t)
 }
@@ -53,10 +54,10 @@ var stopperManipulateCases = []struct {
 		name: "Throttling Error",
 		setup: func(_ *testing.T, actions *mockActions, logger *mockLogger) {
 			actions.
-				On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{
-					QueryId: sp("bar"),
+				On("StopQuery", anyContext, &cloudwatchlogs.StopQueryInput{
+					QueryId: aws.String("bar"),
 				}).
-				Return(nil, cwlErr("throttling has occurred", "baz", errors.New("qux"))).
+				Return(nil, &types.ThrottlingException{Message: aws.String("baz")}).
 				Once()
 		},
 		expected: throttlingError,
@@ -65,10 +66,10 @@ var stopperManipulateCases = []struct {
 		name: "Temporary Error",
 		setup: func(_ *testing.T, actions *mockActions, logger *mockLogger) {
 			actions.
-				On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{
-					QueryId: sp("bar"),
+				On("StopQuery", anyContext, &cloudwatchlogs.StopQueryInput{
+					QueryId: aws.String("bar"),
 				}).
-				Return(nil, cwlErr(cloudwatchlogs.ErrCodeLimitExceededException, "baz", errors.New("qux"))).
+				Return(nil, &types.LimitExceededException{Message: aws.String("baz")}).
 				Once()
 		},
 		expected: temporaryError,
@@ -77,10 +78,10 @@ var stopperManipulateCases = []struct {
 		name: "Permanent Error",
 		setup: func(t *testing.T, actions *mockActions, logger *mockLogger) {
 			actions.
-				On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{
-					QueryId: sp("bar"),
+				On("StopQuery", anyContext, &cloudwatchlogs.StopQueryInput{
+					QueryId: aws.String("bar"),
 				}).
-				Return(nil, cwlErr(cloudwatchlogs.ErrCodeInvalidParameterException, "baz", errors.New("qux"))).
+				Return(nil, &types.InvalidParameterException{Message: aws.String("InvalidParameterException")}).
 				Once()
 			logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
 				t.Name(), "failed to stop", "foo(bar)", "", mock.Anything, mock.Anything, mock.Anything)
@@ -91,8 +92,8 @@ var stopperManipulateCases = []struct {
 		name: "Nil Success",
 		setup: func(t *testing.T, actions *mockActions, logger *mockLogger) {
 			actions.
-				On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{
-					QueryId: sp("bar"),
+				On("StopQuery", anyContext, &cloudwatchlogs.StopQueryInput{
+					QueryId: aws.String("bar"),
 				}).
 				Return(&cloudwatchlogs.StopQueryOutput{}, nil).
 				Once()
@@ -106,11 +107,11 @@ var stopperManipulateCases = []struct {
 		setup: func(t *testing.T, actions *mockActions, logger *mockLogger) {
 			success := false
 			actions.
-				On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{
-					QueryId: sp("bar"),
+				On("StopQuery", anyContext, &cloudwatchlogs.StopQueryInput{
+					QueryId: aws.String("bar"),
 				}).
 				Return(&cloudwatchlogs.StopQueryOutput{
-					Success: &success,
+					Success: success,
 				}, nil).
 				Once()
 			logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s",
@@ -123,11 +124,11 @@ var stopperManipulateCases = []struct {
 		setup: func(t *testing.T, actions *mockActions, logger *mockLogger) {
 			success := true
 			actions.
-				On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{
-					QueryId: sp("bar"),
+				On("StopQuery", anyContext, &cloudwatchlogs.StopQueryInput{
+					QueryId: aws.String("bar"),
 				}).
 				Return(&cloudwatchlogs.StopQueryOutput{
-					Success: &success,
+					Success: success,
 				}, nil).
 				Once()
 			logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)",

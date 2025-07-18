@@ -64,19 +64,25 @@ $ go get github.com/gogama/incite
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
-	"github.com/gogama/incite"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/gogama/incite/v2"
 )
 
 func main() {
-	// Use the AWS SDK for Go to get the CloudWatch API actions Incite needs.
+	// Use the AWS SDK for Go V2 to get the CloudWatch API actions Incite needs.
 	// For simplicity, we assume that the correct AWS region and credentials are
 	// already set in the environment.
-	a := cloudwatchlogs.New(session.Must(session.NewSession()))
+
+	cfg, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		return
+	}
+	a := cloudwatchlogs.NewFromConfig(cfg)
 
 	// Create a QueryManager. An alternative to using a QueryManager is just
 	// using the global scope Query function.
@@ -123,8 +129,8 @@ func main() {
 Compatibility
 =============
 
-Works with all Go versions 1.14 and up, and [AWS SDK for Go V1](https://github.com/aws/aws-sdk-go)
-versions 1.21.6 and up.
+Works with all Go versions 1.22 and up, and [AWS SDK for Go V2](https://github.com/aws/aws-sdk-go-v2)
+versions 1.36.5 and up.
 
 Related
 =======

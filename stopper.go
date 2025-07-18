@@ -8,8 +8,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/aws/middleware"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 )
 
 type stopper struct {
@@ -36,9 +36,11 @@ func (s *stopper) context(_ *chunk) context.Context {
 }
 
 func (s *stopper) manipulate(c *chunk) outcome {
-	output, err := s.m.Actions.StopQueryWithContext(context.Background(), &cloudwatchlogs.StopQueryInput{
+	output, err := s.m.Actions.StopQuery(context.Background(), &cloudwatchlogs.StopQueryInput{
 		QueryId: &c.queryID,
-	}, request.WithAppendUserAgent(version()))
+	}, func(o *cloudwatchlogs.Options) {
+		o.APIOptions = append(o.APIOptions, middleware.AddUserAgentKey(version()))
+	})
 	s.lastReq = time.Now()
 	if err != nil {
 		switch classifyError(err) {
@@ -50,7 +52,7 @@ func (s *stopper) manipulate(c *chunk) outcome {
 			s.m.logChunk(c, "failed to stop", "error from CloudWatch Logs: "+err.Error())
 			return finished
 		}
-	} else if output.Success == nil || !*output.Success {
+	} else if !output.Success {
 		s.m.logChunk(c, "failed to stop", "CloudWatch Logs did not indicate success")
 		return finished
 	} else {

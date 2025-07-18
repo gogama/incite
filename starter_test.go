@@ -11,8 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -81,7 +82,7 @@ func TestStarter_manipulate(t *testing.T) {
 		}{
 			{
 				name:     "Throttling Error",
-				err:      awserr.New("foo", "rate exceeded", nil),
+				err:      &types.ThrottlingException{Message: aws.String("foo")},
 				expected: throttlingError,
 			},
 			{
@@ -90,7 +91,7 @@ func TestStarter_manipulate(t *testing.T) {
 					logger.expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(),
 						"exceeded query concurrency limit", chunkID, text, start, end, "temporary error from CloudWatch Logs: LimitExceededException: too many queries!")
 				},
-				err:         awserr.New(cloudwatchlogs.ErrCodeLimitExceededException, "too many queries!", nil),
+				err:         &types.LimitExceededException{Message: aws.String("too many queries!")},
 				expectedErr: errReduceParallel,
 				expected:    finished,
 			},
@@ -124,7 +125,7 @@ func TestStarter_manipulate(t *testing.T) {
 						"started", chunkID+"("+queryID+")", text, start, end)
 				},
 				output: &cloudwatchlogs.StartQueryOutput{
-					QueryId: sp("eggs"),
+					QueryId: aws.String("eggs"),
 				},
 				expected: finished,
 			},
@@ -133,15 +134,15 @@ func TestStarter_manipulate(t *testing.T) {
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {
 				s, actions, logger := newTestableStarter(t, 1_000_000)
-				groups := []*string{sp("g")}
-				var limit int64 = 999
+				groups := []string{"g"}
+				var limit int32 = 999
 				actions.
-					On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
+					On("StartQuery", anyContext, &cloudwatchlogs.StartQueryInput{
 						QueryString:   &text,
 						StartTime:     startTimeMilliseconds(start),
 						EndTime:       endTimeMilliseconds(end),
 						LogGroupNames: groups,
-						Limit:         &limit,
+						Limit:         aws.Int32(limit),
 					}).
 					Return(testCase.output, testCase.err).
 					Once()

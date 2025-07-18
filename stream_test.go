@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -53,7 +55,7 @@ func TestStream_Close(t *testing.T) {
 				for ci := 0; ci < testCase.chunks; ci++ {
 					queryID := fmt.Sprintf("%s[ci=%d]", name, ci)
 					startCall := actions.
-						On("StartQueryWithContext", anyContext, startQueryInput(
+						On("StartQuery", anyContext, startQueryInput(
 							text[si],
 							defaultStart.Add(time.Duration(ci)*30*time.Minute), defaultStart.Add(time.Duration(ci+1)*30*time.Minute),
 							DefaultLimit, "baz"))
@@ -69,11 +71,11 @@ func TestStream_Close(t *testing.T) {
 							Maybe()
 					}
 					actions.
-						On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
-						Return(&cloudwatchlogs.GetQueryResultsOutput{Status: sp(cloudwatchlogs.QueryStatusRunning)}, nil).
+						On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
+						Return(&cloudwatchlogs.GetQueryResultsOutput{Status: types.QueryStatusRunning}, nil).
 						Maybe()
 					actions.
-						On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
+						On("StopQuery", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
 						Return(&cloudwatchlogs.StopQueryOutput{}, nil).
 						Maybe()
 				}
@@ -122,16 +124,16 @@ func TestStream_Read(t *testing.T) {
 	t.Run("Buffer is Shorter than Available Results", func(t *testing.T) {
 		actions := newMockActions(t)
 		actions.
-			On("StartQueryWithContext", anyContext, anyStartQueryInput).
-			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("foo")}, nil).
+			On("StartQuery", anyContext, anyStartQueryInput).
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: aws.String("foo")}, nil).
 			Once()
 		actions.
-			On("GetQueryResultsWithContext", anyContext, anyGetQueryResultsInput).
+			On("GetQueryResults", anyContext, anyGetQueryResultsInput).
 			Return(&cloudwatchlogs.GetQueryResultsOutput{
-				Status: sp(cloudwatchlogs.QueryStatusComplete),
-				Results: [][]*cloudwatchlogs.ResultField{
-					{{Field: sp("@ptr"), Value: sp("1")}},
-					{{Field: sp("@ptr"), Value: sp("2")}},
+				Status: types.QueryStatusComplete,
+				Results: [][]types.ResultField{
+					{{Field: aws.String("@ptr"), Value: aws.String("1")}},
+					{{Field: aws.String("@ptr"), Value: aws.String("2")}},
 				},
 			}, nil).
 			Once()

@@ -14,8 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -491,18 +492,18 @@ func TestQueryManager_Close(t *testing.T) {
 		stopped := true
 		actions := newMockActions(t)
 		actions.
-			On("StartQueryWithContext", anyContext, anyStartQueryInput).
-			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("qid")}, nil).
+			On("StartQuery", anyContext, anyStartQueryInput).
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: aws.String("qid")}, nil).
 			Once()
 		actions.
-			On("GetQueryResultsWithContext", anyContext, mock.Anything).
+			On("GetQueryResults", anyContext, mock.Anything).
 			Return(&cloudwatchlogs.GetQueryResultsOutput{
-				Status: sp(cloudwatchlogs.QueryStatusRunning),
+				Status: types.QueryStatusRunning,
 			}, nil).
 			Maybe()
 		actions.
-			On("StopQueryWithContext", anyContext, mock.Anything).
-			Return(&cloudwatchlogs.StopQueryOutput{Success: &stopped}, nil).
+			On("StopQuery", anyContext, mock.Anything).
+			Return(&cloudwatchlogs.StopQueryOutput{Success: stopped}, nil).
 			Maybe()
 		m := NewQueryManager(Config{
 			Actions: actions,
@@ -543,20 +544,20 @@ func TestQueryManager_Close(t *testing.T) {
 			queryID := fmt.Sprintf("%s[%d]", t.Name(), i)
 			wg.Add(1)
 			actions.
-				On("StartQueryWithContext", anyContext, startQueryInput(
+				On("StartQuery", anyContext, startQueryInput(
 					text,
 					defaultStart.Add(time.Duration(i)*time.Minute), defaultStart.Add(time.Duration(i+1)*time.Minute),
-					DefaultLimit, "bar",
+					int32(DefaultLimit), "bar",
 				)).
 				Run(func(_ mock.Arguments) { wg.Done() }).
 				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryID}, nil).
 				Once()
 			actions.
-				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
-				Return(&cloudwatchlogs.GetQueryResultsOutput{Status: sp(cloudwatchlogs.QueryStatusRunning)}, nil).
+				On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
+				Return(&cloudwatchlogs.GetQueryResultsOutput{Status: types.QueryStatusRunning}, nil).
 				Maybe()
 			actions.
-				On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
+				On("StopQuery", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
 				Return(&cloudwatchlogs.StopQueryOutput{}, nil).
 				Maybe()
 		}
@@ -602,20 +603,20 @@ func TestQueryManager_Close(t *testing.T) {
 			for c := 0; c < numChunks; c++ {
 				queryID := fmt.Sprintf("%s[q=%d][c=%d]", t.Name(), q, c)
 				actions.
-					On("StartQueryWithContext", anyContext, startQueryInput(
+					On("StartQuery", anyContext, startQueryInput(
 						text(q),
 						defaultStart.Add(time.Duration(c)*time.Minute), defaultStart.Add(time.Duration(c+1)*time.Minute),
-						DefaultLimit, "baz",
+						int32(DefaultLimit), "baz",
 					)).
 					Run(func(_ mock.Arguments) { ch <- time.Now() }).
 					Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryID}, nil).
 					Maybe()
 				actions.
-					On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
-					Return(&cloudwatchlogs.GetQueryResultsOutput{Status: sp(cloudwatchlogs.QueryStatusRunning)}, nil).
+					On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
+					Return(&cloudwatchlogs.GetQueryResultsOutput{Status: types.QueryStatusRunning}, nil).
 					Maybe()
 				actions.
-					On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
+					On("StopQuery", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
 					Return(&cloudwatchlogs.StopQueryOutput{}, nil).
 					Maybe()
 			}
@@ -660,15 +661,15 @@ func TestQueryManager_Close(t *testing.T) {
 	t.Run("Close Resilient to Failure to Cancel Query", func(t *testing.T) {
 		actions := newMockActions(t)
 		actions.
-			On("StartQueryWithContext", anyContext, anyStartQueryInput).
-			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("qid")}, nil)
+			On("StartQuery", anyContext, anyStartQueryInput).
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: aws.String("qid")}, nil)
 		actions.
-			On("GetQueryResultsWithContext", anyContext, mock.Anything).
+			On("GetQueryResults", anyContext, mock.Anything).
 			Return(&cloudwatchlogs.GetQueryResultsOutput{
-				Status: sp(cloudwatchlogs.QueryStatusRunning),
+				Status: types.QueryStatusRunning,
 			}, nil)
 		actions.
-			On("StopQueryWithContext", anyContext, mock.Anything).
+			On("StopQuery", anyContext, mock.Anything).
 			Return(nil, errors.New("bad error makes you fail"))
 		m := NewQueryManager(Config{
 			Actions: actions,
@@ -888,7 +889,7 @@ func TestQueryManager_Query(t *testing.T) {
 			startQueryOutput *cloudwatchlogs.StartQueryOutput
 			startQueryErr    error
 			expectedN        int64
-			expectedGroups   []*string
+			expectedGroups   []string
 			expectedCauseErr error
 			expectedStats    Stats
 		}{
@@ -911,7 +912,7 @@ func TestQueryManager_Query(t *testing.T) {
 				},
 				startQueryErr:    causeErr,
 				expectedN:        1,
-				expectedGroups:   []*string{sp("bar"), sp("Baz")},
+				expectedGroups:   []string{"bar", "Baz"},
 				expectedCauseErr: causeErr,
 				expectedStats: Stats{
 					RangeRequested: defaultDuration,
@@ -939,7 +940,7 @@ func TestQueryManager_Query(t *testing.T) {
 				},
 				startQueryErr:    causeErr,
 				expectedN:        1,
-				expectedGroups:   []*string{sp("bar"), sp("Baz")},
+				expectedGroups:   []string{"bar", "Baz"},
 				expectedCauseErr: causeErr,
 				expectedStats: Stats{
 					RangeRequested: defaultDuration,
@@ -969,7 +970,7 @@ func TestQueryManager_Query(t *testing.T) {
 				},
 				startQueryErr:    causeErr,
 				expectedN:        2,
-				expectedGroups:   []*string{sp("bar"), sp("Baz")},
+				expectedGroups:   []string{"bar", "Baz"},
 				expectedCauseErr: causeErr,
 				expectedStats: Stats{
 					RangeRequested: defaultDuration,
@@ -999,7 +1000,7 @@ func TestQueryManager_Query(t *testing.T) {
 				},
 				startQueryErr:    causeErr,
 				expectedN:        3,
-				expectedGroups:   []*string{sp("bar"), sp("Baz")},
+				expectedGroups:   []string{"bar", "Baz"},
 				expectedCauseErr: causeErr,
 				expectedStats: Stats{
 					RangeRequested: defaultDuration + time.Minute,
@@ -1027,7 +1028,7 @@ func TestQueryManager_Query(t *testing.T) {
 				},
 				startQueryOutput: &cloudwatchlogs.StartQueryOutput{},
 				expectedN:        1,
-				expectedGroups:   []*string{sp("eggs"), sp("Spam")},
+				expectedGroups:   []string{"eggs", "Spam"},
 				expectedCauseErr: errors.New(outputMissingQueryIDMsg),
 				expectedStats: Stats{
 					RangeRequested: defaultDuration,
@@ -1043,7 +1044,7 @@ func TestQueryManager_Query(t *testing.T) {
 				wg.Add(1)
 				actions := newMockActions(t)
 				actions.
-					On("StartQueryWithContext", anyContext, anyStartQueryInput).
+					On("StartQuery", anyContext, anyStartQueryInput).
 					Return(testCase.startQueryOutput, testCase.startQueryErr).
 					Run(func(_ mock.Arguments) { wg.Done() }).
 					Once()
@@ -1119,7 +1120,7 @@ func TestQueryManager_Query(t *testing.T) {
 		event := make(chan time.Time)
 		actions := newMockActions(t)
 		actions.
-			On("StartQueryWithContext", anyContext, anyStartQueryInput).
+			On("StartQuery", anyContext, anyStartQueryInput).
 			WaitUntil(event).
 			Return(nil, context.Canceled).
 			Once()
@@ -1166,21 +1167,21 @@ func TestQueryManager_Query(t *testing.T) {
 		event := make(chan time.Time)
 		actions := newMockActions(t)
 		actions.
-			On("StartQueryWithContext", anyContext, mock.MatchedBy(func(input *cloudwatchlogs.StartQueryInput) bool {
+			On("StartQuery", anyContext, mock.MatchedBy(func(input *cloudwatchlogs.StartQueryInput) bool {
 				return *input.QueryString == "uno"
 			})).
 			Run(func(_ mock.Arguments) { wg1.Done() }).
-			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("a")}, nil).
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: aws.String("a")}, nil).
 			Once()
 		actions.
-			On("StartQueryWithContext", anyContext, mock.MatchedBy(func(input *cloudwatchlogs.StartQueryInput) bool {
+			On("StartQuery", anyContext, mock.MatchedBy(func(input *cloudwatchlogs.StartQueryInput) bool {
 				return *input.QueryString == "due"
 			})).
 			Run(func(_ mock.Arguments) { wg2.Done() }).
-			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("b")}, nil).
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: aws.String("b")}, nil).
 			Once()
 		actions.
-			On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: sp("a")}).
+			On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: aws.String("a")}).
 			Run(func(_ mock.Arguments) {
 				wg1.Done()
 				<-event
@@ -1188,7 +1189,7 @@ func TestQueryManager_Query(t *testing.T) {
 			Return(nil, context.Canceled).
 			Once()
 		actions.
-			On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: sp("b")}).
+			On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: aws.String("b")}).
 			Run(func(_ mock.Arguments) {
 				wg2.Done()
 				<-event
@@ -1196,14 +1197,14 @@ func TestQueryManager_Query(t *testing.T) {
 			Return(nil, context.Canceled).
 			Once()
 		actions.
-			On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: sp("a")}).
+			On("StopQuery", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: aws.String("a")}).
 			Run(func(_ mock.Arguments) {
 				wg3.Done()
 			}).
 			Return(&cloudwatchlogs.StopQueryOutput{}, nil).
 			Once()
 		actions.
-			On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: sp("b")}).
+			On("StopQuery", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: aws.String("b")}).
 			Run(func(_ mock.Arguments) {
 				wg3.Done()
 			}).
@@ -1266,53 +1267,67 @@ func TestQueryManager_Query(t *testing.T) {
 		// output object with certain invalid values, such as a nil
 		// pointer for the status field.
 
+		queryID := "bar"
+		text := "query text that secretly triggers bad service behavior"
+
 		testCases := []struct {
-			name      string
-			cause     error
-			gqrOutput *cloudwatchlogs.GetQueryResultsOutput
-			gqrErr    error
+			name        string
+			cause       error
+			gqrOutput   *cloudwatchlogs.GetQueryResultsOutput
+			gqrErr      error
+			expectedErr error
 		}{
 			{
 				name:      "Service Call Error",
 				cause:     errors.New("call to CWL failed"),
 				gqrOutput: nil,
 				gqrErr:    errors.New("call to CWL failed"),
-			},
-			{
-				name:  "Nil Status",
-				cause: errNilStatus(),
-				gqrOutput: &cloudwatchlogs.GetQueryResultsOutput{
-					Statistics: &cloudwatchlogs.QueryStatistics{},
+				expectedErr: &UnexpectedQueryError{
+					QueryID: queryID,
+					Text:    text,
+					Cause:   errors.New("call to CWL failed"),
 				},
 			},
 			{
-				name:  "Nil Result Field",
-				cause: errNilResultField(1),
+				name:  "Empty Status",
+				cause: nil,
 				gqrOutput: &cloudwatchlogs.GetQueryResultsOutput{
-					Status: sp(cloudwatchlogs.QueryStatusComplete),
-					Results: [][]*cloudwatchlogs.ResultField{
-						{{Field: sp("Foo"), Value: sp("10")}, nil, {Field: sp("@ptr"), Value: sp("ptr-val")}},
-					},
+					Statistics: &types.QueryStatistics{},
+				},
+				expectedErr: &TerminalQueryStatusError{
+					QueryID: queryID,
+					Status:  "",
+					Text:    text,
 				},
 			},
 			{
 				name:  "No Key",
 				cause: errNoKey(),
 				gqrOutput: &cloudwatchlogs.GetQueryResultsOutput{
-					Status: sp(cloudwatchlogs.QueryStatusComplete),
-					Results: [][]*cloudwatchlogs.ResultField{
-						{{Value: sp("orphan value")}},
+					Status: types.QueryStatusComplete,
+					Results: [][]types.ResultField{
+						{{Value: aws.String("orphan value")}},
 					},
+				},
+				expectedErr: &UnexpectedQueryError{
+					QueryID: queryID,
+					Text:    text,
+					Cause:   errNoKey(),
 				},
 			},
 			{
 				name:  "No Value",
 				cause: errNoValue("orphan key"),
 				gqrOutput: &cloudwatchlogs.GetQueryResultsOutput{
-					Status: sp(cloudwatchlogs.QueryStatusComplete),
-					Results: [][]*cloudwatchlogs.ResultField{
-						{{Field: sp("orphan key")}},
+					Status: types.QueryStatusComplete,
+					Results: [][]types.ResultField{
+						{{Field: aws.String("orphan key")}},
 					},
+				},
+				expectedErr: &UnexpectedQueryError{
+					QueryID: queryID,
+					Text:    text,
+					Cause:   errNoValue("orphan key"),
 				},
 			},
 		}
@@ -1322,22 +1337,20 @@ func TestQueryManager_Query(t *testing.T) {
 				for _, preview := range []string{"No Preview", "Preview"} {
 					t.Run(preview, func(t *testing.T) {
 						// ARRANGE.
-						queryID := "bar"
-						text := "query text that secretly triggers bad service behavior"
 						actions := newMockActions(t)
 						actions.
-							On("StartQueryWithContext", anyContext, anyStartQueryInput).
-							Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp(queryID)}, nil).
+							On("StartQuery", anyContext, anyStartQueryInput).
+							Return(&cloudwatchlogs.StartQueryOutput{QueryId: aws.String(queryID)}, nil).
 							Once()
 						actions.
-							On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{
-								QueryId: sp(queryID),
+							On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{
+								QueryId: aws.String(queryID),
 							}).
 							Return(testCase.gqrOutput, testCase.gqrErr).
 							Once()
 						actions.
-							On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{
-								QueryId: sp(queryID),
+							On("StopQuery", anyContext, &cloudwatchlogs.StopQueryInput{
+								QueryId: aws.String(queryID),
 							}).
 							Return(&cloudwatchlogs.StopQueryOutput{}, nil).
 							Maybe()
@@ -1365,11 +1378,7 @@ func TestQueryManager_Query(t *testing.T) {
 						// ASSERT.
 						assert.Equal(t, 0, n)
 						assert.Error(t, err)
-						assert.Equal(t, &UnexpectedQueryError{
-							QueryID: queryID,
-							Text:    text,
-							Cause:   testCase.cause,
-						}, err)
+						assert.Equal(t, testCase.expectedErr, err)
 						actions.AssertExpectations(t)
 					})
 				}
@@ -1387,10 +1396,10 @@ func TestQueryManager_Query(t *testing.T) {
 		// `n` chunks, where `n` is the iteration number.
 
 		text := "query text for which some chunks will fail"
-		stats := cloudwatchlogs.QueryStatistics{
-			BytesScanned:   float64p(1.0),
-			RecordsMatched: float64p(1.0),
-			RecordsScanned: float64p(1.0),
+		stats := types.QueryStatistics{
+			BytesScanned:   1.0,
+			RecordsMatched: 1.0,
+			RecordsScanned: 1.0,
 		}
 
 		for n := 1; n <= 10; n++ {
@@ -1404,30 +1413,30 @@ func TestQueryManager_Query(t *testing.T) {
 					for i := 1; i <= maxRestart; i++ {
 						queryID := fmt.Sprintf("n=%d|c=%d|i=%d", n, c, i)
 						actions.
-							On("StartQueryWithContext", anyContext, startQueryInput(
+							On("StartQuery", anyContext, startQueryInput(
 								text,
 								defaultStart.Add(time.Duration(c-1)*time.Minute), defaultStart.Add(time.Duration(c)*time.Minute),
-								DefaultLimit, "foo",
+								int32(DefaultLimit), "foo",
 							)).
 							Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryID}, nil).
 							Once()
 						getCall := actions.
-							On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID})
+							On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID})
 						if i < maxRestart {
 							getCall.Return(&cloudwatchlogs.GetQueryResultsOutput{
 								Statistics: &stats,
-								Status:     sp(cloudwatchlogs.QueryStatusFailed),
+								Status:     types.QueryStatusFailed,
 							}, nil)
 						} else {
 							getCall.Return(&cloudwatchlogs.GetQueryResultsOutput{
-								Results: [][]*cloudwatchlogs.ResultField{
+								Results: [][]types.ResultField{
 									{
-										&cloudwatchlogs.ResultField{Field: sp("n"), Value: sp(strconv.Itoa(n))},
-										&cloudwatchlogs.ResultField{Field: sp("c"), Value: sp(strconv.Itoa(c))},
+										{Field: aws.String("n"), Value: aws.String(strconv.Itoa(n))},
+										{Field: aws.String("c"), Value: aws.String(strconv.Itoa(c))},
 									},
 								},
 								Statistics: &stats,
-								Status:     sp(cloudwatchlogs.QueryStatusComplete),
+								Status:     types.QueryStatusComplete,
 							}, nil)
 						}
 						getCall.Once()
@@ -1504,25 +1513,25 @@ func TestQueryManager_Query(t *testing.T) {
 				queryID := fmt.Sprintf("%04d.%d", i, j)
 				startTime := defaultStart.Add(time.Duration(j-1) * chunk)
 				actions.
-					On("StartQueryWithContext", anyContext, mock.MatchedBy(func(input *cloudwatchlogs.StartQueryInput) bool {
+					On("StartQuery", anyContext, mock.MatchedBy(func(input *cloudwatchlogs.StartQueryInput) bool {
 						return *input.QueryString == queryString && *input.StartTime == *startTimeMilliseconds(startTime)
 					})).
 					Run(func(_ mock.Arguments) {
 						starts = append(starts, queryID)
 					}).
 					Return(&cloudwatchlogs.StartQueryOutput{
-						QueryId: sp(queryID),
+						QueryId: aws.String(queryID),
 					}, nil).
 					Once()
 				actions.
-					On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{
+					On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{
 						QueryId: &queryID,
 					}).
 					Run(func(_ mock.Arguments) {
 						gets = append(gets, queryID)
 					}).
 					Return(&cloudwatchlogs.GetQueryResultsOutput{
-						Status: sp(cloudwatchlogs.QueryStatusComplete),
+						Status: types.QueryStatusComplete,
 					}, nil).
 					Once()
 			}
@@ -1599,24 +1608,24 @@ func TestQueryManager_Query(t *testing.T) {
 			// CHUNK 1.
 			queryIDChunk1 := "foo"
 			actions.
-				On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultStart.Add(time.Second), DefaultLimit, "grp")).
-				Return(nil, cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "foo")).
+				On("StartQuery", anyContext, startQueryInput(text, defaultStart, defaultStart.Add(time.Second), int32(DefaultLimit), "grp")).
+				Return(nil, &types.ServiceUnavailableException{Message: aws.String("foo")}).
 				Once()
 			logger.
 				expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s): %s", t.Name(), "starter temporary error", "0", text, defaultStart, defaultStart.Add(time.Second), "ServiceUnavailableException: foo").
 				Once()
 			actions.
-				On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultStart.Add(time.Second), DefaultLimit, "grp")).
+				On("StartQuery", anyContext, startQueryInput(text, defaultStart, defaultStart.Add(time.Second), int32(DefaultLimit), "grp")).
 				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryIDChunk1}, nil).
 				Once()
 			logger.
 				expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", "0(foo)").
 				Once()
 			actions.
-				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk1}).
+				On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk1}).
 				Return(&cloudwatchlogs.GetQueryResultsOutput{
-					Results: [][]*cloudwatchlogs.ResultField{},
-					Status:  sp(cloudwatchlogs.QueryStatusComplete),
+					Results: [][]types.ResultField{},
+					Status:  types.QueryStatusComplete,
 				}, nil).
 				Once()
 			logger.
@@ -1625,31 +1634,31 @@ func TestQueryManager_Query(t *testing.T) {
 			// CHUNK 2.
 			queryIDChunk2 := []string{"bar.try1", "bar.try2"}
 			actions.
-				On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart.Add(time.Second), defaultStart.Add(2*time.Second), DefaultLimit, "grp")).
+				On("StartQuery", anyContext, startQueryInput(text, defaultStart.Add(time.Second), defaultStart.Add(2*time.Second), int32(DefaultLimit), "grp")).
 				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryIDChunk2[0]}, nil).
 				Once()
 			logger.
 				expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", "1(bar.try1)").
 				Once()
 			actions.
-				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk2[0]}).
+				On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk2[0]}).
 				Return(&cloudwatchlogs.GetQueryResultsOutput{
-					Results: [][]*cloudwatchlogs.ResultField{},
-					Status:  sp(cloudwatchlogs.QueryStatusFailed),
+					Results: [][]types.ResultField{},
+					Status:  types.QueryStatusFailed,
 				}, nil).
 				Once()
 			actions.
-				On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart.Add(time.Second), defaultStart.Add(2*time.Second), DefaultLimit, "grp")).
+				On("StartQuery", anyContext, startQueryInput(text, defaultStart.Add(time.Second), defaultStart.Add(2*time.Second), int32(DefaultLimit), "grp")).
 				Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryIDChunk2[1]}, nil).
 				Once()
 			logger.
 				expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", "1R(bar.try2)").
 				Once()
 			actions.
-				On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk2[1]}).
+				On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryIDChunk2[1]}).
 				Return(&cloudwatchlogs.GetQueryResultsOutput{
-					Results: [][]*cloudwatchlogs.ResultField{},
-					Status:  sp(cloudwatchlogs.QueryStatusComplete),
+					Results: [][]types.ResultField{},
+					Status:  types.QueryStatusComplete,
 				}, nil).
 				Once()
 			logger.
@@ -1811,25 +1820,25 @@ func TestQueryManager_Query(t *testing.T) {
 				var f func(string, time.Duration, expectedChunk)
 				f = func(chunkID string, offset time.Duration, chunk expectedChunk) {
 					actions.
-						On("StartQueryWithContext", anyContext, startQueryInput(
+						On("StartQuery", anyContext, startQueryInput(
 							"foo",
 							defaultStart.Add(offset),
 							defaultStart.Add(offset).Add(chunk.size),
-							maxLimit,
+							int32(maxLimit),
 							"bar",
 						)).
 						Return(&cloudwatchlogs.StartQueryOutput{
-							QueryId: sp(chunkID),
+							QueryId: aws.String(chunkID),
 						}, nil).
 						Once()
 					chunkResults := resultSeries(chunk.start, chunk.end-chunk.start)
 					actions.
-						On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{
-							QueryId: sp(chunkID),
+						On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{
+							QueryId: aws.String(chunkID),
 						}).
 						Return(&cloudwatchlogs.GetQueryResultsOutput{
 							Results: backOut(chunkResults),
-							Status:  sp(cloudwatchlogs.QueryStatusComplete),
+							Status:  types.QueryStatusComplete,
 						}, nil).Once()
 					logger.
 						expectPrintf("incite: QueryManager(%s) %s chunk %s %q [%s..%s)", t.Name(), "started", chunkID+"("+chunkID+")", "foo").
@@ -1943,56 +1952,56 @@ func TestQueryManager_Query(t *testing.T) {
 
 		// First chunk (generation 0).
 		actions.
-			On("StartQueryWithContext", anyContext, startQueryInput(text, start, start.Add(1*chunkSize), maxLimit, groups...)).
+			On("StartQuery", anyContext, startQueryInput(text, start, start.Add(1*chunkSize), int32(maxLimit), groups...)).
 			Return(startQueryOutput("0"), nil).
 			Once()
 		actions.
-			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("0")).
-			Return(getQueryResultsOutput([]Result{{{"@ptr", "0/0"}}, {{"@ptr", "0/1"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			On("GetQueryResults", anyContext, getQueryResultsInput("0")).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "0/0"}}, {{"@ptr", "0/1"}}}, "Complete", nil), nil).
 			Once()
 		// Second chunk (generation 0).
 		actions.
-			On("StartQueryWithContext", anyContext, startQueryInput(text, start.Add(1*chunkSize), start.Add(2*chunkSize), maxLimit, groups...)).
+			On("StartQuery", anyContext, startQueryInput(text, start.Add(1*chunkSize), start.Add(2*chunkSize), int32(maxLimit), groups...)).
 			Return(startQueryOutput("1"), nil).
 			Once()
 		actions.
-			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("1")).
+			On("GetQueryResults", anyContext, getQueryResultsInput("1")).
 			WaitUntil(firstGen1ChunkStarting).
-			Return(getQueryResultsOutput([]Result{{{"@ptr", "1/0"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "1/0"}}}, "Complete", nil), nil).
 			Once()
 		// First chunk half 1 (generation 1).
 		actions.
-			On("StartQueryWithContext", anyContext, startQueryInput(text, start, start.Add(chunkSize/2), maxLimit, groups...)).
+			On("StartQuery", anyContext, startQueryInput(text, start, start.Add(chunkSize/2), int32(maxLimit), groups...)).
 			Run(func(_ mock.Arguments) {
 				firstGen1ChunkStarting <- time.Now()
 			}).
 			Return(startQueryOutput("0/0"), nil).
 			Once()
 		actions.
-			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("0/0")).
-			Return(getQueryResultsOutput([]Result{{{"@ptr", "0/0"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			On("GetQueryResults", anyContext, getQueryResultsInput("0/0")).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "0/0"}}}, "Complete", nil), nil).
 			Once()
 		// First chunk half 2 (generation 1).
 		actions.
-			On("StartQueryWithContext", anyContext, startQueryInput(text, start.Add(chunkSize/2), start.Add(chunkSize), maxLimit, groups...)).
+			On("StartQuery", anyContext, startQueryInput(text, start.Add(chunkSize/2), start.Add(chunkSize), int32(maxLimit), groups...)).
 			Return(startQueryOutput("0/1"), nil).
 			Once()
 		actions.
-			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("0/1")).
+			On("GetQueryResults", anyContext, getQueryResultsInput("0/1")).
 			WaitUntil(thirdGen0ChunkStarting).
-			Return(getQueryResultsOutput([]Result{{{"@ptr", "1/1"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "1/1"}}}, "Complete", nil), nil).
 			Once()
 		// Third chunk (generation 1).
 		actions.
-			On("StartQueryWithContext", anyContext, startQueryInput(text, start.Add(2*chunkSize), end, maxLimit, groups...)).
+			On("StartQuery", anyContext, startQueryInput(text, start.Add(2*chunkSize), end, int32(maxLimit), groups...)).
 			Run(func(_ mock.Arguments) {
 				thirdGen0ChunkStarting <- time.Now()
 			}).
 			Return(startQueryOutput("2"), nil).
 			Once()
 		actions.
-			On("GetQueryResultsWithContext", anyContext, getQueryResultsInput("2")).
-			Return(getQueryResultsOutput([]Result{{{"@ptr", "2/0"}}}, cloudwatchlogs.QueryStatusComplete, nil), nil).
+			On("GetQueryResults", anyContext, getQueryResultsInput("2")).
+			Return(getQueryResultsOutput([]Result{{{"@ptr", "2/0"}}}, "Complete", nil), nil).
 			Once()
 		s, err := m.Query(QuerySpec{
 			Text:       text,
@@ -2031,21 +2040,21 @@ func TestQueryManager_Query(t *testing.T) {
 				// ARRANGE.
 				actions := newMockActions(t)
 				actions.
-					On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
-						QueryString:   sp("q"),
+					On("StartQuery", anyContext, &cloudwatchlogs.StartQueryInput{
+						QueryString:   aws.String("q"),
 						StartTime:     startTimeMilliseconds(defaultStart),
 						EndTime:       endTimeMilliseconds(defaultEnd),
-						LogGroupNames: []*string{sp("a")},
-						Limit:         int64p(1),
+						LogGroupNames: []string{"a"},
+						Limit:         aws.Int32(1),
 					}).
-					Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("queryID")}, nil).
+					Return(&cloudwatchlogs.StartQueryOutput{QueryId: aws.String("queryID")}, nil).
 					Once()
 				actions.
-					On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: sp("queryID")}).
+					On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: aws.String("queryID")}).
 					Return(&cloudwatchlogs.GetQueryResultsOutput{
-						Status: sp(cloudwatchlogs.QueryStatusComplete),
-						Results: [][]*cloudwatchlogs.ResultField{
-							{{Field: sp("@ptr"), Value: sp("1")}},
+						Status: types.QueryStatusComplete,
+						Results: [][]types.ResultField{
+							{{Field: aws.String("@ptr"), Value: aws.String("1")}},
 						},
 					}, nil).
 					Once()
@@ -2088,7 +2097,7 @@ func TestQueryManager_Query(t *testing.T) {
 	t.Run("Query Fails with Error if Chunk Exceeds Max Temporary Errors", func(t *testing.T) {
 		text := "a query destined to exceed all maxima on temporary errors"
 		groups := []string{"grpA", "grpB"}
-		expectedErr := cwlErr(cloudwatchlogs.ErrCodeServiceUnavailableException, "we lacking service")
+		expectedErr := types.ServiceUnavailableException{Message: aws.String("we lacking service")}
 
 		testCases := []struct {
 			name  string
@@ -2098,8 +2107,8 @@ func TestQueryManager_Query(t *testing.T) {
 				name: "InStarter",
 				setup: func(actions *mockActions) {
 					actions.
-						On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultEnd, DefaultLimit, groups...)).
-						Return(nil, expectedErr).
+						On("StartQuery", anyContext, startQueryInput(text, defaultStart, defaultEnd, int32(DefaultLimit), groups...)).
+						Return(nil, &expectedErr).
 						Times(maxTempStartingErrs)
 				},
 			},
@@ -2109,16 +2118,16 @@ func TestQueryManager_Query(t *testing.T) {
 					queryID := "u-r-doomed"
 					stopSuccess := true
 					actions.
-						On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultEnd, DefaultLimit, groups...)).
+						On("StartQuery", anyContext, startQueryInput(text, defaultStart, defaultEnd, int32(DefaultLimit), groups...)).
 						Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryID}, nil).
 						Once()
 					actions.
-						On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
-						Return(nil, expectedErr).
+						On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
+						Return(nil, &expectedErr).
 						Times(maxTempPollingErrs)
 					actions.
-						On("StopQueryWithContext", anyContext, anyStopQueryInput).
-						Return(&cloudwatchlogs.StopQueryOutput{Success: &stopSuccess}, nil).
+						On("StopQuery", anyContext, anyStopQueryInput).
+						Return(&cloudwatchlogs.StopQueryOutput{Success: stopSuccess}, nil).
 						Maybe()
 				},
 			},
@@ -2146,7 +2155,7 @@ func TestQueryManager_Query(t *testing.T) {
 
 				_, err = ReadAll(s)
 
-				assert.ErrorIs(t, err, expectedErr)
+				assert.ErrorIs(t, err, &expectedErr)
 			})
 		}
 	})
@@ -2167,7 +2176,7 @@ func TestQueryManager_Query(t *testing.T) {
 		text := "what do my logs say?"
 		groups := []string{"/log/group"}
 		queryID := "qid"
-		errThrottled := awserr.New("throttled", "throttled", nil)
+		errThrottled := &types.ThrottlingException{Message: aws.String("throttled")}
 
 		actions := newMockActions(t)
 		m := NewQueryManager(Config{
@@ -2189,11 +2198,11 @@ func TestQueryManager_Query(t *testing.T) {
 		// Allow StartQuery to be called twice, with the first call
 		// being throttled and the second one succeeding.
 		actions.
-			On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultEnd, DefaultLimit, groups...)).
+			On("StartQuery", anyContext, startQueryInput(text, defaultStart, defaultEnd, int32(DefaultLimit), groups...)).
 			Return(nil, errThrottled).
 			Once()
 		actions.
-			On("StartQueryWithContext", anyContext, startQueryInput(text, defaultStart, defaultEnd, DefaultLimit, groups...)).
+			On("StartQuery", anyContext, startQueryInput(text, defaultStart, defaultEnd, int32(DefaultLimit), groups...)).
 			Return(&cloudwatchlogs.StartQueryOutput{QueryId: &queryID}, nil).
 			Once()
 		startAdapter.
@@ -2219,12 +2228,12 @@ func TestQueryManager_Query(t *testing.T) {
 		var donePolling sync.WaitGroup
 		donePolling.Add(2)
 		actions.
-			On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
+			On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
 			Run(func(_ mock.Arguments) { donePolling.Done() }).
 			Return(nil, errThrottled).
 			Times(2)
 		actions.
-			On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
+			On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{QueryId: &queryID}).
 			Return(nil, errThrottled).
 			Maybe()
 		// Allow StopQuery to be called twice, with the first call
@@ -2234,15 +2243,15 @@ func TestQueryManager_Query(t *testing.T) {
 		var doneStopping sync.WaitGroup
 		doneStopping.Add(2)
 		actions.
-			On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
+			On("StopQuery", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
 			Run(func(_ mock.Arguments) { doneStopping.Done() }).
 			Return(nil, errThrottled).
 			Once()
 		trueValue := true
 		actions.
-			On("StopQueryWithContext", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
+			On("StopQuery", anyContext, &cloudwatchlogs.StopQueryInput{QueryId: &queryID}).
 			Run(func(_ mock.Arguments) { doneStopping.Done() }).
-			Return(&cloudwatchlogs.StopQueryOutput{Success: &trueValue}, nil).
+			Return(&cloudwatchlogs.StopQueryOutput{Success: trueValue}, nil).
 			Once()
 		stopAdapter.
 			On("decrease").

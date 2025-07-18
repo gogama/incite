@@ -9,8 +9,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/middleware"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 )
 
 type starter struct {
@@ -54,9 +55,11 @@ func (s *starter) manipulate(c *chunk) outcome {
 		StartTime:     &starts,
 		EndTime:       &ends,
 		LogGroupNames: c.stream.groups,
-		Limit:         &c.stream.Limit,
+		Limit:         aws.Int32(c.stream.Limit),
 	}
-	output, err := s.m.Actions.StartQueryWithContext(c.ctx, &input, request.WithAppendUserAgent(version()))
+	output, err := s.m.Actions.StartQuery(c.ctx, &input, func(o *cloudwatchlogs.Options) {
+		o.APIOptions = append(o.APIOptions, middleware.AddUserAgentKey(version()))
+	})
 	s.lastReq = time.Now()
 	if err != nil {
 		c.err = &StartQueryError{c.stream.Text, c.start, c.end, err}

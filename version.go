@@ -17,7 +17,7 @@ var (
 const (
 	// modulePath is Incite's Go module path as stated on the first line
 	// of go.mod.
-	modulePath = "github.com/gogama/incite"
+	modulePath = "github.com/gogama/incite/v2"
 )
 
 // version returns the Incite library version for internal use.

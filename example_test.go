@@ -9,16 +9,19 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 
-	"github.com/aws/aws-sdk-go/aws/session"
-
-	"github.com/gogama/incite"
+	"github.com/gogama/incite/v2"
 )
 
 func ExampleQuery() {
-	s := session.Must(session.NewSession())
-	a := cloudwatchlogs.New(s)
+	cfg, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		fmt.Println("ERROR", err)
+		return
+	}
+	a := cloudwatchlogs.NewFromConfig(cfg)
 	end := time.Now().Truncate(time.Millisecond)
 	data, err := incite.Query(context.Background(), a, incite.QuerySpec{
 		Text:   "fields @timestamp, @message | filter @message =~ /foo/ | sort @timestamp desc",
@@ -35,8 +38,12 @@ func ExampleQuery() {
 }
 
 func ExampleQueryManager() {
-	s := session.Must(session.NewSession())
-	a := cloudwatchlogs.New(s)
+	cfg, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		fmt.Println("ERROR", err)
+		return
+	}
+	a := cloudwatchlogs.NewFromConfig(cfg)
 	m := incite.NewQueryManager(incite.Config{
 		Actions: a,
 	})

@@ -6,16 +6,15 @@ package incite
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -23,7 +22,7 @@ import (
 
 func TestAWSSDKActions(t *testing.T) {
 	// The purpose of this test case is to verify and demonstrate the
-	// behavior of the CloudWatch Logs client in the AWS SDK for Go v1.
+	// behavior of the CloudWatch Logs client in the AWS SDK for Go v2.
 	// In particular, we are asserting that if you pass an "already
 	// dead" context to any of the client methods that make up the
 	// CloudWatch Logs Insights API, the client will immediately fail
@@ -59,31 +58,31 @@ func TestAWSSDKActions(t *testing.T) {
 		act  func(actions CloudWatchLogsActions, ctx context.Context) error
 	}{
 		{
-			name: "StartQueryWithContext",
+			name: "StartQuery",
 			act: func(actions CloudWatchLogsActions, ctx context.Context) error {
-				_, err := actions.StartQueryWithContext(ctx, &cloudwatchlogs.StartQueryInput{
-					QueryString:   sp("foo"),
-					StartTime:     int64p(0),
-					EndTime:       int64p(1),
-					LogGroupNames: []*string{sp("foo")},
+				_, err := actions.StartQuery(ctx, &cloudwatchlogs.StartQueryInput{
+					QueryString:   aws.String("foo"),
+					StartTime:     aws.Int64(0),
+					EndTime:       aws.Int64(1),
+					LogGroupNames: []string{"foo"},
 				})
 				return err
 			},
 		},
 		{
-			name: "StopQueryWithContext",
+			name: "StopQuery",
 			act: func(actions CloudWatchLogsActions, ctx context.Context) error {
-				_, err := actions.StopQueryWithContext(ctx, &cloudwatchlogs.StopQueryInput{
-					QueryId: sp("bar"),
+				_, err := actions.StopQuery(ctx, &cloudwatchlogs.StopQueryInput{
+					QueryId: aws.String("bar"),
 				})
 				return err
 			},
 		},
 		{
-			name: "GetQueryResultsWithContext",
+			name: "GetQueryResults",
 			act: func(actions CloudWatchLogsActions, ctx context.Context) error {
-				_, err := actions.GetQueryResultsWithContext(ctx, &cloudwatchlogs.GetQueryResultsInput{
-					QueryId: sp("baz"),
+				_, err := actions.GetQueryResults(ctx, &cloudwatchlogs.GetQueryResultsInput{
+					QueryId: aws.String("baz"),
 				})
 				return err
 			},
@@ -93,19 +92,20 @@ func TestAWSSDKActions(t *testing.T) {
 	for _, contextMaker := range contextMakers {
 		for _, actor := range actors {
 			t.Run(fmt.Sprintf("%s.%s", contextMaker.name, actor.name), func(t *testing.T) {
-				s := session.Must(session.NewSession(&aws.Config{
-					Credentials: credentials.AnonymousCredentials,
-					Region:      sp("us-east-1"),
-				}))
-				actions := cloudwatchlogs.New(s)
+				cfg, err := config.LoadDefaultConfig(context.TODO(),
+					config.WithCredentialsProvider(aws.AnonymousCredentials{}),
+					config.WithRegion("us-east-1"),
+				)
+				require.NoError(t, err)
+				actions := cloudwatchlogs.NewFromConfig(cfg)
 				ctx := contextMaker.ctx()
 				<-ctx.Done()
 
-				err := actor.act(actions, ctx)
+				err = actor.act(actions, ctx)
 
-				x, ok := err.(awserr.Error)
-				require.True(t, ok, "expected action %d to return an awserr.Error, but it did not")
-				assert.ErrorIs(t, x.OrigErr(), contextMaker.expected)
+				var opErr *smithy.OperationError
+				require.True(t, errors.As(err, &opErr), "expected action to return a smithy.OperationError, but it did not")
+				assert.ErrorIs(t, opErr.Unwrap(), contextMaker.expected)
 			})
 		}
 	}
@@ -122,7 +122,7 @@ func newMockActions(t *testing.T) *mockActions {
 	return m
 }
 
-func (m *mockActions) StartQueryWithContext(ctx context.Context, input *cloudwatchlogs.StartQueryInput, _ ...request.Option) (*cloudwatchlogs.StartQueryOutput, error) {
+func (m *mockActions) StartQuery(ctx context.Context, input *cloudwatchlogs.StartQueryInput, _ ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.StartQueryOutput, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
@@ -133,7 +133,7 @@ func (m *mockActions) StartQueryWithContext(ctx context.Context, input *cloudwat
 	return nil, args.Error(1)
 }
 
-func (m *mockActions) StopQueryWithContext(ctx context.Context, input *cloudwatchlogs.StopQueryInput, _ ...request.Option) (*cloudwatchlogs.StopQueryOutput, error) {
+func (m *mockActions) StopQuery(ctx context.Context, input *cloudwatchlogs.StopQueryInput, _ ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.StopQueryOutput, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
@@ -144,7 +144,7 @@ func (m *mockActions) StopQueryWithContext(ctx context.Context, input *cloudwatc
 	return nil, args.Error(1)
 }
 
-func (m *mockActions) GetQueryResultsWithContext(ctx context.Context, input *cloudwatchlogs.GetQueryResultsInput, _ ...request.Option) (*cloudwatchlogs.GetQueryResultsOutput, error) {
+func (m *mockActions) GetQueryResults(ctx context.Context, input *cloudwatchlogs.GetQueryResultsInput, _ ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.GetQueryResultsOutput, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 

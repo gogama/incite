@@ -7,34 +7,36 @@ package incite
 import (
 	"context"
 
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 )
 
 // CloudWatchLogsActions provides access to the CloudWatch Logs actions
 // which QueryManager needs in order to run Insights queries using the
 // CloudWatch Logs service.
 //
-// This interface is compatible with the AWS SDK for Go (v1)'s
-// cloudwatchlogsiface.CloudWatchLogsAPI interface and *cloudwatchlogs.CloudWatchLogs
-// type, so you may use either of these AWS SDK types to provide the
-// CloudWatch Logs act capabilities.
+// This interface is compatible with the AWS SDK for Go (v2)'s
+// *cloudwatchlogs.Client type, so you may use this AWS SDK type to provide the
+// CloudWatch Logs action capabilities.
 //
 // For example:
 //
 //	import (
-//		"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
-//		"github.com/aws/aws-sdk-go/aws/session"
+//		"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+//		"github.com/aws/aws-sdk-go-v2/config"
 //	)
 //
-//	var myActions incite.CloudWatchLogsActions = cloudwatchlogs.New(session.Must(session.NewSession()))
+//	cfg, err := config.LoadDefaultConfig(context.TODO())
+//	if err != nil {
+//		// handle error
+//	}
+//	var myActions incite.CloudWatchLogsActions = cloudwatchlogs.NewFromConfig(cfg)
 //
 //	// Now you can use myActions with NewQueryManager to construct a new
 //	// QueryManager.
 type CloudWatchLogsActions interface {
-	StartQueryWithContext(context.Context, *cloudwatchlogs.StartQueryInput, ...request.Option) (*cloudwatchlogs.StartQueryOutput, error)
-	StopQueryWithContext(context.Context, *cloudwatchlogs.StopQueryInput, ...request.Option) (*cloudwatchlogs.StopQueryOutput, error)
-	GetQueryResultsWithContext(context.Context, *cloudwatchlogs.GetQueryResultsInput, ...request.Option) (*cloudwatchlogs.GetQueryResultsOutput, error)
+	StartQuery(context.Context, *cloudwatchlogs.StartQueryInput, ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.StartQueryOutput, error)
+	StopQuery(context.Context, *cloudwatchlogs.StopQueryInput, ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.StopQueryOutput, error)
+	GetQueryResults(context.Context, *cloudwatchlogs.GetQueryResultsInput, ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.GetQueryResultsOutput, error)
 }
 
 // CloudWatchLogsAction represents a single enumerated CloudWatch Logs

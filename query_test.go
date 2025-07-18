@@ -11,7 +11,9 @@ import (
 
 	"github.com/stretchr/testify/mock"
 
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -35,20 +37,20 @@ func TestQuery(t *testing.T) {
 		// ARRANGE.
 		actions := newMockActions(t)
 		actions.
-			On("StartQueryWithContext", anyContext, &cloudwatchlogs.StartQueryInput{
-				QueryString:   sp("x"),
-				LogGroupNames: []*string{sp("y")},
+			On("StartQuery", anyContext, &cloudwatchlogs.StartQueryInput{
+				QueryString:   aws.String("x"),
+				LogGroupNames: []string{"y"},
 				StartTime:     startTimeMilliseconds(defaultStart),
 				EndTime:       endTimeMilliseconds(defaultEnd),
-				Limit:         int64p(DefaultLimit),
+				Limit:         aws.Int32(DefaultLimit),
 			}).
-			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("ham")}, nil).
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: aws.String("ham")}, nil).
 			Once()
-		actions.On("GetQueryResultsWithContext", anyContext, &cloudwatchlogs.GetQueryResultsInput{
-			QueryId: sp("ham"),
+		actions.On("GetQueryResults", anyContext, &cloudwatchlogs.GetQueryResultsInput{
+			QueryId: aws.String("ham"),
 		}).Return(&cloudwatchlogs.GetQueryResultsOutput{
-			Status:  sp(cloudwatchlogs.QueryStatusComplete),
-			Results: [][]*cloudwatchlogs.ResultField{},
+			Status:  types.QueryStatusComplete,
+			Results: [][]types.ResultField{},
 		}, nil).Once()
 
 		// ACT.
@@ -70,20 +72,20 @@ func TestQuery(t *testing.T) {
 		timer := time.NewTimer(50 * time.Millisecond)
 		actions := newMockActions(t)
 		actions.
-			On("StartQueryWithContext", anyContext, anyStartQueryInput).
+			On("StartQuery", anyContext, anyStartQueryInput).
 			WaitUntil(timer.C).
-			Return(&cloudwatchlogs.StartQueryOutput{QueryId: sp("eggs")}, nil).
+			Return(&cloudwatchlogs.StartQueryOutput{QueryId: aws.String("eggs")}, nil).
 			Maybe()
 		actions.
-			On("GetQueryResultsWithContext", anyContext, mock.Anything).
+			On("GetQueryResults", anyContext, mock.Anything).
 			Return(&cloudwatchlogs.GetQueryResultsOutput{
-				Status: sp(cloudwatchlogs.QueryStatusComplete),
+				Status: types.QueryStatusComplete,
 			}, nil).
 			Maybe()
 		trueValue := true
-		actions.On("StopQueryWithContext", anyContext, mock.Anything).
+		actions.On("StopQuery", anyContext, mock.Anything).
 			Return(&cloudwatchlogs.StopQueryOutput{
-				Success: &trueValue,
+				Success: trueValue,
 			}, nil).
 			Maybe()
 		ctx, cancel := context.WithCancel(context.Background())
